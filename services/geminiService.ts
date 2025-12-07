@@ -25,7 +25,7 @@ const playlistSchema: Schema = {
     songs: {
       type: Type.ARRAY,
       items: songSchema,
-      description: "A list of 10 real, popular songs that exist on major streaming platforms. We request more to ensure we can filter out those without previews."
+      description: "A list of 25 real, popular songs. We request 25 to ensure we can strictly filter out those without previews and still have a full playlist of 12-15 songs."
     }
   },
   required: ["playlist_title", "mood", "description", "songs"]
@@ -39,7 +39,6 @@ export interface UserContext {
 export const generatePlaylistFromMood = async (userInput: string, userContext?: UserContext): Promise<GeneratedPlaylistRaw> => {
   try {
     // SECURITY SECTION 4: Safety Wrapper
-    // This framing prevents the model from ignoring instructions or generating harmful content.
     let systemInstruction = `
       IMPORTANT: You are a dedicated Music Curator API. 
       You will ONLY output JSON matching the provided schema.
@@ -48,7 +47,7 @@ export const generatePlaylistFromMood = async (userInput: string, userContext?: 
       Task: 
       1. Analyze the input: "${userInput}". 
       2. If it is a story/scenario, infer the emotional arc and context.
-      3. Curate 10 distinct, commercially released songs.
+      3. Curate 25 distinct, commercially released songs.
     `;
 
     if (userContext) {
