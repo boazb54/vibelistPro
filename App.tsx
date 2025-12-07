@@ -13,22 +13,6 @@ import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
 
 const App: React.FC = () => {
   // ----------------------------------------------------------------
-  // STRICT POPUP DETECTION
-  // ----------------------------------------------------------------
-  const [isPopupMode, setIsPopupMode] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return (
-      !!window.opener || 
-      window.name === 'SpotifyLogin' || 
-      window.location.href.includes('access_token') || 
-      window.location.href.includes('code=') ||
-      window.location.href.includes('error')
-    );
-  });
-
-  const [debugUrl, setDebugUrl] = useState<string>('');
-
-  // ----------------------------------------------------------------
   // STATE
   // ----------------------------------------------------------------
   const [playlist, setPlaylist] = useState<Playlist | null>(() => {
@@ -77,21 +61,10 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<SpotifyUserProfile | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
-  // Popup Specific State
-  const [callbackStatus, setCallbackStatus] = useState<'detecting' | 'exchanging' | 'success' | 'creating' | 'done' | 'error'>('detecting');
-  const [createdPlaylistUrl, setCreatedPlaylistUrl] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState('');
-
   // ----------------------------------------------------------------
   // EFFECTS
   // ----------------------------------------------------------------
   
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setDebugUrl(window.location.href);
-    }
-  }, []);
-
   useEffect(() => {
     // AUTO-UPDATE REDIRECT URI FOR PRODUCTION
     // If we are on Vercel (not localhost) and the stored URI is still example.com, update it.
@@ -139,16 +112,24 @@ const App: React.FC = () => {
       const tokenFromHash = getTokenFromHash();
       if (tokenFromHash) {
         handleSuccess(tokenFromHash);
+        window.history.replaceState({}, document.title, window.location.pathname);
         return;
       }
 
       // 2. Check for Auth Code (PKCE)
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get('code');
+      const error = urlParams.get('error');
+
+      if (error) {
+          alert(`Spotify Login Error: ${error}`);
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return;
+      }
       
       if (code) {
-        setCallbackStatus('exchanging');
-        setStatusMessage('Securing connection (swapping code for token)...');
+        setIsLoading(true);
+        setLoadingMessage('Connecting to Spotify...');
         
         // We need the code_verifier we saved before redirect
         const verifier = localStorage.getItem('spotify_code_verifier');
@@ -172,28 +153,18 @@ const App: React.FC = () => {
              }
            } catch (e: any) {
              console.error("PKCE Exchange Failed", e);
-             setCallbackStatus('error');
-             setStatusMessage(`PKCE Error: ${e.message}`);
+             alert(`Connection Failed: ${e.message}`);
+           } finally {
+             setIsLoading(false);
            }
         } else {
            // If verifier is missing, it might be a refresh loop or stale link
            // Don't error immediately if we already have a token
            if (!localStorage.getItem('spotify_access_token')) {
-               setCallbackStatus('error');
-               setStatusMessage('Missing PKCE verifier. Did you switch browsers or clear cache?');
+               alert('Missing PKCE verifier. Please try connecting again.');
            }
+           setIsLoading(false);
         }
-        return;
-      }
-      
-      // 3. Error state
-      if (isPopupMode && callbackStatus === 'detecting') {
-          if (!window.location.href.includes('error=')) {
-              // Might be waiting for redirect, don't error immediately
-          } else {
-             setCallbackStatus('error');
-             setStatusMessage('Spotify returned an error in the URL.');
-          }
       }
     };
 
@@ -218,7 +189,7 @@ const App: React.FC = () => {
       window.removeEventListener('message', messageHandler);
       window.removeEventListener('storage', storageHandler);
     };
-  }, [isPopupMode]);
+  }, []);
 
   // ----------------------------------------------------------------
   // AUTH HELPERS
@@ -290,8 +261,6 @@ const App: React.FC = () => {
       const token = data.access_token;
       
       setSpotifyToken(token);
-      setCallbackStatus('success');
-      setStatusMessage('');
       
       // Save all tokens
       localStorage.setItem('spotify_access_token', token);
@@ -514,8 +483,7 @@ const App: React.FC = () => {
         url = getLoginUrl(cleanClientId, cleanRedirectUri);
     }
 
-    // FIX: MOBILE LOGIN
-    // Instead of opening a popup (which gets blocked on iOS), we redirect the current window.
+    // Redirect the current window
     window.location.href = url;
   };
 
@@ -567,8 +535,8 @@ const App: React.FC = () => {
     }
   };
   
-  const handleSpotifyExport = async (isPopupAction = false) => {
-    if (!isPopupAction && !spotifyToken) {
+  const handleSpotifyExport = async () => {
+    if (!spotifyToken) {
       handleSpotifyAuth();
       return;
     }
@@ -577,19 +545,12 @@ const App: React.FC = () => {
     const activeToken = await refreshSessionIfNeeded();
     
     if (!activeToken) {
-        if (!isPopupAction) {
-            handleSpotifyAuth();
-            return;
-        } else {
-            alert("Session expired and could not refresh. Please log in again.");
-            setCallbackStatus('error');
-            return;
-        }
+        handleSpotifyAuth();
+        return;
     }
 
     if (!playlist) return;
-    if (isPopupAction) setCallbackStatus('creating');
-    else setExporting(true);
+    setExporting(true);
 
     try {
       let userId = userProfile?.id;
@@ -604,16 +565,10 @@ const App: React.FC = () => {
           }
       }
       const url = await createSpotifyPlaylist(activeToken, playlist, userId);
-      if (isPopupAction) {
-        setCreatedPlaylistUrl(url);
-        setCallbackStatus('done');
-      } else {
-        window.open(url, "_blank");
-      }
+      window.open(url, "_blank");
     } catch (error: any) {
       console.error(error);
       alert(`Export Failed: ${error.message}`);
-      if (isPopupAction) setCallbackStatus('success');
     } finally {
       setExporting(false);
     }
@@ -689,80 +644,6 @@ const App: React.FC = () => {
   };
 
   // ----------------------------------------------------------------
-  // RENDER: STRICT POPUP MODE (Mostly legacy now for mobile)
-  // ----------------------------------------------------------------
-  if (isPopupMode) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6">
-        <div className="glass-panel w-full max-w-md p-8 rounded-2xl text-center border-t-4 border-[#1DB954]">
-          <SpotifyIcon className="w-16 h-16 text-[#1DB954] mx-auto mb-6" />
-          <h1 className="text-2xl font-bold mb-2">Spotify Connection</h1>
-          
-          {callbackStatus === 'detecting' && <p className="text-slate-400 animate-pulse">Verifying connection...</p>}
-          {callbackStatus === 'exchanging' && <p className="text-blue-400 animate-pulse">{statusMessage || 'Securing token...'}</p>}
-
-          {callbackStatus === 'error' && (
-            <div className="text-left bg-slate-800 p-4 rounded-lg mt-4 mb-4">
-              <p className="text-red-400 font-bold mb-2">⚠ Connection Error</p>
-              <p className="text-xs text-slate-400 mb-2">{statusMessage || 'Token not found.'}</p>
-              <div className="bg-blue-900/30 border border-blue-700 p-2 rounded mb-3">
-                 <p className="text-blue-200 text-xs font-bold">Use the Example.com Trick:</p>
-                 <p className="text-blue-200 text-[10px]">Ensure Redirect URI is <code>https://example.com/</code> in Settings. When this popup redirects there, copy the URL and paste it in the main window.</p>
-              </div>
-              
-              <div className="mb-4">
-                <p className="text-[10px] uppercase text-slate-500 font-bold">Current URL:</p>
-                <div className="relative group">
-                    <code className="block bg-black p-2 rounded text-[10px] text-green-400 break-all border border-slate-700 cursor-text" onClick={(e) => (e.target as HTMLElement).classList.add('select-all')}>
-                        {debugUrl || "Loading..."}
-                    </code>
-                </div>
-              </div>
-              <button onClick={handleSpotifyAuth} className="w-full bg-[#1DB954] text-black font-bold py-2 rounded hover:bg-[#1ed760] transition mb-2">Retry Login</button>
-              <button onClick={() => window.close()} className="w-full text-slate-400 text-xs py-2 hover:text-white">Close Window</button>
-            </div>
-          )}
-
-          {callbackStatus === 'success' && (
-            <div className="space-y-4">
-              <p className="text-green-400 font-medium">Authorization Successful!</p>
-              {spotifyToken && (
-                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 text-left">
-                    <p className="text-[10px] uppercase text-slate-500 font-bold mb-1">Access Token</p>
-                    <div className="flex gap-2">
-                        <input type="text" readOnly value={spotifyToken} className="flex-grow bg-black text-green-400 text-xs p-2 rounded border border-slate-600 focus:outline-none" />
-                        <button onClick={() => { navigator.clipboard.writeText(spotifyToken); alert("Token copied!"); }} className="bg-slate-600 hover:bg-slate-500 text-white text-xs px-2 rounded">Copy</button>
-                    </div>
-                </div>
-              )}
-              {playlist ? (
-                <button onClick={() => handleSpotifyExport(true)} className="w-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold py-3 rounded-xl transition-all shadow-lg shadow-green-900/20">Create "{playlist.title}" Now</button>
-              ) : (
-                <div className="bg-yellow-900/30 border border-yellow-700/50 p-3 rounded-lg">
-                   <p className="text-yellow-200 text-xs">Playlist data not found here. Close this and use the main window.</p>
-                </div>
-              )}
-              <button onClick={() => window.close()} className="text-slate-500 hover:text-white text-xs underline">Close Window</button>
-            </div>
-          )}
-
-          {callbackStatus === 'creating' && (
-             <div className="py-8"><div className="w-10 h-10 border-4 border-[#1DB954] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div><p className="text-slate-300">Saving to your library...</p></div>
-          )}
-          {callbackStatus === 'done' && (
-            <div className="space-y-4 animate-fade-in-up">
-               <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-2"><svg className="w-8 h-8 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>
-               <h2 className="text-xl font-bold text-white">Playlist Created!</h2>
-               <a href={createdPlaylistUrl!} target="_blank" rel="noreferrer" className="block w-full bg-white text-black font-bold py-3 rounded-xl transition-all hover:bg-gray-200">Open on Spotify</a>
-               <button onClick={() => window.close()} className="text-slate-500 hover:text-white text-xs">Close Window</button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ----------------------------------------------------------------
   // RENDER: MAIN APP
   // ----------------------------------------------------------------
   return (
@@ -813,7 +694,7 @@ const App: React.FC = () => {
             onPlaySong={handlePlaySong}
             onPause={() => setPlayerState(PlayerState.PAUSED)}
             onReset={() => { setPlaylist(null); setPlayerState(PlayerState.STOPPED); setCurrentSong(null); }}
-            onExport={() => handleSpotifyExport(false)}
+            onExport={handleSpotifyExport}
             onDownloadCsv={handleDownloadCsv}
             onYouTubeExport={handleYouTubeExport}
             exporting={exporting}
