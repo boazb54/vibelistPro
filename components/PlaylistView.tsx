@@ -97,7 +97,7 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
                        className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors border bg-[#1DB954]/10 text-[#1DB954] border-[#1DB954]/30 hover:bg-[#1DB954] hover:text-black"
                      >
                        <SpotifyIcon className="w-3.5 h-3.5" />
-                       <span className="font-medium">Play on Spotify</span>
+                       <span className="font-medium hidden md:inline">Play on Spotify</span>
                      </a>
                   </div>
                 </div>
