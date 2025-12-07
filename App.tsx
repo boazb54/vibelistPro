@@ -158,6 +158,9 @@ const App: React.FC = () => {
 
         if (verifier) {
            try {
+             // Clear the code from the URL so it looks clean
+             window.history.replaceState({}, document.title, window.location.pathname);
+             
              const data = await exchangeCodeForToken(storedClientId, storedRedirectUri, code, verifier);
              if (data.access_token) {
                // Clear verifier to be clean
@@ -173,8 +176,12 @@ const App: React.FC = () => {
              setStatusMessage(`PKCE Error: ${e.message}`);
            }
         } else {
-           setCallbackStatus('error');
-           setStatusMessage('Missing PKCE verifier. Did you switch browsers or clear cache?');
+           // If verifier is missing, it might be a refresh loop or stale link
+           // Don't error immediately if we already have a token
+           if (!localStorage.getItem('spotify_access_token')) {
+               setCallbackStatus('error');
+               setStatusMessage('Missing PKCE verifier. Did you switch browsers or clear cache?');
+           }
         }
         return;
       }
@@ -297,12 +304,6 @@ const App: React.FC = () => {
           localStorage.setItem('spotify_token_expiry', (now + expiresInMs).toString());
       }
       
-      if (window.opener && window.opener !== window) {
-        try {
-          window.opener.postMessage({ type: 'SPOTIFY_TOKEN', token: token }, '*');
-        } catch (e) { console.warn("Could not post to opener", e); }
-      }
-      
       getUserProfile(token).then(profile => {
           setUserProfile(profile);
           saveUserToSupabase(profile);
@@ -388,11 +389,13 @@ const App: React.FC = () => {
         })
       );
       
-      // STRICT FILTER: Remove any song that still has no previewUrl (despite fallback attempts)
-      const validSongs = realSongs.filter(s => s.previewUrl !== null);
+      // FIX: Mobile/No-Preview Tolerance
+      // Instead of filtering out all songs without previews (which might leave 0 songs),
+      // we keep them but show "No Preview" in the UI.
+      const validSongs = realSongs; 
 
       if (validSongs.length === 0) {
-          alert("We found some great songs, but couldn't load audio previews for any of them. Please try again with a slightly different mood.");
+          alert("We couldn't generate any songs for this mood. Please try again.");
           setPlaylist(null);
           return;
       }
@@ -416,6 +419,10 @@ const App: React.FC = () => {
   };
 
   const handlePlaySong = (song: Song) => {
+    if (!song.previewUrl) {
+        alert("Sorry, no audio preview is available for this song.");
+        return;
+    }
     if (currentSong?.id === song.id && playerState === PlayerState.PLAYING) {
       setPlayerState(PlayerState.PAUSED);
     } else {
@@ -476,11 +483,9 @@ const App: React.FC = () => {
         url = getLoginUrl(cleanClientId, cleanRedirectUri);
     }
 
-    const width = 450;
-    const height = 730;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
-    window.open(url, 'SpotifyLogin', `menubar=no,location=no,resizable=no,scrollbars=no,status=no,width=${width},height=${height},top=${top},left=${left}`);
+    // FIX: MOBILE LOGIN
+    // Instead of opening a popup (which gets blocked on iOS), we redirect the current window.
+    window.location.href = url;
   };
 
   const handleManualUrlSubmit = async () => {
@@ -653,7 +658,7 @@ const App: React.FC = () => {
   };
 
   // ----------------------------------------------------------------
-  // RENDER: STRICT POPUP MODE
+  // RENDER: STRICT POPUP MODE (Mostly legacy now for mobile)
   // ----------------------------------------------------------------
   if (isPopupMode) {
     return (
@@ -669,56 +674,14 @@ const App: React.FC = () => {
             <div className="text-left bg-slate-800 p-4 rounded-lg mt-4 mb-4">
               <p className="text-red-400 font-bold mb-2">⚠ Connection Error</p>
               <p className="text-xs text-slate-400 mb-2">{statusMessage || 'Token not found.'}</p>
-              <div className="bg-blue-900/30 border border-blue-700 p-2 rounded mb-3">
-                 <p className="text-blue-200 text-xs font-bold">Use the Example.com Trick:</p>
-                 <p className="text-blue-200 text-[10px]">Ensure Redirect URI is <code>https://example.com/</code> in Settings. When this popup redirects there, copy the URL and paste it in the main window.</p>
-              </div>
-              
-              <div className="mb-4">
-                <p className="text-[10px] uppercase text-slate-500 font-bold">Current URL:</p>
-                <div className="relative group">
-                    <code className="block bg-black p-2 rounded text-[10px] text-green-400 break-all border border-slate-700 cursor-text" onClick={(e) => (e.target as HTMLElement).classList.add('select-all')}>
-                        {debugUrl || "Loading..."}
-                    </code>
-                </div>
-              </div>
-              <button onClick={handleSpotifyAuth} className="w-full bg-[#1DB954] text-black font-bold py-2 rounded hover:bg-[#1ed760] transition mb-2">Retry Login</button>
-              <button onClick={() => window.close()} className="w-full text-slate-400 text-xs py-2 hover:text-white">Close Window</button>
+              <button onClick={() => window.location.href = '/'} className="w-full text-slate-400 text-xs py-2 hover:text-white">Go Back Home</button>
             </div>
           )}
 
           {callbackStatus === 'success' && (
             <div className="space-y-4">
               <p className="text-green-400 font-medium">Authorization Successful!</p>
-              {spotifyToken && (
-                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 text-left">
-                    <p className="text-[10px] uppercase text-slate-500 font-bold mb-1">Access Token</p>
-                    <div className="flex gap-2">
-                        <input type="text" readOnly value={spotifyToken} className="flex-grow bg-black text-green-400 text-xs p-2 rounded border border-slate-600 focus:outline-none" />
-                        <button onClick={() => { navigator.clipboard.writeText(spotifyToken); alert("Token copied!"); }} className="bg-slate-600 hover:bg-slate-500 text-white text-xs px-2 rounded">Copy</button>
-                    </div>
-                </div>
-              )}
-              {playlist ? (
-                <button onClick={() => handleSpotifyExport(true)} className="w-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold py-3 rounded-xl transition-all shadow-lg shadow-green-900/20">Create "{playlist.title}" Now</button>
-              ) : (
-                <div className="bg-yellow-900/30 border border-yellow-700/50 p-3 rounded-lg">
-                   <p className="text-yellow-200 text-xs">Playlist data not found here. Close this and use the main window.</p>
-                </div>
-              )}
-              <button onClick={() => window.close()} className="text-slate-500 hover:text-white text-xs underline">Close Window</button>
-            </div>
-          )}
-
-          {callbackStatus === 'creating' && (
-             <div className="py-8"><div className="w-10 h-10 border-4 border-[#1DB954] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div><p className="text-slate-300">Saving to your library...</p></div>
-          )}
-          {callbackStatus === 'done' && (
-            <div className="space-y-4 animate-fade-in-up">
-               <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-2"><svg className="w-8 h-8 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>
-               <h2 className="text-xl font-bold text-white">Playlist Created!</h2>
-               <a href={createdPlaylistUrl!} target="_blank" rel="noreferrer" className="block w-full bg-white text-black font-bold py-3 rounded-xl transition-all hover:bg-gray-200">Open on Spotify</a>
-               <button onClick={() => window.close()} className="text-slate-500 hover:text-white text-xs">Close Window</button>
+              <p className="text-slate-400 text-sm">Redirecting you...</p>
             </div>
           )}
         </div>
