@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
@@ -15,6 +15,10 @@ const App: React.FC = () => {
   // ----------------------------------------------------------------
   // STATE
   // ----------------------------------------------------------------
+  
+  // FIX: Race condition lock for strict mode / fast mobile browsers
+  const authProcessed = useRef(false);
+
   const [playlist, setPlaylist] = useState<Playlist | null>(() => {
     try {
       const saved = localStorage.getItem('vibelist_playlist');
@@ -128,6 +132,10 @@ const App: React.FC = () => {
       }
       
       if (code) {
+        // FIX: Check lock to prevent double execution in strict mode or mobile browsers
+        if (authProcessed.current) return;
+        authProcessed.current = true;
+
         setIsLoading(true);
         setLoadingMessage('Connecting to Spotify...');
         
@@ -154,6 +162,8 @@ const App: React.FC = () => {
            } catch (e: any) {
              console.error("PKCE Exchange Failed", e);
              alert(`Connection Failed: ${e.message}`);
+             // Reset lock on failure so user can try again if they reload
+             authProcessed.current = false;
            } finally {
              setIsLoading(false);
            }
