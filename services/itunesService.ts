@@ -23,11 +23,10 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
 
     for (const q of queries) {
       const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=1&entity=song`;
-      // Use a CORS proxy if necessary, but iTunes API often supports CORS or we rely on the browser.
-      // Note: iTunes API supports JSONP but fetch is standard. Sometimes requires no-cors for opaque, but we need data.
-      // Usually iTunes API works directly from browser for GET requests.
       
-      const response = await fetch(url);
+      // FIX: Mobile Network Filter Bypass
+      // 'no-referrer' helps prevent mobile carriers from blocking the API request as "bot traffic".
+      const response = await fetch(url, { referrerPolicy: "no-referrer" });
       const data = await response.json();
       
       if (data.resultCount > 0) {
