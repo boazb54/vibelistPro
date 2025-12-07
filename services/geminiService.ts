@@ -72,7 +72,11 @@ export const generatePlaylistFromMood = async (userInput: string, userContext?: 
     const text = response.text;
     if (!text) throw new Error("No response from AI");
     
-    return JSON.parse(text) as GeneratedPlaylistRaw;
+    // FIX: Sanitize Markdown Code Blocks (```json ... ```)
+    // This prevents the "Failed to generate playlist" crash when Gemini formats the output.
+    const cleanText = text.replace(/```json|```/g, '').trim();
+    
+    return JSON.parse(cleanText) as GeneratedPlaylistRaw;
   } catch (error) {
     console.error("Error generating playlist:", error);
     throw error;
