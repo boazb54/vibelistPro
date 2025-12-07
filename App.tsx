@@ -370,7 +370,7 @@ const App: React.FC = () => {
           explicit_filter_enabled: userProfile.explicit_content?.filter_enabled
       } : undefined;
 
-      // We now request 10 songs to create a buffer
+      // We now request 25 songs to create a buffer for the Strict Filter
       const generatedData = await generatePlaylistFromMood(mood, userContext);
       setLoadingMessage('Finding preview tapes...');
       
@@ -389,19 +389,18 @@ const App: React.FC = () => {
         })
       );
       
-      // FIX: Mobile/No-Preview Tolerance
-      // Instead of filtering out all songs without previews (which might leave 0 songs),
-      // we keep them but show "No Preview" in the UI.
-      const validSongs = realSongs; 
+      // STRICT FILTER: Remove any song that still has no previewUrl (despite fallback attempts)
+      // This guarantees "Zero Songs Without Preview".
+      const validSongs = realSongs.filter(s => s.previewUrl !== null);
 
       if (validSongs.length === 0) {
-          alert("We couldn't generate any songs for this mood. Please try again.");
+          alert("We couldn't generate any songs with valid previews. Please try again with a slightly different mood.");
           setPlaylist(null);
           return;
       }
 
-      // Limit to 8 songs maximum for the final display
-      const displaySongs = validSongs.slice(0, 8);
+      // Limit to 15 songs maximum for the final display
+      const displaySongs = validSongs.slice(0, 15);
 
       const finalPlaylist: Playlist = {
         title: generatedData.playlist_title,
@@ -420,6 +419,8 @@ const App: React.FC = () => {
 
   const handlePlaySong = (song: Song) => {
     if (!song.previewUrl) {
+        // This should technically never happen due to the strict filter above,
+        // but it's a good safety check.
         alert("Sorry, no audio preview is available for this song.");
         return;
     }
