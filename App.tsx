@@ -94,6 +94,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // AUTO-UPDATE REDIRECT URI FOR PRODUCTION
+    // If we are on Vercel (not localhost) and the stored URI is still example.com, update it.
     if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
         const realUrl = `${window.location.origin}/`;
         const storedUrl = localStorage.getItem('spotify_redirect_uri');
@@ -103,6 +104,7 @@ const App: React.FC = () => {
             setSpotifyRedirectUri(realUrl);
         }
     } else {
+        // If local storage is empty, ensure defaults are set
         if (!localStorage.getItem('spotify_client_id')) {
             localStorage.setItem('spotify_client_id', DEFAULT_SPOTIFY_CLIENT_ID);
         }
@@ -148,17 +150,22 @@ const App: React.FC = () => {
         setCallbackStatus('exchanging');
         setStatusMessage('Securing connection (swapping code for token)...');
         
+        // We need the code_verifier we saved before redirect
         const verifier = localStorage.getItem('spotify_code_verifier');
+        // Use defaults if LS is missing, though verifier MUST be in LS
         const storedClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
         const storedRedirectUri = localStorage.getItem('spotify_redirect_uri') || DEFAULT_REDIRECT_URI;
 
         if (verifier) {
            try {
+             // Clear the code from the URL so it looks clean
              window.history.replaceState({}, document.title, window.location.pathname);
              
              const data = await exchangeCodeForToken(storedClientId, storedRedirectUri, code, verifier);
              if (data.access_token) {
+               // Clear verifier to be clean
                localStorage.removeItem('spotify_code_verifier');
+               // Handle success with full data object to save refresh token
                handleSuccessFull(data);
              } else {
                throw new Error("No access token in response");
@@ -169,6 +176,8 @@ const App: React.FC = () => {
              setStatusMessage(`PKCE Error: ${e.message}`);
            }
         } else {
+           // If verifier is missing, it might be a refresh loop or stale link
+           // Don't error immediately if we already have a token
            if (!localStorage.getItem('spotify_access_token')) {
                setCallbackStatus('error');
                setStatusMessage('Missing PKCE verifier. Did you switch browsers or clear cache?');
@@ -180,7 +189,7 @@ const App: React.FC = () => {
       // 3. Error state
       if (isPopupMode && callbackStatus === 'detecting') {
           if (!window.location.href.includes('error=')) {
-              // Might be waiting for redirect
+              // Might be waiting for redirect, don't error immediately
           } else {
              setCallbackStatus('error');
              setStatusMessage('Spotify returned an error in the URL.');
@@ -190,6 +199,7 @@ const App: React.FC = () => {
 
     handleAuth();
 
+    // Listeners for cross-window communication
     const messageHandler = (event: MessageEvent) => {
       if (event.data?.type === 'SPOTIFY_TOKEN' && event.data?.token) {
         handleNewToken(event.data.token);
@@ -214,6 +224,7 @@ const App: React.FC = () => {
   // AUTH HELPERS
   // ----------------------------------------------------------------
 
+  // Returns the current valid token, refreshing it if necessary
   const refreshSessionIfNeeded = async (): Promise<string | null> => {
       const storedToken = localStorage.getItem('spotify_access_token');
       const storedRefreshToken = localStorage.getItem('spotify_refresh_token');
@@ -223,6 +234,7 @@ const App: React.FC = () => {
       const now = Date.now();
       const isExpired = !storedExpiry || now > parseInt(storedExpiry, 10);
 
+      // If we have a refresh token and need a new access token
       if (storedRefreshToken && isExpired) {
           setIsRefreshing(true);
           try {
@@ -239,6 +251,7 @@ const App: React.FC = () => {
                   localStorage.setItem('spotify_refresh_token', data.refresh_token);
               }
 
+              // Refresh profile while we're at it
               getUserProfile(newToken).then(profile => {
                   setUserProfile(profile);
                   saveUserToSupabase(profile);
@@ -258,6 +271,7 @@ const App: React.FC = () => {
           }
       }
 
+      // If valid, just return what we have
       if (storedToken && !isExpired) {
           if (!spotifyToken) {
               setSpotifyToken(storedToken);
@@ -279,6 +293,7 @@ const App: React.FC = () => {
       setCallbackStatus('success');
       setStatusMessage('');
       
+      // Save all tokens
       localStorage.setItem('spotify_access_token', token);
       if (data.refresh_token) {
           localStorage.setItem('spotify_refresh_token', data.refresh_token);
@@ -310,7 +325,7 @@ const App: React.FC = () => {
         })
         .catch(e => {
             console.error(e);
-            alert(`Connected, but failed to load profile. \n\nError: ${e.message}`);
+            alert(`Connected, but failed to load profile. \n\nIMPORTANT: You must add your email to the "User Management" list in your Spotify Developer Dashboard to fix this.\n\nError: ${e.message}`);
         });
   };
   
@@ -329,13 +344,22 @@ const App: React.FC = () => {
               });
           
           if (error) {
-              console.warn("Supabase save error:", error.message);
+              console.warn("Supabase save error (table might not exist yet):", error.message);
           } else {
-              console.log("User segmentation saved.");
+              console.log("User segmentation saved to cloud.");
           }
       } catch (e) {
           console.warn("Supabase connection issue:", e);
       }
+  };
+
+  const handleLogout = () => {
+    setSpotifyToken(null);
+    setUserProfile(null);
+    localStorage.removeItem('spotify_access_token');
+    localStorage.removeItem('spotify_user_id');
+    localStorage.removeItem('spotify_refresh_token');
+    localStorage.removeItem('spotify_token_expiry');
   };
 
   // ----------------------------------------------------------------
@@ -355,19 +379,20 @@ const App: React.FC = () => {
           explicit_filter_enabled: userProfile.explicit_content?.filter_enabled
       } : undefined;
 
+      // We now request 25 songs to create a buffer for the Strict Filter
       const generatedData = await generatePlaylistFromMood(mood, userContext);
       setLoadingMessage('Finding preview tapes...');
       
+      // Ensure we have a valid token if possible
       const activeToken = await refreshSessionIfNeeded();
 
-      // BATCH FETCHING LOGIC (Mobile Friendly)
       const allSongs = generatedData.songs;
       const validSongs: Song[] = [];
-      const BATCH_SIZE = 5;
-      const TARGET_VALID_COUNT = 15; // We want 15 good songs
+      // FIX: REDUCED BATCH SIZE TO 3 to prevent mobile network choking
+      const BATCH_SIZE = 3; 
+      const TARGET_VALID_COUNT = 15;
 
       for (let i = 0; i < allSongs.length; i += BATCH_SIZE) {
-          // If we already have enough valid songs, stop fetching to save network
           if (validSongs.length >= TARGET_VALID_COUNT) break;
 
           const batch = allSongs.slice(i, i + BATCH_SIZE);
@@ -395,13 +420,16 @@ const App: React.FC = () => {
           await new Promise(resolve => setTimeout(resolve, 300));
       }
       
+      // STRICT FILTER: Remove any song that still has no previewUrl (despite fallback attempts)
+      // This guarantees "Zero Songs Without Preview".
+      
       if (validSongs.length === 0) {
           alert("We couldn't generate any songs with valid previews. Please try again with a slightly different mood.");
           setPlaylist(null);
           return;
       }
 
-      // Limit to 15 songs max
+      // Limit to 15 songs maximum for the final display
       const displaySongs = validSongs.slice(0, 15);
 
       const finalPlaylist: Playlist = {
@@ -421,6 +449,8 @@ const App: React.FC = () => {
 
   const handlePlaySong = (song: Song) => {
     if (!song.previewUrl) {
+        // This should technically never happen due to the strict filter above,
+        // but it's a good safety check.
         alert("Sorry, no audio preview is available for this song.");
         return;
     }
@@ -460,8 +490,10 @@ const App: React.FC = () => {
     }
 
     const cleanClientId = currentClientId.replace(/[^a-zA-Z0-9]/g, '');
+    // In production, we force the redirect URI to the current domain if it wasn't set manually
     let cleanRedirectUri = (spotifyRedirectUri || DEFAULT_REDIRECT_URI).trim();
     
+    // Safety check: if we are in production but URI is example.com, fix it now
     if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && cleanRedirectUri === "https://example.com/") {
         cleanRedirectUri = `${window.location.origin}/`;
     }
@@ -482,6 +514,8 @@ const App: React.FC = () => {
         url = getLoginUrl(cleanClientId, cleanRedirectUri);
     }
 
+    // FIX: MOBILE LOGIN
+    // Instead of opening a popup (which gets blocked on iOS), we redirect the current window.
     window.location.href = url;
   };
 
@@ -539,6 +573,7 @@ const App: React.FC = () => {
       return;
     }
     
+    // Ensure token is fresh before we try to use it
     const activeToken = await refreshSessionIfNeeded();
     
     if (!activeToken) {
@@ -653,6 +688,9 @@ const App: React.FC = () => {
     setShowSettings(false);
   };
 
+  // ----------------------------------------------------------------
+  // RENDER: STRICT POPUP MODE (Mostly legacy now for mobile)
+  // ----------------------------------------------------------------
   if (isPopupMode) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6">
@@ -667,14 +705,56 @@ const App: React.FC = () => {
             <div className="text-left bg-slate-800 p-4 rounded-lg mt-4 mb-4">
               <p className="text-red-400 font-bold mb-2">⚠ Connection Error</p>
               <p className="text-xs text-slate-400 mb-2">{statusMessage || 'Token not found.'}</p>
-              <button onClick={() => window.location.href = '/'} className="w-full text-slate-400 text-xs py-2 hover:text-white">Go Back Home</button>
+              <div className="bg-blue-900/30 border border-blue-700 p-2 rounded mb-3">
+                 <p className="text-blue-200 text-xs font-bold">Use the Example.com Trick:</p>
+                 <p className="text-blue-200 text-[10px]">Ensure Redirect URI is <code>https://example.com/</code> in Settings. When this popup redirects there, copy the URL and paste it in the main window.</p>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-[10px] uppercase text-slate-500 font-bold">Current URL:</p>
+                <div className="relative group">
+                    <code className="block bg-black p-2 rounded text-[10px] text-green-400 break-all border border-slate-700 cursor-text" onClick={(e) => (e.target as HTMLElement).classList.add('select-all')}>
+                        {debugUrl || "Loading..."}
+                    </code>
+                </div>
+              </div>
+              <button onClick={handleSpotifyAuth} className="w-full bg-[#1DB954] text-black font-bold py-2 rounded hover:bg-[#1ed760] transition mb-2">Retry Login</button>
+              <button onClick={() => window.close()} className="w-full text-slate-400 text-xs py-2 hover:text-white">Close Window</button>
             </div>
           )}
 
           {callbackStatus === 'success' && (
             <div className="space-y-4">
               <p className="text-green-400 font-medium">Authorization Successful!</p>
-              <p className="text-slate-400 text-sm">Redirecting you...</p>
+              {spotifyToken && (
+                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 text-left">
+                    <p className="text-[10px] uppercase text-slate-500 font-bold mb-1">Access Token</p>
+                    <div className="flex gap-2">
+                        <input type="text" readOnly value={spotifyToken} className="flex-grow bg-black text-green-400 text-xs p-2 rounded border border-slate-600 focus:outline-none" />
+                        <button onClick={() => { navigator.clipboard.writeText(spotifyToken); alert("Token copied!"); }} className="bg-slate-600 hover:bg-slate-500 text-white text-xs px-2 rounded">Copy</button>
+                    </div>
+                </div>
+              )}
+              {playlist ? (
+                <button onClick={() => handleSpotifyExport(true)} className="w-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold py-3 rounded-xl transition-all shadow-lg shadow-green-900/20">Create "{playlist.title}" Now</button>
+              ) : (
+                <div className="bg-yellow-900/30 border border-yellow-700/50 p-3 rounded-lg">
+                   <p className="text-yellow-200 text-xs">Playlist data not found here. Close this and use the main window.</p>
+                </div>
+              )}
+              <button onClick={() => window.close()} className="text-slate-500 hover:text-white text-xs underline">Close Window</button>
+            </div>
+          )}
+
+          {callbackStatus === 'creating' && (
+             <div className="py-8"><div className="w-10 h-10 border-4 border-[#1DB954] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div><p className="text-slate-300">Saving to your library...</p></div>
+          )}
+          {callbackStatus === 'done' && (
+            <div className="space-y-4 animate-fade-in-up">
+               <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-2"><svg className="w-8 h-8 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>
+               <h2 className="text-xl font-bold text-white">Playlist Created!</h2>
+               <a href={createdPlaylistUrl!} target="_blank" rel="noreferrer" className="block w-full bg-white text-black font-bold py-3 rounded-xl transition-all hover:bg-gray-200">Open on Spotify</a>
+               <button onClick={() => window.close()} className="text-slate-500 hover:text-white text-xs">Close Window</button>
             </div>
           )}
         </div>
@@ -682,6 +762,9 @@ const App: React.FC = () => {
     );
   }
 
+  // ----------------------------------------------------------------
+  // RENDER: MAIN APP
+  // ----------------------------------------------------------------
   return (
     <div className="min-h-screen relative overflow-hidden text-white">
       <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-gradient z-0"></div>
@@ -795,7 +878,7 @@ const App: React.FC = () => {
                                          </div>
                                      </div>
                                 </div>
-                                <button onClick={() => { setSpotifyToken(null); setUserProfile(null); localStorage.removeItem('spotify_access_token'); localStorage.removeItem('spotify_user_id'); localStorage.removeItem('spotify_refresh_token'); localStorage.removeItem('spotify_token_expiry'); }} className="text-xs text-slate-500 hover:text-red-400 w-full text-right">Log Out</button>
+                                <button onClick={handleLogout} className="text-xs text-slate-500 hover:text-red-400 w-full text-right">Log Out</button>
                             </div>
                         )
                     )}
