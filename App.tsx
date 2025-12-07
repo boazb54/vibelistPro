@@ -94,7 +94,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // AUTO-UPDATE REDIRECT URI FOR PRODUCTION
-    // If we are on Vercel (not localhost) and the stored URI is still example.com, update it.
     if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
         const realUrl = `${window.location.origin}/`;
         const storedUrl = localStorage.getItem('spotify_redirect_uri');
@@ -104,7 +103,6 @@ const App: React.FC = () => {
             setSpotifyRedirectUri(realUrl);
         }
     } else {
-        // If local storage is empty, ensure defaults are set
         if (!localStorage.getItem('spotify_client_id')) {
             localStorage.setItem('spotify_client_id', DEFAULT_SPOTIFY_CLIENT_ID);
         }
@@ -150,22 +148,17 @@ const App: React.FC = () => {
         setCallbackStatus('exchanging');
         setStatusMessage('Securing connection (swapping code for token)...');
         
-        // We need the code_verifier we saved before redirect
         const verifier = localStorage.getItem('spotify_code_verifier');
-        // Use defaults if LS is missing, though verifier MUST be in LS
         const storedClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
         const storedRedirectUri = localStorage.getItem('spotify_redirect_uri') || DEFAULT_REDIRECT_URI;
 
         if (verifier) {
            try {
-             // Clear the code from the URL so it looks clean
              window.history.replaceState({}, document.title, window.location.pathname);
              
              const data = await exchangeCodeForToken(storedClientId, storedRedirectUri, code, verifier);
              if (data.access_token) {
-               // Clear verifier to be clean
                localStorage.removeItem('spotify_code_verifier');
-               // Handle success with full data object to save refresh token
                handleSuccessFull(data);
              } else {
                throw new Error("No access token in response");
@@ -176,8 +169,6 @@ const App: React.FC = () => {
              setStatusMessage(`PKCE Error: ${e.message}`);
            }
         } else {
-           // If verifier is missing, it might be a refresh loop or stale link
-           // Don't error immediately if we already have a token
            if (!localStorage.getItem('spotify_access_token')) {
                setCallbackStatus('error');
                setStatusMessage('Missing PKCE verifier. Did you switch browsers or clear cache?');
@@ -189,7 +180,7 @@ const App: React.FC = () => {
       // 3. Error state
       if (isPopupMode && callbackStatus === 'detecting') {
           if (!window.location.href.includes('error=')) {
-              // Might be waiting for redirect, don't error immediately
+              // Might be waiting for redirect
           } else {
              setCallbackStatus('error');
              setStatusMessage('Spotify returned an error in the URL.');
@@ -199,7 +190,6 @@ const App: React.FC = () => {
 
     handleAuth();
 
-    // Listeners for cross-window communication
     const messageHandler = (event: MessageEvent) => {
       if (event.data?.type === 'SPOTIFY_TOKEN' && event.data?.token) {
         handleNewToken(event.data.token);
@@ -224,7 +214,6 @@ const App: React.FC = () => {
   // AUTH HELPERS
   // ----------------------------------------------------------------
 
-  // Returns the current valid token, refreshing it if necessary
   const refreshSessionIfNeeded = async (): Promise<string | null> => {
       const storedToken = localStorage.getItem('spotify_access_token');
       const storedRefreshToken = localStorage.getItem('spotify_refresh_token');
@@ -234,7 +223,6 @@ const App: React.FC = () => {
       const now = Date.now();
       const isExpired = !storedExpiry || now > parseInt(storedExpiry, 10);
 
-      // If we have a refresh token and need a new access token
       if (storedRefreshToken && isExpired) {
           setIsRefreshing(true);
           try {
@@ -251,7 +239,6 @@ const App: React.FC = () => {
                   localStorage.setItem('spotify_refresh_token', data.refresh_token);
               }
 
-              // Refresh profile while we're at it
               getUserProfile(newToken).then(profile => {
                   setUserProfile(profile);
                   saveUserToSupabase(profile);
@@ -271,7 +258,6 @@ const App: React.FC = () => {
           }
       }
 
-      // If valid, just return what we have
       if (storedToken && !isExpired) {
           if (!spotifyToken) {
               setSpotifyToken(storedToken);
@@ -293,7 +279,6 @@ const App: React.FC = () => {
       setCallbackStatus('success');
       setStatusMessage('');
       
-      // Save all tokens
       localStorage.setItem('spotify_access_token', token);
       if (data.refresh_token) {
           localStorage.setItem('spotify_refresh_token', data.refresh_token);
@@ -325,7 +310,7 @@ const App: React.FC = () => {
         })
         .catch(e => {
             console.error(e);
-            alert(`Connected, but failed to load profile. \n\nIMPORTANT: You must add your email to the "User Management" list in your Spotify Developer Dashboard to fix this.\n\nError: ${e.message}`);
+            alert(`Connected, but failed to load profile. \n\nError: ${e.message}`);
         });
   };
   
@@ -344,9 +329,9 @@ const App: React.FC = () => {
               });
           
           if (error) {
-              console.warn("Supabase save error (table might not exist yet):", error.message);
+              console.warn("Supabase save error:", error.message);
           } else {
-              console.log("User segmentation saved to cloud.");
+              console.log("User segmentation saved.");
           }
       } catch (e) {
           console.warn("Supabase connection issue:", e);
@@ -370,36 +355,53 @@ const App: React.FC = () => {
           explicit_filter_enabled: userProfile.explicit_content?.filter_enabled
       } : undefined;
 
-      // We now request 25 songs to create a buffer for the Strict Filter
       const generatedData = await generatePlaylistFromMood(mood, userContext);
       setLoadingMessage('Finding preview tapes...');
       
-      // Ensure we have a valid token if possible
       const activeToken = await refreshSessionIfNeeded();
 
-      const realSongs: Song[] = await Promise.all(
-        generatedData.songs.map(s => {
-            // Prioritize Spotify Metadata if logged in
-            if (activeToken) {
-                return fetchSpotifyMetadata(activeToken, s);
-            } else {
-                // Fallback to iTunes if not logged in
-                return fetchSongMetadata(s);
-            }
-        })
-      );
-      
-      // STRICT FILTER: Remove any song that still has no previewUrl (despite fallback attempts)
-      // This guarantees "Zero Songs Without Preview".
-      const validSongs = realSongs.filter(s => s.previewUrl !== null);
+      // BATCH FETCHING LOGIC (Mobile Friendly)
+      const allSongs = generatedData.songs;
+      const validSongs: Song[] = [];
+      const BATCH_SIZE = 5;
+      const TARGET_VALID_COUNT = 15; // We want 15 good songs
 
+      for (let i = 0; i < allSongs.length; i += BATCH_SIZE) {
+          // If we already have enough valid songs, stop fetching to save network
+          if (validSongs.length >= TARGET_VALID_COUNT) break;
+
+          const batch = allSongs.slice(i, i + BATCH_SIZE);
+          
+          // Process batch in parallel
+          const processedBatch = await Promise.all(
+              batch.map(async (s) => {
+                  try {
+                      if (activeToken) {
+                          return await fetchSpotifyMetadata(activeToken, s);
+                      } else {
+                          return await fetchSongMetadata(s);
+                      }
+                  } catch (e) {
+                      return null; // Ignore failed fetches
+                  }
+              })
+          );
+
+          // Filter this batch immediately
+          const validInBatch = processedBatch.filter((s): s is Song => s !== null && s.previewUrl !== null);
+          validSongs.push(...validInBatch);
+          
+          // Small delay to be gentle on network
+          await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      
       if (validSongs.length === 0) {
           alert("We couldn't generate any songs with valid previews. Please try again with a slightly different mood.");
           setPlaylist(null);
           return;
       }
 
-      // Limit to 15 songs maximum for the final display
+      // Limit to 15 songs max
       const displaySongs = validSongs.slice(0, 15);
 
       const finalPlaylist: Playlist = {
@@ -419,8 +421,6 @@ const App: React.FC = () => {
 
   const handlePlaySong = (song: Song) => {
     if (!song.previewUrl) {
-        // This should technically never happen due to the strict filter above,
-        // but it's a good safety check.
         alert("Sorry, no audio preview is available for this song.");
         return;
     }
@@ -460,10 +460,8 @@ const App: React.FC = () => {
     }
 
     const cleanClientId = currentClientId.replace(/[^a-zA-Z0-9]/g, '');
-    // In production, we force the redirect URI to the current domain if it wasn't set manually
     let cleanRedirectUri = (spotifyRedirectUri || DEFAULT_REDIRECT_URI).trim();
     
-    // Safety check: if we are in production but URI is example.com, fix it now
     if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && cleanRedirectUri === "https://example.com/") {
         cleanRedirectUri = `${window.location.origin}/`;
     }
@@ -484,8 +482,6 @@ const App: React.FC = () => {
         url = getLoginUrl(cleanClientId, cleanRedirectUri);
     }
 
-    // FIX: MOBILE LOGIN
-    // Instead of opening a popup (which gets blocked on iOS), we redirect the current window.
     window.location.href = url;
   };
 
@@ -543,7 +539,6 @@ const App: React.FC = () => {
       return;
     }
     
-    // Ensure token is fresh before we try to use it
     const activeToken = await refreshSessionIfNeeded();
     
     if (!activeToken) {
@@ -658,9 +653,6 @@ const App: React.FC = () => {
     setShowSettings(false);
   };
 
-  // ----------------------------------------------------------------
-  // RENDER: STRICT POPUP MODE (Mostly legacy now for mobile)
-  // ----------------------------------------------------------------
   if (isPopupMode) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6">
@@ -690,9 +682,6 @@ const App: React.FC = () => {
     );
   }
 
-  // ----------------------------------------------------------------
-  // RENDER: MAIN APP
-  // ----------------------------------------------------------------
   return (
     <div className="min-h-screen relative overflow-hidden text-white">
       <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-gradient z-0"></div>
@@ -776,6 +765,7 @@ const App: React.FC = () => {
                             <div>
                                <p className="font-bold text-white">Connect your account</p>
                                <p className="text-xs text-green-100">Log in with your Spotify email & password</p>
+                               <p className="text-[10px] text-green-200 mt-1">If "Continue with Google" fails, use email/password.</p>
                             </div>
                             <button onClick={handleSpotifyAuth} className="bg-white text-[#1DB954] font-bold px-4 py-2 rounded-lg text-sm hover:scale-105 transition-transform shadow-sm">
                                Log In
