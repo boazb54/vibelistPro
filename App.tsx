@@ -93,6 +93,30 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // AUTO-UPDATE REDIRECT URI FOR PRODUCTION
+    // If we are on Vercel (not localhost) and the stored URI is still example.com, update it.
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        const realUrl = `${window.location.origin}/`;
+        const storedUrl = localStorage.getItem('spotify_redirect_uri');
+        if (storedUrl !== realUrl) {
+            console.log("Auto-updating Redirect URI to match production domain:", realUrl);
+            localStorage.setItem('spotify_redirect_uri', realUrl);
+            setSpotifyRedirectUri(realUrl);
+        }
+    } else {
+        // If local storage is empty, ensure defaults are set
+        if (!localStorage.getItem('spotify_client_id')) {
+            localStorage.setItem('spotify_client_id', DEFAULT_SPOTIFY_CLIENT_ID);
+        }
+        if (!localStorage.getItem('spotify_redirect_uri')) {
+            localStorage.setItem('spotify_redirect_uri', DEFAULT_REDIRECT_URI);
+        }
+    }
+
+    refreshSessionIfNeeded();
+  }, []);
+
+  useEffect(() => {
     if (playlist) {
       localStorage.setItem('vibelist_playlist', JSON.stringify(playlist));
     } else {
@@ -107,20 +131,6 @@ const App: React.FC = () => {
       localStorage.removeItem('vibelist_currentSong');
     }
   }, [currentSong]);
-
-  useEffect(() => {
-    // If local storage is empty, ensure defaults are set in state
-    if (!localStorage.getItem('spotify_client_id')) {
-        localStorage.setItem('spotify_client_id', DEFAULT_SPOTIFY_CLIENT_ID);
-    }
-    if (!localStorage.getItem('spotify_redirect_uri')) {
-        localStorage.setItem('spotify_redirect_uri', DEFAULT_REDIRECT_URI);
-    }
-
-    // Initial Token Check
-    refreshSessionIfNeeded();
-
-  }, []);
 
   // TOKEN / CODE HANDLING
   useEffect(() => {
@@ -442,7 +452,13 @@ const App: React.FC = () => {
     }
 
     const cleanClientId = currentClientId.replace(/[^a-zA-Z0-9]/g, '');
-    const cleanRedirectUri = (spotifyRedirectUri || DEFAULT_REDIRECT_URI).trim();
+    // In production, we force the redirect URI to the current domain if it wasn't set manually
+    let cleanRedirectUri = (spotifyRedirectUri || DEFAULT_REDIRECT_URI).trim();
+    
+    // Safety check: if we are in production but URI is example.com, fix it now
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && cleanRedirectUri === "https://example.com/") {
+        cleanRedirectUri = `${window.location.origin}/`;
+    }
 
     localStorage.setItem('spotify_client_id', cleanClientId);
     localStorage.setItem('spotify_redirect_uri', cleanRedirectUri);
