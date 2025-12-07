@@ -418,9 +418,9 @@ const App: React.FC = () => {
         songs: displaySongs
       };
       setPlaylist(finalPlaylist);
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      alert(`Failed to generate playlist: ${error.message || 'Unknown error'}`);
+      alert("Failed to generate playlist. Please try again.");
     } finally {
       setIsLoading(false);
     }
