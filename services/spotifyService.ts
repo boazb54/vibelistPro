@@ -10,7 +10,7 @@ export const getLoginUrl = (clientId: string, redirectUri: string): string => {
   const scopes = SPOTIFY_SCOPES.join("%20");
   const cleanId = clientId.replace(/[^a-zA-Z0-9]/g, '');
   const cleanUri = redirectUri.trim();
-  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=token&show_dialog=true`;
+  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=token`;
 };
 
 // --- PKCE ADDITIONS ---
@@ -21,7 +21,7 @@ export const getPkceLoginUrl = (clientId: string, redirectUri: string, codeChall
   const cleanUri = redirectUri.trim();
   
   // Note: response_type is 'code' for PKCE
-  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}&show_dialog=true`;
+  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}`;
 };
 
 export const exchangeCodeForToken = async (clientId: string, redirectUri: string, code: string, codeVerifier: string) => {
