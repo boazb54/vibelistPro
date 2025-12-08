@@ -19,6 +19,15 @@ const App: React.FC = () => {
   // FIX: Race condition lock for strict mode / fast mobile browsers
   const authProcessed = useRef(false);
 
+  // DEBUGGING UI STATE
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
+
+  const addLog = (msg: string) => {
+      const time = new Date().toLocaleTimeString();
+      setDebugLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
+  };
+
   const [playlist, setPlaylist] = useState<Playlist | null>(() => {
     try {
       const saved = localStorage.getItem('vibelist_playlist');
@@ -351,6 +360,8 @@ const App: React.FC = () => {
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
+    setDebugLogs([]); // Clear logs
+    addLog(`Starting generation for: ${mood}`);
 
     try {
       const userContext = userProfile ? {
@@ -359,7 +370,9 @@ const App: React.FC = () => {
       } : undefined;
 
       // We now request 25 songs to create a buffer for the Strict Filter
+      addLog("Calling Gemini API...");
       const generatedData = await generatePlaylistFromMood(mood, userContext);
+      addLog(`Gemini returned ${generatedData.songs.length} raw songs.`);
       setLoadingMessage('Finding preview tapes...');
       
       // Ensure we have a valid token if possible
@@ -369,34 +382,45 @@ const App: React.FC = () => {
       const validSongs: Song[] = [];
       
       // STRATEGY C: ADAPTIVE BATCHING
-      // Mobile networks choke if we fire too many requests (6 batch = 18-24 calls).
-      // We detect mobile and slow down to Safe Mode (3), while keeping Desktop Fast (6).
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       const BATCH_SIZE = isMobile ? 3 : 6; 
       const TARGET_VALID_COUNT = 15;
+      
+      addLog(`Device: ${isMobile ? 'Mobile' : 'Desktop'}. Batch Size: ${BATCH_SIZE}`);
 
       for (let i = 0; i < allSongs.length; i += BATCH_SIZE) {
           if (validSongs.length >= TARGET_VALID_COUNT) break;
 
           const batch = allSongs.slice(i, i + BATCH_SIZE);
+          addLog(`Processing batch ${i / BATCH_SIZE + 1}...`);
           
           // Process batch in parallel
           const processedBatch = await Promise.all(
               batch.map(async (s) => {
                   try {
+                      let res: Song | null = null;
                       if (activeToken) {
-                          return await fetchSpotifyMetadata(activeToken, s);
+                          res = await fetchSpotifyMetadata(activeToken, s);
                       } else {
-                          return await fetchSongMetadata(s);
+                          res = await fetchSongMetadata(s);
+                      }
+                      
+                      if (res && res.previewUrl) {
+                          return res;
+                      } else {
+                          addLog(`Failed to find preview for: ${s.title}`);
+                          return null;
                       }
                   } catch (e) {
+                      addLog(`Error fetching ${s.title}`);
                       return null; // Ignore failed fetches
                   }
               })
           );
 
           // Filter this batch immediately
-          const validInBatch = processedBatch.filter((s): s is Song => s !== null && s.previewUrl !== null);
+          const validInBatch = processedBatch.filter((s): s is Song => s !== null);
+          addLog(`Batch result: ${validInBatch.length} valid songs.`);
           validSongs.push(...validInBatch);
           
           // Performance: Reduced delay to 50ms to speed up desktop experience
@@ -406,9 +430,13 @@ const App: React.FC = () => {
       // STRICT FILTER: Remove any song that still has no previewUrl (despite fallback attempts)
       // This guarantees "Zero Songs Without Preview".
       
+      addLog(`Total valid songs found: ${validSongs.length}`);
+
       if (validSongs.length === 0) {
-          alert("We couldn't generate any songs with valid previews. Please try again with a slightly different mood.");
+          addLog("CRITICAL FAILURE: 0 valid songs found.");
+          alert("We couldn't generate any songs with valid previews. Please check the Debug Console at the bottom for details.");
           setPlaylist(null);
+          setShowDebug(true); // Auto-show debug on failure
           return;
       }
 
@@ -424,7 +452,9 @@ const App: React.FC = () => {
       setPlaylist(finalPlaylist);
     } catch (error: any) {
       console.error(error);
+      addLog(`Top Level Error: ${error.message}`);
       alert(`Failed to generate playlist: ${error.message || 'Unknown error'}`);
+      setShowDebug(true);
     } finally {
       setIsLoading(false);
     }
@@ -685,6 +715,23 @@ const App: React.FC = () => {
             <CogIcon className="w-6 h-6" />
         </button>
       </div>
+
+      {/* DEBUG CONSOLE (Toggle via bottom-left hidden click or Failure) */}
+      <div className={`fixed bottom-0 left-0 right-0 bg-black/90 text-green-400 p-4 z-[100] transition-transform duration-300 border-t border-green-800 h-64 overflow-y-auto font-mono text-xs ${showDebug ? 'translate-y-0' : 'translate-y-full'}`}>
+          <div className="flex justify-between items-center mb-2 sticky top-0 bg-black/90 py-1 border-b border-green-800/50">
+              <span className="font-bold">DEBUG CONSOLE</span>
+              <div className="flex gap-4">
+                  <button onClick={() => setDebugLogs([])} className="text-slate-400 hover:text-white">CLEAR</button>
+                  <button onClick={() => setShowDebug(false)} className="text-slate-400 hover:text-white">CLOSE</button>
+              </div>
+          </div>
+          {debugLogs.map((log, i) => (
+              <div key={i} className="mb-1 border-b border-green-900/30 pb-1">{log}</div>
+          ))}
+      </div>
+      
+      {/* Hidden Debug Trigger (Bottom Left Corner) */}
+      <div className="fixed bottom-0 left-0 w-16 h-16 z-[99]" onDoubleClick={() => setShowDebug(true)}></div>
 
       <div className="relative z-10 container mx-auto px-4 pt-12 pb-20">
         <header className="flex flex-col items-center mb-12">
