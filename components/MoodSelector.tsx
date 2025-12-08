@@ -31,7 +31,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto p-4 animate-fade-in-up">
+    <div className="w-full max-w-5xl mx-auto p-4 animate-fade-in-up">
       <div className="text-center mb-8">
         <h2 className="text-3xl md:text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500">
           How are you feeling?
