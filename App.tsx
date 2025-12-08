@@ -511,7 +511,10 @@ const App: React.FC = () => {
       return;
     }
 
-    const cleanClientId = currentClientId.replace(/[^a-zA-Z0-9]/g, '');
+    // STRATEGY L: PRE-FLIGHT DEBUGGER (Removed as per updated flow but keeping URI clean)
+    // const cleanClientId = currentClientId.replace(/[^a-zA-Z0-9]/g, '');
+    const cleanClientId = currentClientId.trim();
+
     // In production, we force the redirect URI to the current domain if it wasn't set manually
     let cleanRedirectUri = (spotifyRedirectUri || DEFAULT_REDIRECT_URI).trim();
     
@@ -519,33 +522,36 @@ const App: React.FC = () => {
     if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && cleanRedirectUri === "https://example.com/") {
         cleanRedirectUri = `${window.location.origin}/`;
     }
-
-    localStorage.setItem('spotify_client_id', cleanClientId);
-    localStorage.setItem('spotify_redirect_uri', cleanRedirectUri);
     
-    setSpotifyClientId(cleanClientId);
-    setSpotifyRedirectUri(cleanRedirectUri);
+    // DEBUG: Validate Redirect URI matching dashboard
+    if (window.confirm(`DEBUG INFO:\nRedirect URI: ${cleanRedirectUri}\n\nEnsure this EXACT URL is in your Spotify Dashboard!`)) {
+        localStorage.setItem('spotify_client_id', cleanClientId);
+        localStorage.setItem('spotify_redirect_uri', cleanRedirectUri);
+        
+        setSpotifyClientId(cleanClientId);
+        setSpotifyRedirectUri(cleanRedirectUri);
 
-    // STRATEGY K: Check if user explicitly logged out previously
-    const shouldForceDialog = localStorage.getItem('spotify_logout_intent') === 'true';
-    if (shouldForceDialog) {
-        // Clear the flag immediately so next time is silent again
-        localStorage.removeItem('spotify_logout_intent');
+        // STRATEGY K: Check if user explicitly logged out previously
+        const shouldForceDialog = localStorage.getItem('spotify_logout_intent') === 'true';
+        if (shouldForceDialog) {
+            // Clear the flag immediately so next time is silent again
+            localStorage.removeItem('spotify_logout_intent');
+        }
+
+        let url = "";
+        if (usePkce) {
+            const verifier = generateRandomString(128);
+            const challenge = await generateCodeChallenge(verifier);
+            localStorage.setItem('spotify_code_verifier', verifier);
+            // Pass the dialog flag
+            url = getPkceLoginUrl(cleanClientId, cleanRedirectUri, challenge, shouldForceDialog);
+        } else {
+            url = getLoginUrl(cleanClientId, cleanRedirectUri, shouldForceDialog);
+        }
+
+        // Redirect the current window
+        window.location.href = url;
     }
-
-    let url = "";
-    if (usePkce) {
-        const verifier = generateRandomString(128);
-        const challenge = await generateCodeChallenge(verifier);
-        localStorage.setItem('spotify_code_verifier', verifier);
-        // Pass the dialog flag
-        url = getPkceLoginUrl(cleanClientId, cleanRedirectUri, challenge, shouldForceDialog);
-    } else {
-        url = getLoginUrl(cleanClientId, cleanRedirectUri, shouldForceDialog);
-    }
-
-    // Redirect the current window
-    window.location.href = url;
   };
 
   const handleManualUrlSubmit = async () => {
@@ -723,7 +729,7 @@ const App: React.FC = () => {
             }`}
         >
             <SpotifyIcon className="w-5 h-5" />
-            <span className="text-sm font-bold hidden md:inline">
+            <span className="text-sm font-bold truncate max-w-[120px]">
                 {isRefreshing ? 'Refreshing...' : (spotifyToken ? (userProfile?.display_name || 'Connected') : 'Connect Spotify')}
             </span>
         </button>
@@ -750,9 +756,9 @@ const App: React.FC = () => {
       {/* Hidden Debug Trigger (Bottom Left Corner) */}
       <div className="fixed bottom-0 left-0 w-16 h-16 z-[99]" onDoubleClick={() => setShowDebug(true)}></div>
 
-      <div className="relative z-10 container mx-auto px-4 pt-12 pb-20">
-        <header className="flex flex-col items-center mb-12">
-            <h1 className="text-4xl md:text-6xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 mb-2">VibeList+</h1>
+      <div className="relative z-10 container mx-auto px-4 pt-6 md:pt-12 pb-20">
+        <header className="flex flex-col items-center mb-16 pointer-events-none">
+            <h1 className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 mb-2">VibeList+</h1>
             <p className="text-slate-400 text-sm font-medium tracking-widest uppercase">AI Mood Curator</p>
             {isRefreshing && <p className="text-xs text-green-400 mt-2 animate-pulse">Refreshing Spotify Session...</p>}
         </header>
