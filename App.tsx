@@ -381,9 +381,13 @@ const App: React.FC = () => {
       const allSongs = generatedData.songs;
       const validSongs: Song[] = [];
       
-      // STRATEGY C: ADAPTIVE BATCHING
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const BATCH_SIZE = isMobile ? 3 : 6; 
+      // STRATEGY E: DEEP MOBILE DETECTION & RATE LIMITING
+      // We check window width to catch iPads and "Request Desktop Site" usage
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (typeof window !== 'undefined' && window.innerWidth < 768);
+      
+      // Desktop: Reduced from 6 to 4 to prevent IP Rate Limiting (Strategy E)
+      // Mobile: Kept at 3 for network safety
+      const BATCH_SIZE = isMobile ? 3 : 4; 
       const TARGET_VALID_COUNT = 15;
       
       addLog(`Device: ${isMobile ? 'Mobile' : 'Desktop'}. Batch Size: ${BATCH_SIZE}`);
@@ -408,11 +412,13 @@ const App: React.FC = () => {
                       if (res && res.previewUrl) {
                           return res;
                       } else {
+                          // STRATEGY E: Deep Logging to distinguish "No Preview" vs "Network Error"
                           addLog(`Failed to find preview for: ${s.title}`);
                           return null;
                       }
-                  } catch (e) {
-                      addLog(`Error fetching ${s.title}`);
+                  } catch (e: any) {
+                      // STRATEGY E: Explicitly log network errors
+                      addLog(`Error fetching ${s.title}: ${e.name || e.message}`);
                       return null; // Ignore failed fetches
                   }
               })
@@ -423,8 +429,8 @@ const App: React.FC = () => {
           addLog(`Batch result: ${validInBatch.length} valid songs.`);
           validSongs.push(...validInBatch);
           
-          // Performance: Reduced delay to 50ms to speed up desktop experience
-          await new Promise(resolve => setTimeout(resolve, 50));
+          // Strategy E: Increased delay to 200ms to be polite to iTunes API and prevent IP blocking
+          await new Promise(resolve => setTimeout(resolve, 200));
       }
       
       // STRICT FILTER: Remove any song that still has no previewUrl (despite fallback attempts)
