@@ -6,22 +6,22 @@ export const getDefaultRedirectUri = (): string => {
   return window.location.href.split('#')[0];
 };
 
-export const getLoginUrl = (clientId: string, redirectUri: string): string => {
+export const getLoginUrl = (clientId: string, redirectUri: string, showDialog: boolean = false): string => {
   const scopes = SPOTIFY_SCOPES.join("%20");
   const cleanId = clientId.replace(/[^a-zA-Z0-9]/g, '');
   const cleanUri = redirectUri.trim();
-  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=token`;
+  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=token${showDialog ? '&show_dialog=true' : ''}`;
 };
 
 // --- PKCE ADDITIONS ---
 
-export const getPkceLoginUrl = (clientId: string, redirectUri: string, codeChallenge: string): string => {
+export const getPkceLoginUrl = (clientId: string, redirectUri: string, codeChallenge: string, showDialog: boolean = false): string => {
   const scopes = SPOTIFY_SCOPES.join("%20");
   const cleanId = clientId.replace(/[^a-zA-Z0-9]/g, '');
   const cleanUri = redirectUri.trim();
   
   // Note: response_type is 'code' for PKCE
-  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}`;
+  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}${showDialog ? '&show_dialog=true' : ''}`;
 };
 
 export const exchangeCodeForToken = async (clientId: string, redirectUri: string, code: string, codeVerifier: string) => {
