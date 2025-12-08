@@ -1,9 +1,9 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { GeneratedPlaylistRaw } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export const generatePlaylistFromMood = async (mood: string, userContext?: any): Promise<GeneratedPlaylistRaw> => {
+  // Lazy initialization inside the function to prevent top-level crashes
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = "gemini-2.5-flash";
   
   const systemInstruction = `You are a professional music curator/DJ with deep knowledge of music across all genres.
@@ -44,22 +44,22 @@ export const generatePlaylistFromMood = async (mood: string, userContext?: any):
         },
       ],
       responseSchema: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         required: ["playlist_title", "mood", "description", "songs"],
         properties: {
-          playlist_title: { type: Type.STRING },
-          mood: { type: Type.STRING },
-          description: { type: Type.STRING },
+          playlist_title: { type: 'STRING' },
+          mood: { type: 'STRING' },
+          description: { type: 'STRING' },
           songs: {
-            type: Type.ARRAY,
+            type: 'ARRAY',
             items: {
-              type: Type.OBJECT,
+              type: 'OBJECT',
               required: ["title", "artist", "album", "search_query"],
               properties: {
-                title: { type: Type.STRING },
-                artist: { type: Type.STRING },
-                album: { type: Type.STRING },
-                search_query: { type: Type.STRING, description: "Optimized search query to find this exact song" }
+                title: { type: 'STRING' },
+                artist: { type: 'STRING' },
+                album: { type: 'STRING' },
+                search_query: { type: 'STRING', description: "Optimized search query to find this exact song" }
               }
             }
           }
