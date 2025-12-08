@@ -348,6 +348,9 @@ const App: React.FC = () => {
     localStorage.removeItem('spotify_user_id');
     localStorage.removeItem('spotify_refresh_token');
     localStorage.removeItem('spotify_token_expiry');
+    
+    // STRATEGY K: Set a flag so the next login attempt forces the dialog
+    localStorage.setItem('spotify_logout_intent', 'true');
   };
 
   // ----------------------------------------------------------------
@@ -523,14 +526,22 @@ const App: React.FC = () => {
     setSpotifyClientId(cleanClientId);
     setSpotifyRedirectUri(cleanRedirectUri);
 
+    // STRATEGY K: Check if user explicitly logged out previously
+    const shouldForceDialog = localStorage.getItem('spotify_logout_intent') === 'true';
+    if (shouldForceDialog) {
+        // Clear the flag immediately so next time is silent again
+        localStorage.removeItem('spotify_logout_intent');
+    }
+
     let url = "";
     if (usePkce) {
         const verifier = generateRandomString(128);
         const challenge = await generateCodeChallenge(verifier);
         localStorage.setItem('spotify_code_verifier', verifier);
-        url = getPkceLoginUrl(cleanClientId, cleanRedirectUri, challenge);
+        // Pass the dialog flag
+        url = getPkceLoginUrl(cleanClientId, cleanRedirectUri, challenge, shouldForceDialog);
     } else {
-        url = getLoginUrl(cleanClientId, cleanRedirectUri);
+        url = getLoginUrl(cleanClientId, cleanRedirectUri, shouldForceDialog);
     }
 
     // Redirect the current window
