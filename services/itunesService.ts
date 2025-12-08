@@ -30,6 +30,48 @@ const cleanText = (text: string): string => {
     .trim();
 };
 
+// STRATEGY G: JSONP Helper to bypass CORS/Network Blocks
+// Instead of fetch(), we inject a <script> tag.
+const fetchJsonp = (url: string): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    // Generate a unique callback name
+    const callbackName = `itunes_callback_${Math.random().toString(36).substr(2, 9)}`;
+    const script = document.createElement('script');
+    
+    // Timeout to prevent hanging if network is dead (5 seconds)
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new Error('JSONP request timed out'));
+    }, 5000);
+
+    const cleanup = () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+      // @ts-ignore
+      delete window[callbackName];
+      clearTimeout(timeoutId);
+    };
+
+    // Define the global callback function that iTunes will call
+    // @ts-ignore
+    window[callbackName] = (data: any) => {
+      cleanup();
+      resolve(data);
+    };
+
+    // Construct URL with callback param
+    // iTunes specifically supports &callback=...
+    script.src = `${url}&callback=${callbackName}`;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('JSONP script load failed (Network Error)'));
+    };
+
+    document.body.appendChild(script);
+  });
+};
+
 export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promise<Song> => {
   try {
     const cleanTitle = cleanText(generatedSong.title);
@@ -57,29 +99,19 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
       if (!q.trim()) continue;
 
       // STRATEGY D: REMOVED country=US param
+      // STRATEGY G: Using JSONP means we just need the base URL, fetchJsonp adds the callback
       const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=1&entity=song`;
       
       try {
-          // STRATEGY F: CORS FIX for Mobile
-          // Added mode: 'cors' and credentials: 'omit' to prevent TypeError on mobile browsers
-          const response = await fetch(url, { 
-              referrerPolicy: "no-referrer",
-              mode: 'cors',
-              credentials: 'omit'
-          });
-          
-          if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-          }
-
-          const data = await response.json();
+          // STRATEGY G: Switch from fetch() to fetchJsonp()
+          const data = await fetchJsonp(url);
           
           if (data.resultCount > 0) {
             result = data.results[0];
             break; // Found it! Stop searching.
           }
       } catch (innerErr) {
-          console.warn(`iTunes search failed for query: ${q}`, innerErr);
+          console.warn(`iTunes JSONP search failed for query: ${q}`, innerErr);
           lastError = innerErr;
           // Continue to next query attempt
       }
@@ -88,7 +120,6 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
     // STRATEGY E: Propagate Error for Logging
     if (!result && lastError) {
         // If we found NO results after all tries, and the last attempt was a Network Error, throw it.
-        // This allows App.tsx to see "Network Error" in the debug logs instead of just "No Preview".
         throw lastError; 
     }
 
