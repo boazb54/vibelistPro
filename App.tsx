@@ -367,8 +367,9 @@ const App: React.FC = () => {
 
       const allSongs = generatedData.songs;
       const validSongs: Song[] = [];
-      // FIX: REDUCED BATCH SIZE TO 3 to prevent mobile network choking
-      const BATCH_SIZE = 3; 
+      // PERFORMANCE UPDATE: Increased batch size for faster loading (Parallel Processing)
+      // Strategy B: Process 6 at a time to maximize throughput while relying on iTunes multi-attempt search
+      const BATCH_SIZE = 6; 
       const TARGET_VALID_COUNT = 15;
 
       for (let i = 0; i < allSongs.length; i += BATCH_SIZE) {
@@ -395,8 +396,8 @@ const App: React.FC = () => {
           const validInBatch = processedBatch.filter((s): s is Song => s !== null && s.previewUrl !== null);
           validSongs.push(...validInBatch);
           
-          // Small delay to be gentle on network
-          await new Promise(resolve => setTimeout(resolve, 300));
+          // Performance: Reduced delay to 50ms to speed up desktop experience
+          await new Promise(resolve => setTimeout(resolve, 50));
       }
       
       // STRICT FILTER: Remove any song that still has no previewUrl (despite fallback attempts)
