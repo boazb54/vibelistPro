@@ -367,9 +367,12 @@ const App: React.FC = () => {
 
       const allSongs = generatedData.songs;
       const validSongs: Song[] = [];
-      // PERFORMANCE UPDATE: Increased batch size for faster loading (Parallel Processing)
-      // Strategy B: Process 6 at a time to maximize throughput while relying on iTunes multi-attempt search
-      const BATCH_SIZE = 6; 
+      
+      // STRATEGY C: ADAPTIVE BATCHING
+      // Mobile networks choke if we fire too many requests (6 batch = 18-24 calls).
+      // We detect mobile and slow down to Safe Mode (3), while keeping Desktop Fast (6).
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      const BATCH_SIZE = isMobile ? 3 : 6; 
       const TARGET_VALID_COUNT = 15;
 
       for (let i = 0; i < allSongs.length; i += BATCH_SIZE) {
