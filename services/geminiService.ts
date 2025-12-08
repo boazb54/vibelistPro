@@ -1,7 +1,12 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { GeneratedPlaylistRaw } from "../types";
 
 export const generatePlaylistFromMood = async (mood: string, userContext?: any): Promise<GeneratedPlaylistRaw> => {
+  // 1. Explicit Check: Ensure the key exists before crashing the SDK
+  if (!process.env.API_KEY) {
+    throw new Error("API Key not found. Please add 'API_KEY' to your Vercel Environment Variables.");
+  }
+
   // Lazy initialization inside the function to prevent top-level crashes
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = "gemini-2.5-flash";
@@ -43,23 +48,24 @@ export const generatePlaylistFromMood = async (mood: string, userContext?: any):
           threshold: 'BLOCK_ONLY_HIGH',
         },
       ],
+      // FIX: Use string literals instead of Enum 'Type.OBJECT' to prevent import crashes
       responseSchema: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         required: ["playlist_title", "mood", "description", "songs"],
         properties: {
-          playlist_title: { type: Type.STRING },
-          mood: { type: Type.STRING },
-          description: { type: Type.STRING },
+          playlist_title: { type: 'STRING' },
+          mood: { type: 'STRING' },
+          description: { type: 'STRING' },
           songs: {
-            type: Type.ARRAY,
+            type: 'ARRAY',
             items: {
-              type: Type.OBJECT,
+              type: 'OBJECT',
               required: ["title", "artist", "album", "search_query"],
               properties: {
-                title: { type: Type.STRING },
-                artist: { type: Type.STRING },
-                album: { type: Type.STRING },
-                search_query: { type: Type.STRING, description: "Optimized search query to find this exact song" }
+                title: { type: 'STRING' },
+                artist: { type: 'STRING' },
+                album: { type: 'STRING' },
+                search_query: { type: 'STRING', description: "Optimized search query to find this exact song" }
               }
             }
           }
