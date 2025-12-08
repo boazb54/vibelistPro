@@ -11,27 +11,68 @@ interface ItunesResult {
   trackTimeMillis: number;
 }
 
+// HELPER: Smart Cleaning to make iTunes Search reliable
+// iTunes is picky. We need to strip "feat.", "Remastered", "Radio Edit" etc.
+const cleanText = (text: string): string => {
+  return text
+    .replace(/\(feat\..*?\)/gi, "")       // Remove (feat. X)
+    .replace(/\(ft\..*?\)/gi, "")         // Remove (ft. X)
+    .replace(/\(with.*?\)/gi, "")         // Remove (with X)
+    .replace(/\[.*?\]/g, "")              // Remove [Remastered] etc
+    .replace(/\(.*?\)/g, "")              // Remove any other parens like (2011 Remaster)
+    .replace(/- .*?remaster.*?/gi, "")    // Remove "- 2009 Remaster"
+    .replace(/- .*?version.*?/gi, "")     // Remove "- Album Version"
+    .replace(/- .*?edit.*?/gi, "")        // Remove "- Radio Edit"
+    .replace(/single/gi, "")
+    .replace(/official video/gi, "")
+    .replace(/[^\w\s]/gi, " ")            // Remove special chars
+    .replace(/\s+/g, " ")                 // Collapse spaces
+    .trim();
+};
+
 export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promise<Song> => {
   try {
-    // Basic retry logic with slightly different queries if first fails
+    const cleanTitle = cleanText(generatedSong.title);
+    const cleanArtist = cleanText(generatedSong.artist);
+
+    // STRATEGY B: Multi-Attempt Search
+    // 1. AI's specific query
+    // 2. Clean Title + Artist (The "Magic" Query)
+    // 3. Raw Title + Artist (Fallback)
+    // 4. Clean Title Only (The "Hail Mary" - guarantees a hit if artist is wrong)
     const queries = [
       generatedSong.search_query,
-      `${generatedSong.artist} ${generatedSong.title}`
+      `${cleanTitle} ${cleanArtist}`,
+      `${generatedSong.title} ${generatedSong.artist}`,
+      cleanTitle
     ];
+
+    // Deduplicate queries to save network calls
+    const uniqueQueries = Array.from(new Set(queries));
 
     let result: ItunesResult | null = null;
 
-    for (const q of queries) {
-      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=1&entity=song`;
+    for (const q of uniqueQueries) {
+      if (!q.trim()) continue;
+
+      // CRITICAL FIX: Added country=US&lang=en_us
+      // This prevents mobile networks (roaming/VPNs) from getting 302 Redirects to other store fronts
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=1&entity=song&country=US&lang=en_us`;
       
-      // FIX: Mobile Network Filter Bypass
-      // 'no-referrer' helps prevent mobile carriers from blocking the API request as "bot traffic".
-      const response = await fetch(url, { referrerPolicy: "no-referrer" });
-      const data = await response.json();
-      
-      if (data.resultCount > 0) {
-        result = data.results[0];
-        break;
+      try {
+          // FIX: Mobile Network Filter Bypass (no-referrer)
+          const response = await fetch(url, { referrerPolicy: "no-referrer" });
+          if (!response.ok) continue;
+
+          const data = await response.json();
+          
+          if (data.resultCount > 0) {
+            result = data.results[0];
+            break; // Found it! Stop searching.
+          }
+      } catch (innerErr) {
+          console.warn(`iTunes search failed for query: ${q}`, innerErr);
+          // Continue to next query attempt
       }
     }
 
