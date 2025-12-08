@@ -60,8 +60,14 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
       const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=1&entity=song`;
       
       try {
-          // FIX: Mobile Network Filter Bypass (no-referrer)
-          const response = await fetch(url, { referrerPolicy: "no-referrer" });
+          // STRATEGY F: CORS FIX for Mobile
+          // Added mode: 'cors' and credentials: 'omit' to prevent TypeError on mobile browsers
+          const response = await fetch(url, { 
+              referrerPolicy: "no-referrer",
+              mode: 'cors',
+              credentials: 'omit'
+          });
+          
           if (!response.ok) {
               throw new Error(`HTTP ${response.status}`);
           }
