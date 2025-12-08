@@ -40,10 +40,10 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
               <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 leading-tight">{playlist.title}</h1>
               <p className="text-slate-300 max-w-xl text-sm md:text-base">{playlist.description}</p>
             </div>
-            <div className="flex flex-wrap gap-3">
-               <button onClick={onReset} className="px-4 py-2 rounded-full border border-slate-600 hover:bg-slate-800 text-slate-300 transition-colors text-sm font-medium">New Vibe</button>
+            <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+               <button onClick={onReset} className="px-4 py-2 rounded-full border border-slate-600 hover:bg-slate-800 text-slate-300 transition-colors text-sm font-medium w-full md:w-auto">New Vibe</button>
                
-              <button onClick={onExport} disabled={exporting} className="px-4 py-2 rounded-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold transition-transform hover:scale-105 active:scale-95 text-sm flex items-center gap-2 disabled:opacity-50">
+              <button onClick={onExport} disabled={exporting} className="px-4 py-2 rounded-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold transition-transform hover:scale-105 active:scale-95 text-sm flex items-center justify-center gap-2 disabled:opacity-50 w-full md:w-auto">
                 {exporting ? 'Saving...' : 'Save to Spotify'}
               </button>
             </div>
