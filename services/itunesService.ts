@@ -25,7 +25,7 @@ const cleanText = (text: string): string => {
     .replace(/- .*?edit.*?/gi, "")        // Remove "- Radio Edit"
     .replace(/single/gi, "")
     .replace(/official video/gi, "")
-    .replace(/[^\w\s]/gi, " ")            // Remove special chars
+    // STRATEGY C: Removed aggressive non-word remover to keep accents/intl chars
     .replace(/\s+/g, " ")                 // Collapse spaces
     .trim();
 };
@@ -51,18 +51,20 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
     const uniqueQueries = Array.from(new Set(queries));
 
     let result: ItunesResult | null = null;
+    let lastError: any = null;
 
     for (const q of uniqueQueries) {
       if (!q.trim()) continue;
 
-      // CRITICAL FIX: Added country=US&lang=en_us
-      // This prevents mobile networks (roaming/VPNs) from getting 302 Redirects to other store fronts
-      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=1&entity=song&country=US&lang=en_us`;
+      // STRATEGY D: REMOVED country=US param
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=1&entity=song`;
       
       try {
           // FIX: Mobile Network Filter Bypass (no-referrer)
           const response = await fetch(url, { referrerPolicy: "no-referrer" });
-          if (!response.ok) continue;
+          if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+          }
 
           const data = await response.json();
           
@@ -72,8 +74,16 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
           }
       } catch (innerErr) {
           console.warn(`iTunes search failed for query: ${q}`, innerErr);
+          lastError = innerErr;
           // Continue to next query attempt
       }
+    }
+
+    // STRATEGY E: Propagate Error for Logging
+    if (!result && lastError) {
+        // If we found NO results after all tries, and the last attempt was a Network Error, throw it.
+        // This allows App.tsx to see "Network Error" in the debug logs instead of just "No Preview".
+        throw lastError; 
     }
 
     if (!result) {
@@ -102,15 +112,8 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
     };
 
   } catch (error) {
-    console.error(`Error fetching metadata for ${generatedSong.title}:`, error);
-    return {
-      id: `err-${Math.random().toString(36).substr(2, 9)}`,
-      title: generatedSong.title,
-      artist: generatedSong.artist,
-      album: generatedSong.album,
-      previewUrl: null,
-      artworkUrl: null,
-      searchQuery: generatedSong.search_query
-    };
+    // If we re-threw the network error above, it catches here.
+    // Re-throw it again so App.tsx sees it.
+    throw error;
   }
 };
