@@ -12,6 +12,8 @@ interface PlaylistViewProps {
   onExport: () => void;
   onDownloadCsv: () => void;
   onYouTubeExport: () => void;
+  onRemix: () => void; // New
+  onShare: () => void; // New
   exporting: boolean;
 }
 
@@ -23,6 +25,8 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
   onPause,
   onReset,
   onExport,
+  onRemix,
+  onShare,
   exporting
 }) => {
   return (
@@ -41,10 +45,23 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
               <p className="text-slate-300 max-w-xl text-sm md:text-base">{playlist.description}</p>
             </div>
             {/* UI Fix: Side-by-side buttons on mobile (flex-row) */}
-            <div className="flex flex-row gap-3 w-full md:w-auto">
-               <button onClick={onReset} className="px-4 py-3 md:py-2 rounded-full border border-slate-600 hover:bg-slate-800 text-slate-300 transition-colors text-sm font-medium w-auto">New Vibe</button>
+            <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
+               <button onClick={onReset} className="px-4 py-2 rounded-full border border-slate-600 hover:bg-slate-800 text-slate-300 transition-colors text-sm font-medium w-auto">New Vibe</button>
                
-              <button onClick={onExport} disabled={exporting} className="px-4 py-3 md:py-2 rounded-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold transition-transform hover:scale-105 active:scale-95 text-sm flex items-center justify-center gap-2 disabled:opacity-50 flex-grow md:flex-grow-0">
+               <button onClick={onRemix} className="px-4 py-2 rounded-full bg-purple-600/20 hover:bg-purple-600/40 text-purple-200 border border-purple-500/30 transition-colors text-sm font-medium flex items-center gap-1.5">
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                 </svg>
+                 Remix
+               </button>
+
+               <button onClick={onShare} className="p-2 rounded-full bg-slate-700/50 hover:bg-slate-600 text-slate-300 transition-colors" title="Copy Link">
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                   <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+                 </svg>
+               </button>
+               
+              <button onClick={onExport} disabled={exporting} className="px-4 py-2 rounded-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold transition-transform hover:scale-105 active:scale-95 text-sm flex items-center justify-center gap-2 disabled:opacity-50">
                 {exporting ? 'Saving...' : 'Save to Spotify'}
               </button>
             </div>
