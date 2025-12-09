@@ -4,6 +4,7 @@ import { Playlist } from '../types';
 /**
  * Saves a generated playlist to the 'generated_vibes' table.
  * This creates the "Memory" for our LLM to learn from later.
+ * Returns { data, error } object so the UI can handle logging.
  */
 export const saveVibe = async (mood: string, playlist: Playlist, userId: string | null) => {
   try {
@@ -20,15 +21,9 @@ export const saveVibe = async (mood: string, playlist: Playlist, userId: string 
       .select()
       .single();
 
-    if (error) {
-      console.warn('Supabase Insert Error:', error.message);
-      return null;
-    }
-    
-    return data;
-  } catch (error) {
-    console.warn('Failed to save vibe history:', error);
-    return null;
+    return { data, error };
+  } catch (error: any) {
+    return { data: null, error };
   }
 };
 
