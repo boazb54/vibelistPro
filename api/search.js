@@ -11,7 +11,12 @@ export default async function handler(req, res) {
     // We enforce US store and English language to prevent geo-redirects
     const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&limit=1&entity=song&country=US&lang=en_us`;
     
-    const response = await fetch(itunesUrl);
+    // FIX: Add User-Agent to prevent iTunes from blocking Vercel server IPs
+    const response = await fetch(itunesUrl, {
+        headers: {
+            'User-Agent': 'VibeList/1.0 (Web; Vercel)'
+        }
+    });
     
     if (!response.ok) {
         throw new Error(`iTunes API error: ${response.status}`);
