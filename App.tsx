@@ -483,14 +483,19 @@ const App: React.FC = () => {
       };
 
       // STRATEGY: MEMORY & LEARNING
-      // Save the generated vibe to Supabase immediately
+      // Save the generated vibe to Supabase immediately with Better Error Handling
       try {
-        const savedVibe = await saveVibe(mood, finalPlaylist, userProfile?.id || null);
-        if (savedVibe) {
+        const { data: savedVibe, error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null);
+        
+        if (saveError) {
+             addLog(`Supabase Error: ${saveError.message} - ${saveError.details || ''}`);
+             console.warn("DB Save Error:", saveError);
+        } else if (savedVibe) {
           finalPlaylist.id = savedVibe.id; // Attach DB ID to local state
           addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
         }
-      } catch (saveErr) {
+      } catch (saveErr: any) {
+        addLog(`DB Exception: ${saveErr.message}`);
         console.warn("Background save failed (non-fatal)", saveErr);
       }
 
