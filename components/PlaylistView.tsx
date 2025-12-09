@@ -12,8 +12,8 @@ interface PlaylistViewProps {
   onExport: () => void;
   onDownloadCsv: () => void;
   onYouTubeExport: () => void;
-  onRemix: () => void; // New
-  onShare: () => void; // New
+  onRemix: () => void;
+  onShare: () => void;
   exporting: boolean;
 }
 
@@ -44,7 +44,7 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
               <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 leading-tight">{playlist.title}</h1>
               <p className="text-slate-300 max-w-xl text-sm md:text-base">{playlist.description}</p>
             </div>
-            {/* UI Fix: Side-by-side buttons on mobile (flex-row) */}
+            
             <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
                <button onClick={onReset} className="px-4 py-2 rounded-full border border-slate-600 hover:bg-slate-800 text-slate-300 transition-colors text-sm font-medium w-auto">New Vibe</button>
                
@@ -70,12 +70,8 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
             {playlist.songs.map((song) => {
               const isPlaying = currentSong?.id === song.id && playerState === PlayerState.PLAYING;
               const isCurrent = currentSong?.id === song.id;
-              // Check if preview is available (Spotify previews are often null)
               const hasPreview = !!song.previewUrl;
 
-              // Force Spotify Link Logic
-              // If we have a specific URI (Logged In), use it.
-              // If not (Logged Out/Guest), construct a Spotify Search URL.
               const spotifyLink = song.spotifyUri 
                 ? `https://open.spotify.com/track/${song.id}` 
                 : `https://open.spotify.com/search/${encodeURIComponent(song.title + " " + song.artist)}`;
@@ -85,12 +81,16 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
                   <div className="relative flex-shrink-0 w-12 h-12 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-800 shadow-lg">
                     {song.artworkUrl ? <img src={song.artworkUrl} alt={song.album} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-600 bg-slate-900"><span className="text-xs">No Art</span></div>}
                     
+                    {/* VISIBILITY FIX: Removed 'opacity-0 group-hover:opacity-100' so buttons are always visible on mobile/desktop */}
                     {hasPreview ? (
-                        <button onClick={() => isPlaying ? onPause() : onPlaySong(song)} className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                        {isPlaying ? <PauseIcon className="w-6 h-6 text-white" /> : <PlayIcon className="w-6 h-6 text-white" />}
+                        <button 
+                            onClick={() => isPlaying ? onPause() : onPlaySong(song)} 
+                            className={`absolute inset-0 bg-black/30 hover:bg-black/50 flex items-center justify-center transition-colors`}
+                        >
+                            {isPlaying ? <PauseIcon className="w-6 h-6 text-white" /> : <PlayIcon className="w-6 h-6 text-white" />}
                         </button>
                     ) : (
-                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
                             <span className="text-[10px] text-slate-300 text-center px-1">No Preview</span>
                         </div>
                     )}
