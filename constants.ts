@@ -14,7 +14,8 @@ export const SPOTIFY_SCOPES = [
   "playlist-modify-public",
   "playlist-modify-private",
   "user-read-private",
-  "user-read-email"
+  "user-read-email",
+  "user-top-read"
 ];
 
 // Pre-configured Developer Credentials

@@ -5,10 +5,11 @@ import PlayerControls from './components/PlayerControls';
 import { CogIcon, SpotifyIcon } from './components/Icons';
 import { generatePlaylistFromMood } from './services/geminiService';
 import { fetchSongMetadata } from './services/itunesService';
-import { getLoginUrl, getPkceLoginUrl, exchangeCodeForToken, refreshSpotifyToken, getTokenFromHash, createSpotifyPlaylist, getUserProfile, fetchSpotifyMetadata } from './services/spotifyService';
+import { getLoginUrl, getPkceLoginUrl, exchangeCodeForToken, refreshSpotifyToken, getTokenFromHash, createSpotifyPlaylist, getUserProfile, fetchSpotifyMetadata, fetchUserTopArtists } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
 import { supabase } from './services/supabaseClient';
-import { Playlist, Song, PlayerState, SpotifyUserProfile } from './types';
+import { saveVibe, markVibeAsExported } from './services/historyService';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile } from './types';
 import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
 
 const App: React.FC = () => {
@@ -72,6 +73,7 @@ const App: React.FC = () => {
   const [manualUrlInput, setManualUrlInput] = useState('');
   const [exporting, setExporting] = useState(false);
   const [userProfile, setUserProfile] = useState<SpotifyUserProfile | null>(null);
+  const [userTaste, setUserTaste] = useState<UserTasteProfile | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
   // ----------------------------------------------------------------
@@ -133,6 +135,17 @@ const App: React.FC = () => {
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get('code');
       const error = urlParams.get('error');
+      
+      // STRATEGY: SHARE VIBE DEEP LINK
+      // If ?mood=X is present, we auto-trigger generation (but only if not in auth flow)
+      const sharedMood = urlParams.get('mood');
+      if (sharedMood && !code && !error && !playlist && !isLoading) {
+          // Decode URL component safely
+          handleMoodSelect(decodeURIComponent(sharedMood));
+          // Clean URL immediately to prevent re-trigger on refresh
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return;
+      }
 
       if (error) {
           alert(`Spotify Login Error: ${error}`);
@@ -242,10 +255,7 @@ const App: React.FC = () => {
               }
 
               // Refresh profile while we're at it
-              getUserProfile(newToken).then(profile => {
-                  setUserProfile(profile);
-                  saveUserToSupabase(profile);
-              });
+              refreshProfileAndTaste(newToken);
               
               setIsRefreshing(false);
               return newToken;
@@ -265,10 +275,7 @@ const App: React.FC = () => {
       if (storedToken && !isExpired) {
           if (!spotifyToken) {
               setSpotifyToken(storedToken);
-              getUserProfile(storedToken).then(profile => {
-                  setUserProfile(profile);
-                  saveUserToSupabase(profile);
-              }).catch(() => {});
+              refreshProfileAndTaste(storedToken);
           }
           return storedToken;
       }
@@ -292,10 +299,7 @@ const App: React.FC = () => {
           localStorage.setItem('spotify_token_expiry', (now + expiresInMs).toString());
       }
       
-      getUserProfile(token).then(profile => {
-          setUserProfile(profile);
-          saveUserToSupabase(profile);
-      }).catch(console.error);
+      refreshProfileAndTaste(token);
   };
 
   const handleSuccess = (token: string) => {
@@ -305,18 +309,27 @@ const App: React.FC = () => {
   const handleNewToken = (token: string) => {
     setSpotifyToken(token);
     localStorage.setItem('spotify_access_token', token);
-    
-    getUserProfile(token)
-        .then((profile) => {
-            setUserProfile(profile);
-            saveUserToSupabase(profile);
-        })
-        .catch(e => {
-            console.error(e);
-            alert(`Connected, but failed to load profile. \n\nIMPORTANT: You must add your email to the "User Management" list in your Spotify Developer Dashboard to fix this.\n\nError: ${e.message}`);
-        });
+    refreshProfileAndTaste(token);
   };
   
+  const refreshProfileAndTaste = async (token: string) => {
+     try {
+         const profile = await getUserProfile(token);
+         setUserProfile(profile);
+         saveUserToSupabase(profile);
+         
+         // STRATEGY: DISCOVERY BRIDGE - FETCH TASTE
+         const taste = await fetchUserTopArtists(token);
+         if (taste) {
+             setUserTaste(taste);
+             console.log("Discovery Profile Loaded:", taste.topArtists);
+         }
+     } catch(e: any) {
+         console.error(e);
+         // Don't alert here to avoid spamming the user on auto-refresh
+     }
+  }
+
   const saveUserToSupabase = async (profile: SpotifyUserProfile) => {
       try {
           const { error } = await supabase
@@ -344,6 +357,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setSpotifyToken(null);
     setUserProfile(null);
+    setUserTaste(null);
     localStorage.removeItem('spotify_access_token');
     localStorage.removeItem('spotify_user_id');
     localStorage.removeItem('spotify_refresh_token');
@@ -357,14 +371,14 @@ const App: React.FC = () => {
   // HANDLERS
   // ----------------------------------------------------------------
 
-  const handleMoodSelect = async (mood: string) => {
+  const handleMoodSelect = async (mood: string, isRemix: boolean = false) => {
     setIsLoading(true);
-    setLoadingMessage('Consulting the musical oracles...');
+    setLoadingMessage(isRemix ? 'Remixing the vibe... digging deeper...' : 'Consulting the musical oracles...');
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
     setDebugLogs([]); // Clear logs
-    addLog(`Starting generation for: ${mood}`);
+    addLog(`Starting generation for: ${mood} ${isRemix ? '(REMIX)' : ''}`);
 
     try {
       const userContext = userProfile ? {
@@ -372,9 +386,18 @@ const App: React.FC = () => {
           explicit_filter_enabled: userProfile.explicit_content?.filter_enabled
       } : undefined;
 
+      // STRATEGY: REMIX - ANTI-REPETITION
+      // If remixing, pass the current songs as exclusions
+      const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
+      
+      // STRATEGY: DISCOVERY BRIDGE - TASTE INJECTION
+      // We pass the fetched taste profile (Top Artists/Genres) to Gemini
+      const tasteContext = userTaste || undefined;
+
       // We now request 25 songs to create a buffer for the Strict Filter
       addLog("Calling Gemini API...");
-      const generatedData = await generatePlaylistFromMood(mood, userContext);
+      const generatedData = await generatePlaylistFromMood(mood, userContext, tasteContext, excludeSongs);
+      
       addLog(`Gemini returned ${generatedData.songs.length} raw songs.`);
       setLoadingMessage('Finding preview tapes...');
       
@@ -454,10 +477,23 @@ const App: React.FC = () => {
 
       const finalPlaylist: Playlist = {
         title: generatedData.playlist_title,
-        mood: generatedData.mood,
+        mood: generatedData.mood, // Gemini returns a cleaner string
         description: generatedData.description,
         songs: displaySongs
       };
+
+      // STRATEGY: MEMORY & LEARNING
+      // Save the generated vibe to Supabase immediately
+      try {
+        const savedVibe = await saveVibe(mood, finalPlaylist, userProfile?.id || null);
+        if (savedVibe) {
+          finalPlaylist.id = savedVibe.id; // Attach DB ID to local state
+          addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
+        }
+      } catch (saveErr) {
+        console.warn("Background save failed (non-fatal)", saveErr);
+      }
+
       setPlaylist(finalPlaylist);
     } catch (error: any) {
       console.error(error);
@@ -467,6 +503,24 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleRemix = () => {
+    if (!playlist) return;
+    // Trigger generation again with the same mood, but set isRemix=true
+    // This triggers the Exclusion Logic in handleMoodSelect
+    handleMoodSelect(playlist.mood, true);
+  };
+
+  const handleShare = () => {
+    if (!playlist) return;
+    // Generate a deep link: https://vibelist.app/?mood=Chill
+    const url = `${window.location.origin}/?mood=${encodeURIComponent(playlist.mood)}`;
+    navigator.clipboard.writeText(url).then(() => {
+        alert("Link copied to clipboard! Share this vibe with friends.");
+    }).catch(e => {
+        alert("Failed to copy link. " + url);
+    });
   };
 
   const handlePlaySong = (song: Song) => {
@@ -632,6 +686,13 @@ const App: React.FC = () => {
           }
       }
       const url = await createSpotifyPlaylist(activeToken, playlist, userId);
+      
+      // STRATEGY: REINFORCEMENT LEARNING SIGNAL
+      // Mark this vibe as successfully exported
+      if (playlist.id) {
+        markVibeAsExported(playlist.id).catch(err => console.warn("Failed to mark export", err));
+      }
+
       window.open(url, "_blank");
     } catch (error: any) {
       console.error(error);
@@ -671,6 +732,7 @@ const App: React.FC = () => {
           app_name: "VibeList+",
           timestamp: new Date().toISOString(),
           user_profile: userProfile,
+          user_taste: userTaste,
           auth_state: {
               has_token: !!spotifyToken,
               token_expiry: localStorage.getItem('spotify_token_expiry'),
@@ -787,6 +849,8 @@ const App: React.FC = () => {
             onExport={handleSpotifyExport}
             onDownloadCsv={handleDownloadCsv}
             onYouTubeExport={handleYouTubeExport}
+            onRemix={handleRemix}
+            onShare={handleShare}
             exporting={exporting}
           />
         )}

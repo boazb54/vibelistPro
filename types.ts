@@ -12,6 +12,7 @@ export interface Song {
 }
 
 export interface Playlist {
+  id?: string; // Supabase UUID for history tracking
   title: string;
   mood: string;
   description: string;
@@ -64,4 +65,17 @@ export interface SpotifyUserProfile {
   images: SpotifyImage[];
   product: string;
   uri: string;
+}
+
+// NEW: For Discovery Bridge
+export interface SpotifyArtist {
+  id: string;
+  name: string;
+  genres: string[];
+  popularity: number;
+}
+
+export interface UserTasteProfile {
+  topArtists: string[];
+  topGenres: string[];
 }
