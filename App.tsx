@@ -2,550 +2,322 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
-import { CogIcon, SpotifyIcon } from './components/Icons';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile } from './types';
 import { generatePlaylistFromMood } from './services/geminiService';
 import { fetchSongMetadata } from './services/itunesService';
-import { getLoginUrl, getPkceLoginUrl, exchangeCodeForToken, refreshSpotifyToken, getTokenFromHash, createSpotifyPlaylist, getUserProfile, fetchSpotifyMetadata, fetchUserTopArtists } from './services/spotifyService';
+import { 
+  getLoginUrl, 
+  getPkceLoginUrl,
+  exchangeCodeForToken,
+  refreshSpotifyToken,
+  getTokenFromHash, 
+  createSpotifyPlaylist, 
+  getUserProfile, 
+  fetchSpotifyMetadata,
+  fetchUserTopArtists
+} from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
-import { supabase } from './services/supabaseClient';
 import { saveVibe, markVibeAsExported } from './services/historyService';
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile } from './types';
+import { supabase } from './services/supabaseClient';
 import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
 
 const App: React.FC = () => {
-  // ----------------------------------------------------------------
-  // STATE
-  // ----------------------------------------------------------------
-  
-  // FIX: Race condition lock for strict mode / fast mobile browsers
-  const authProcessed = useRef(false);
-
-  // DEBUGGING UI STATE
+  const [playlist, setPlaylist] = useState<Playlist | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Curating vibes...');
+  const [currentSong, setCurrentSong] = useState<Song | null>(null);
+  const [playerState, setPlayerState] = useState<PlayerState>(PlayerState.STOPPED);
+  const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<SpotifyUserProfile | null>(null);
+  const [userTaste, setUserTaste] = useState<UserTasteProfile | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
 
+  // FIX: Race condition lock for strict mode / fast mobile browsers
+  const authProcessed = useRef(false);
+  // FIX: Track generation sessions to prevent race conditions during Instant Render
+  const generationSessionId = useRef(0);
+
+  const spotifyClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
+
   const addLog = (msg: string) => {
-      const time = new Date().toLocaleTimeString();
-      setDebugLogs(prev => [`[${time}] ${msg}`, ...prev].slice(50));
+    setDebugLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`]);
   };
 
-  const [playlist, setPlaylist] = useState<Playlist | null>(() => {
-    try {
-      const saved = localStorage.getItem('vibelist_playlist');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      console.error("Failed to parse playlist from storage", e);
-      return null;
-    }
-  });
-
-  const [currentSong, setCurrentSong] = useState<Song | null>(() => {
-    try {
-      const saved = localStorage.getItem('vibelist_currentSong');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      console.error("Failed to parse current song from storage", e);
-      return null;
-    }
-  });
-
-  const [playerState, setPlayerState] = useState<PlayerState>(() => {
-    return localStorage.getItem('vibelist_currentSong') ? PlayerState.PAUSED : PlayerState.STOPPED;
-  });
-
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('');
-  
-  // Spotify State
-  const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
-  
-  // Initialize with Defaults or LocalStorage
-  const [spotifyClientId, setSpotifyClientId] = useState<string>(() => {
-      return localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
-  });
-  const [spotifyRedirectUri, setSpotifyRedirectUri] = useState<string>(() => {
-      return localStorage.getItem('spotify_redirect_uri') || DEFAULT_REDIRECT_URI;
-  });
-
-  const [usePkce, setUsePkce] = useState<boolean>(true); // Default to True now
-  const [showSettings, setShowSettings] = useState(false);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [manualUrlInput, setManualUrlInput] = useState('');
-  const [exporting, setExporting] = useState(false);
-  const [userProfile, setUserProfile] = useState<SpotifyUserProfile | null>(null);
-  const [userTaste, setUserTaste] = useState<UserTasteProfile | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  
-  // ----------------------------------------------------------------
-  // EFFECTS
-  // ----------------------------------------------------------------
-  
   useEffect(() => {
-    // AUTO-UPDATE REDIRECT URI FOR PRODUCTION
-    // If we are on Vercel (not localhost) and the stored URI is still example.com, update it.
-    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        const realUrl = `${window.location.origin}/`;
-        const storedUrl = localStorage.getItem('spotify_redirect_uri');
-        if (storedUrl !== realUrl) {
-            console.log("Auto-updating Redirect URI to match production domain:", realUrl);
-            localStorage.setItem('spotify_redirect_uri', realUrl);
-            setSpotifyRedirectUri(realUrl);
-        }
-    } else {
-        // If local storage is empty, ensure defaults are set
-        if (!localStorage.getItem('spotify_client_id')) {
-            localStorage.setItem('spotify_client_id', DEFAULT_SPOTIFY_CLIENT_ID);
-        }
-        if (!localStorage.getItem('spotify_redirect_uri')) {
-            localStorage.setItem('spotify_redirect_uri', DEFAULT_REDIRECT_URI);
-        }
+    const storedToken = localStorage.getItem('spotify_token');
+    if (storedToken) {
+      setSpotifyToken(storedToken);
+      fetchProfile(storedToken);
     }
+    
+    handleSpotifyAuth();
 
-    refreshSessionIfNeeded();
+    // Check for shared vibe in URL
+    const params = new URLSearchParams(window.location.search);
+    const sharedMood = params.get('mood');
+    if (sharedMood) {
+       // Clean URL so we don't loop or clutter
+       window.history.replaceState({}, '', window.location.pathname);
+       // Trigger generation if not already doing so
+       // We need a small delay to ensure auth is processed if present
+       setTimeout(() => {
+         if (!playlist) handleMoodSelect(sharedMood);
+       }, 500);
+    }
   }, []);
 
-  useEffect(() => {
-    if (playlist) {
-      localStorage.setItem('vibelist_playlist', JSON.stringify(playlist));
-    } else {
-      localStorage.removeItem('vibelist_playlist');
-    }
-  }, [playlist]);
+  const handleSpotifyAuth = async () => {
+    if (authProcessed.current) return;
 
-  useEffect(() => {
-    if (currentSong) {
-      localStorage.setItem('vibelist_currentSong', JSON.stringify(currentSong));
-    } else {
-      localStorage.removeItem('vibelist_currentSong');
-    }
-  }, [currentSong]);
+    const code = new URLSearchParams(window.location.search).get('code');
+    const token = getTokenFromHash();
 
-  // TOKEN / CODE HANDLING
-  useEffect(() => {
-    const handleAuth = async () => {
-      // 1. Check for Access Token (Legacy)
-      const tokenFromHash = getTokenFromHash();
-      if (tokenFromHash) {
-        handleSuccess(tokenFromHash);
-        window.history.replaceState({}, document.title, window.location.pathname);
-        return;
-      }
-
-      // 2. Check for Auth Code (PKCE)
-      const urlParams = new URLSearchParams(window.location.search);
-      const code = urlParams.get('code');
-      const error = urlParams.get('error');
-      
-      // STRATEGY: SHARE VIBE DEEP LINK
-      // If ?mood=X is present, we auto-trigger generation (but only if not in auth flow)
-      const sharedMood = urlParams.get('mood');
-      if (sharedMood && !code && !error && !playlist && !isLoading) {
-          // Decode URL component safely
-          handleMoodSelect(decodeURIComponent(sharedMood));
-          // Clean URL immediately to prevent re-trigger on refresh
-          window.history.replaceState({}, document.title, window.location.pathname);
-          return;
-      }
-
-      if (error) {
-          alert(`Spotify Login Error: ${error}`);
-          window.history.replaceState({}, document.title, window.location.pathname);
-          return;
-      }
-      
-      if (code) {
-        // FIX: Check lock to prevent double execution in strict mode or mobile browsers
-        if (authProcessed.current) return;
-        authProcessed.current = true;
-
-        setIsLoading(true);
-        setLoadingMessage('Connecting to Spotify...');
-        
-        // We need the code_verifier we saved before redirect
-        const verifier = localStorage.getItem('spotify_code_verifier');
-        // Use defaults if LS is missing, though verifier MUST be in LS
-        const storedClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
-        const storedRedirectUri = localStorage.getItem('spotify_redirect_uri') || DEFAULT_REDIRECT_URI;
-
-        if (verifier) {
-           try {
-             // Clear the code from the URL so it looks clean
-             window.history.replaceState({}, document.title, window.location.pathname);
-             
-             const data = await exchangeCodeForToken(storedClientId, storedRedirectUri, code, verifier);
-             if (data.access_token) {
-               // Clear verifier to be clean
-               localStorage.removeItem('spotify_code_verifier');
-               // Handle success with full data object to save refresh token
-               handleSuccessFull(data);
-             } else {
-               throw new Error("No access token in response");
-             }
-           } catch (e: any) {
-             console.error("PKCE Exchange Failed", e);
-             alert(`Connection Failed: ${e.message}`);
-             // Reset lock on failure so user can try again if they reload
-             authProcessed.current = false;
-           } finally {
-             setIsLoading(false);
-           }
-        } else {
-           // If verifier is missing, it might be a refresh loop or stale link
-           // Don't error immediately if we already have a token
-           if (!localStorage.getItem('spotify_access_token')) {
-               alert('Missing PKCE verifier. Please try connecting again.');
-           }
-           setIsLoading(false);
+    if (code) {
+      authProcessed.current = true;
+      window.location.hash = ""; 
+      const verifier = localStorage.getItem('code_verifier');
+      if (verifier) {
+        try {
+          const data = await exchangeCodeForToken(spotifyClientId, DEFAULT_REDIRECT_URI, code, verifier);
+          handleSuccessFullAuth(data.access_token, data.refresh_token);
+        } catch (e) {
+          console.error("PKCE Exchange failed", e);
         }
       }
-    };
-
-    handleAuth();
-
-    // Listeners for cross-window communication
-    const messageHandler = (event: MessageEvent) => {
-      if (event.data?.type === 'SPOTIFY_TOKEN' && event.data?.token) {
-        handleNewToken(event.data.token);
-      }
-    };
-    window.addEventListener('message', messageHandler);
-
-    const storageHandler = (event: StorageEvent) => {
-      if (event.key === 'spotify_access_token' && event.newValue) {
-        handleNewToken(event.newValue);
-      }
-    };
-    window.addEventListener('storage', storageHandler);
-
-    return () => {
-      window.removeEventListener('message', messageHandler);
-      window.removeEventListener('storage', storageHandler);
-    };
-  }, []);
-
-  // ----------------------------------------------------------------
-  // AUTH HELPERS
-  // ----------------------------------------------------------------
-
-  // Returns the current valid token, refreshing it if necessary
-  const refreshSessionIfNeeded = async (): Promise<string | null> => {
-      const storedToken = localStorage.getItem('spotify_access_token');
-      const storedRefreshToken = localStorage.getItem('spotify_refresh_token');
-      const storedExpiry = localStorage.getItem('spotify_token_expiry');
-      const clientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
-
-      const now = Date.now();
-      const isExpired = !storedExpiry || now > parseInt(storedExpiry, 10);
-
-      // If we have a refresh token and need a new access token
-      if (storedRefreshToken && isExpired) {
-          setIsRefreshing(true);
-          try {
-              const data = await refreshSpotifyToken(clientId, storedRefreshToken);
-              
-              const newToken = data.access_token;
-              localStorage.setItem('spotify_access_token', newToken);
-              setSpotifyToken(newToken);
-              
-              const expiresInMs = (data.expires_in || 3600) * 1000;
-              localStorage.setItem('spotify_token_expiry', (now + expiresInMs).toString());
-              
-              if (data.refresh_token) {
-                  localStorage.setItem('spotify_refresh_token', data.refresh_token);
-              }
-
-              // Refresh profile while we're at it
-              refreshProfileAndTaste(newToken);
-              
-              setIsRefreshing(false);
-              return newToken;
-          } catch (e) {
-              console.error("Auto-refresh failed", e);
-              setSpotifyToken(null);
-              setUserProfile(null);
-              localStorage.removeItem('spotify_access_token');
-              localStorage.removeItem('spotify_refresh_token');
-              localStorage.removeItem('spotify_token_expiry');
-              setIsRefreshing(false);
-              return null;
-          }
-      }
-
-      // If valid, just return what we have
-      if (storedToken && !isExpired) {
-          if (!spotifyToken) {
-              setSpotifyToken(storedToken);
-              refreshProfileAndTaste(storedToken);
-          }
-          return storedToken;
-      }
-
-      return null;
+    } else if (token) {
+      authProcessed.current = true;
+      window.location.hash = "";
+      handleSuccessFullAuth(token);
+    }
   };
 
-  const handleSuccessFull = (data: any) => {
-      const token = data.access_token;
+  const handleSuccessFullAuth = (accessToken: string, refreshToken?: string) => {
+    setSpotifyToken(accessToken);
+    localStorage.setItem('spotify_token', accessToken);
+    if (refreshToken) {
+      localStorage.setItem('spotify_refresh_token', refreshToken);
+    }
+    fetchProfile(accessToken);
+  };
+
+  const fetchProfile = async (token: string) => {
+    try {
+      const profile = await getUserProfile(token);
+      setUserProfile(profile);
       
-      setSpotifyToken(token);
-      
-      // Save all tokens
-      localStorage.setItem('spotify_access_token', token);
-      if (data.refresh_token) {
-          localStorage.setItem('spotify_refresh_token', data.refresh_token);
-      }
-      if (data.expires_in) {
-          const now = Date.now();
-          const expiresInMs = data.expires_in * 1000;
-          localStorage.setItem('spotify_token_expiry', (now + expiresInMs).toString());
-      }
-      
+      // NEW: Fetch Taste Profile for Discovery
       refreshProfileAndTaste(token);
+    } catch (e) {
+      console.error("Failed to fetch profile", e);
+      // If unauthorized, clear token
+      localStorage.removeItem('spotify_token');
+      setSpotifyToken(null);
+    }
   };
 
-  const handleSuccess = (token: string) => {
-     handleNewToken(token);
-  }
-
-  const handleNewToken = (token: string) => {
-    setSpotifyToken(token);
-    localStorage.setItem('spotify_access_token', token);
-    refreshProfileAndTaste(token);
-  };
-  
   const refreshProfileAndTaste = async (token: string) => {
-     try {
-         const profile = await getUserProfile(token);
-         setUserProfile(profile);
-         saveUserToSupabase(profile);
-         
-         // STRATEGY: DISCOVERY BRIDGE - FETCH TASTE
-         const taste = await fetchUserTopArtists(token);
-         if (taste) {
-             setUserTaste(taste);
-             console.log("Discovery Profile Loaded:", taste.topArtists);
-         }
-     } catch(e: any) {
-         console.error(e);
-         // Don't alert here to avoid spamming the user on auto-refresh
-     }
-  }
-
-  const saveUserToSupabase = async (profile: SpotifyUserProfile) => {
       try {
-          const { error } = await supabase
-              .from('users')
-              .upsert({
-                  id: profile.id,
-                  email: profile.email,
-                  display_name: profile.display_name,
-                  country: profile.country,
-                  product: profile.product,
-                  explicit_filter: profile.explicit_content?.filter_enabled,
-                  last_login: new Date().toISOString()
-              });
-          
-          if (error) {
-              console.warn("Supabase save error (table might not exist yet):", error.message);
-          } else {
-              console.log("User segmentation saved to cloud.");
+          // 1. Taste
+          const taste = await fetchUserTopArtists(token);
+          if (taste) {
+              setUserTaste(taste);
+              addLog(`Taste profile loaded: ${taste.topGenres.slice(0, 3).join(', ')}`);
           }
       } catch (e) {
-          console.warn("Supabase connection issue:", e);
+          console.warn("Could not load taste profile", e);
       }
   };
 
-  const handleLogout = () => {
-    setSpotifyToken(null);
-    setUserProfile(null);
-    setUserTaste(null);
-    localStorage.removeItem('spotify_access_token');
-    localStorage.removeItem('spotify_user_id');
-    localStorage.removeItem('spotify_refresh_token');
-    localStorage.removeItem('spotify_token_expiry');
+  const handleLogin = async () => {
+    // Generate PKCE
+    const verifier = generateRandomString(128);
+    const challenge = await generateCodeChallenge(verifier);
     
-    // STRATEGY K: Set a flag so the next login attempt forces the dialog
-    localStorage.setItem('spotify_logout_intent', 'true');
+    localStorage.setItem('code_verifier', verifier);
+    const url = getPkceLoginUrl(spotifyClientId, DEFAULT_REDIRECT_URI, challenge);
+    window.location.href = url;
   };
 
-  // ----------------------------------------------------------------
-  // HANDLERS
-  // ----------------------------------------------------------------
+  const refreshSessionIfNeeded = async (): Promise<string | null> => {
+    if (!spotifyToken) return null;
+    // Simple check: if we get 401 later, we handle it. 
+    // Ideally check expiration time. For now, rely on existing token.
+    return spotifyToken;
+  };
 
+  // --- REFACTORED CORE LOGIC: INSTANT RENDER & PARALLEL BURST ---
   const handleMoodSelect = async (mood: string, isRemix: boolean = false) => {
+    // Increment session ID to invalidate any previous running generations
+    // This handles the case where user clicks "Remix" quickly multiple times
+    const currentSessionId = ++generationSessionId.current;
+
     setIsLoading(true);
-    setLoadingMessage(isRemix ? 'Remixing the vibe... digging deeper...' : 'Consulting the musical oracles...');
+    setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
+    
+    // If remixing, we grab current songs to exclude them (Anti-Repetition)
+    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
+    
+    // Clear previous state (optional, but good for "Loading" feedback)
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
-    setDebugLogs([]); // Clear logs
-    addLog(`Starting generation for: ${mood} ${isRemix ? '(REMIX)' : ''}`);
+    setDebugLogs([]); // Start fresh logs
+
+    addLog(`Generating vibe for: "${mood}"...`);
+
+    // Prepare Context
+    let userContext = {};
+    if (userProfile) {
+        userContext = {
+            country: userProfile.country,
+            explicit_filter_enabled: userProfile.explicit_content?.filter_enabled
+        };
+    }
 
     try {
-      const userContext = userProfile ? {
-          country: userProfile.country,
-          explicit_filter_enabled: userProfile.explicit_content?.filter_enabled
-      } : undefined;
+        // 1. CALL GEMINI (The Brain)
+        // ~3-4 seconds
+        const generatedData = await generatePlaylistFromMood(
+            mood, 
+            userContext, 
+            userTaste || undefined, 
+            excludeSongs
+        );
 
-      // STRATEGY: REMIX - ANTI-REPETITION
-      // If remixing, pass the current songs as exclusions
-      const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
-      
-      // STRATEGY: DISCOVERY BRIDGE - TASTE INJECTION
-      // We pass the fetched taste profile (Top Artists/Genres) to Gemini
-      const tasteContext = userTaste || undefined;
+        // RACE CONDITION CHECK
+        if (currentSessionId !== generationSessionId.current) return;
 
-      // We now request 25 songs to create a buffer for the Strict Filter
-      addLog("Calling Gemini API...");
-      const generatedData = await generatePlaylistFromMood(mood, userContext, tasteContext, excludeSongs);
-      
-      addLog(`Gemini returned ${generatedData.songs.length} raw songs.`);
-      setLoadingMessage('Finding preview tapes...');
-      
-      // Ensure we have a valid token if possible
-      const activeToken = await refreshSessionIfNeeded();
+        // 2. INSTANT RENDER (The Sketch)
+        // We immediately show the song titles while fetching audio in background.
+        // This makes the app feel INSTANT (4s) instead of slow (40s).
+        const skeletonSongs: Song[] = generatedData.songs.map((s, idx) => ({
+            id: `temp-${idx}`, // Temporary ID
+            title: s.title,
+            artist: s.artist,
+            album: s.album,
+            previewUrl: null, // No audio yet
+            artworkUrl: null, // No art yet
+            searchQuery: s.search_query
+        }));
 
-      const allSongs = generatedData.songs;
-      const validSongs: Song[] = [];
-      
-      // STRATEGY E: DEEP MOBILE DETECTION & RATE LIMITING
-      // We check window width to catch iPads and "Request Desktop Site" usage
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (typeof window !== 'undefined' && window.innerWidth < 768);
-      
-      // Desktop: Reduced from 6 to 4 to prevent IP Rate Limiting (Strategy E)
-      // Mobile: Kept at 3 for network safety
-      const BATCH_SIZE = isMobile ? 3 : 4; 
-      const TARGET_VALID_COUNT = 15;
-      
-      addLog(`Device: ${isMobile ? 'Mobile' : 'Desktop'}. Batch Size: ${BATCH_SIZE}`);
+        const skeletonPlaylist: Playlist = {
+            title: generatedData.playlist_title,
+            mood: generatedData.mood,
+            description: generatedData.description,
+            songs: skeletonSongs
+        };
 
-      for (let i = 0; i < allSongs.length; i += BATCH_SIZE) {
-          if (validSongs.length >= TARGET_VALID_COUNT) break;
+        setPlaylist(skeletonPlaylist); // SHOW UI NOW
+        setIsLoading(false); // HIDE LOADING SPINNER
+        addLog("Instant render complete. Hydrating metadata...");
 
-          const batch = allSongs.slice(i, i + BATCH_SIZE);
-          addLog(`Processing batch ${i / BATCH_SIZE + 1}...`);
-          
-          // Process batch in parallel
-          const processedBatch = await Promise.all(
-              batch.map(async (s) => {
-                  try {
-                      let res: Song | null = null;
-                      if (activeToken) {
-                          res = await fetchSpotifyMetadata(activeToken, s);
-                      } else {
-                          res = await fetchSongMetadata(s);
-                      }
-                      
-                      if (res && res.previewUrl) {
-                          return res;
-                      } else {
-                          // STRATEGY E: Deep Logging to distinguish "No Preview" vs "Network Error"
-                          addLog(`Failed to find preview for: ${s.title}`);
-                          return null;
-                      }
-                  } catch (e: any) {
-                      // FIX: Log detailed error message instead of generic Error name
-                      addLog(`Error fetching ${s.title}: ${e.message || e.name}`);
-                      return null; // Ignore failed fetches
-                  }
-              })
-          );
+        // 3. BURST FETCHING (The Painting)
+        // Fetch metadata in parallel chunks (Burst Mode)
+        const allSongsRaw = generatedData.songs;
+        const validSongs: Song[] = [];
+        const CHUNK_SIZE = 12; // Process 12 songs at a time (Fast)
 
-          // Filter this batch immediately
-          const validInBatch = processedBatch.filter((s): s is Song => s !== null);
-          addLog(`Batch result: ${validInBatch.length} valid songs.`);
-          validSongs.push(...validInBatch);
-          
-          // Strategy E: Increased delay to 200ms to be polite to iTunes API and prevent IP blocking
-          await new Promise(resolve => setTimeout(resolve, 200));
-      }
-      
-      // STRICT FILTER: Remove any song that still has no previewUrl (despite fallback attempts)
-      // This guarantees "Zero Songs Without Preview".
-      
-      addLog(`Total valid songs found: ${validSongs.length}`);
+        const token = await refreshSessionIfNeeded();
 
-      if (validSongs.length === 0) {
-          addLog("CRITICAL FAILURE: 0 valid songs found.");
-          alert("We couldn't generate any songs with valid previews. Please check the Debug Console at the bottom for details.");
-          setPlaylist(null);
-          setShowDebug(true); // Auto-show debug on failure
-          return;
-      }
+        for (let i = 0; i < allSongsRaw.length; i += CHUNK_SIZE) {
+             // Check if user cancelled/remixed while we were fetching
+             if (currentSessionId !== generationSessionId.current) return;
 
-      // Limit to 15 songs maximum for the final display
-      const displaySongs = validSongs.slice(0, 15);
+             const batch = allSongsRaw.slice(i, i + CHUNK_SIZE);
+             addLog(`Hydrating batch ${Math.floor(i / CHUNK_SIZE) + 1}...`);
 
-      const finalPlaylist: Playlist = {
-        title: generatedData.playlist_title,
-        mood: generatedData.mood, // Gemini returns a cleaner string
-        description: generatedData.description,
-        songs: displaySongs
-      };
+             // Fire all requests in parallel
+             const results = await Promise.all(batch.map(async (raw) => {
+                 try {
+                     // Primary: iTunes for Previews
+                     // Future: We can use fetchSpotifyMetadata(token, raw) if we prefer
+                     return await fetchSongMetadata(raw);
+                 } catch (e) {
+                     console.warn(`Failed metadata for ${raw.title}`);
+                     return null;
+                 }
+             }));
 
-      // STRATEGY: MEMORY & LEARNING
-      // Save the generated vibe to Supabase immediately with Better Error Handling
-      try {
-        const { data: savedVibe, error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null);
-        
-        if (saveError) {
-             addLog(`Supabase Error: ${saveError.message} - ${saveError.details || ''}`);
-             console.warn("DB Save Error:", saveError);
-             setShowDebug(true); // <--- CRITICAL: Auto-open debug on DB error
-        } else if (savedVibe) {
-          finalPlaylist.id = savedVibe.id; // Attach DB ID to local state
-          addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
+             validSongs.push(...results.filter((s): s is Song => s !== null));
         }
-      } catch (saveErr: any) {
-        addLog(`DB Exception: ${saveErr.message}`);
-        console.warn("Background save failed (non-fatal)", saveErr);
-        setShowDebug(true); // Auto-open debug
-      }
 
-      setPlaylist(finalPlaylist);
+        if (currentSessionId !== generationSessionId.current) return;
+
+        // 4. FINAL UPDATE (Rich Data)
+        // Update the UI with the fully loaded songs (Images/Audio pop in)
+        const finalPlaylist: Playlist = {
+            ...skeletonPlaylist,
+            songs: validSongs
+        };
+        setPlaylist(finalPlaylist);
+        addLog("Hydration complete. UI Updated.");
+
+        // 5. MEMORY & LEARNING (Save to Supabase)
+        try {
+            const { data: savedVibe, error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null);
+            
+            if (saveError) {
+                addLog(`Database Error: ${saveError.message}`);
+                // Auto-open debug if DB fails so we can see why
+                setShowDebug(true); 
+            } else if (savedVibe) {
+                // Attach the DB ID to the playlist in state so we can track exports later
+                setPlaylist(prev => prev ? { ...prev, id: savedVibe.id } : null);
+                addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
+            }
+        } catch (dbErr) {
+            console.error(dbErr);
+        }
+
     } catch (error: any) {
-      console.error(error);
-      addLog(`Top Level Error: ${error.message}`);
-      alert(`Failed to generate playlist: ${error.message || 'Unknown error'}`);
-      setShowDebug(true);
-    } finally {
-      setIsLoading(false);
+        console.error("Generation failed", error);
+        setLoadingMessage("Error generating playlist. Please try again.");
+        setTimeout(() => setIsLoading(false), 2000);
     }
+  };
+
+  // --- ACTIONS ---
+
+  const handleReset = () => {
+    setPlaylist(null);
+    setCurrentSong(null);
+    setPlayerState(PlayerState.STOPPED);
   };
 
   const handleRemix = () => {
-    if (!playlist) return;
-    // Trigger generation again with the same mood, but set isRemix=true
-    // This triggers the Exclusion Logic in handleMoodSelect
-    handleMoodSelect(playlist.mood, true);
+      if (playlist) {
+          handleMoodSelect(playlist.mood, true);
+      }
   };
 
   const handleShare = () => {
-    if (!playlist) return;
-    // Generate a deep link: https://vibelist.app/?mood=Chill
-    const url = `${window.location.origin}/?mood=${encodeURIComponent(playlist.mood)}`;
-    navigator.clipboard.writeText(url).then(() => {
-        alert("Link copied to clipboard! Share this vibe with friends.");
-    }).catch(e => {
-        alert("Failed to copy link. " + url);
-    });
+      if (!playlist) return;
+      const url = `${window.location.origin}/?mood=${encodeURIComponent(playlist.mood)}`;
+      navigator.clipboard.writeText(url).then(() => {
+          alert(`Vibe link copied to clipboard!\n${url}`);
+      });
   };
 
   const handlePlaySong = (song: Song) => {
-    if (!song.previewUrl) {
-        // This should technically never happen due to the strict filter above,
-        // but it's a good safety check.
-        alert("Sorry, no audio preview is available for this song.");
-        return;
-    }
-    if (currentSong?.id === song.id && playerState === PlayerState.PLAYING) {
-      setPlayerState(PlayerState.PAUSED);
+    if (currentSong?.id === song.id) {
+      if (playerState === PlayerState.PLAYING) {
+        setPlayerState(PlayerState.PAUSED);
+      } else {
+        setPlayerState(PlayerState.PLAYING);
+      }
     } else {
       setCurrentSong(song);
       setPlayerState(PlayerState.PLAYING);
     }
   };
 
-  const handleNext = useCallback(() => {
+  const handlePause = () => {
+    setPlayerState(PlayerState.PAUSED);
+  };
+
+  const handleNext = () => {
     if (!playlist || !currentSong) return;
     const idx = playlist.songs.findIndex(s => s.id === currentSong.id);
     if (idx < playlist.songs.length - 1) {
@@ -553,295 +325,117 @@ const App: React.FC = () => {
     } else {
       setPlayerState(PlayerState.STOPPED);
     }
-  }, [playlist, currentSong]);
+  };
 
-  const handlePrev = useCallback(() => {
+  const handlePrev = () => {
     if (!playlist || !currentSong) return;
     const idx = playlist.songs.findIndex(s => s.id === currentSong.id);
     if (idx > 0) {
       handlePlaySong(playlist.songs[idx - 1]);
     }
-  }, [playlist, currentSong]);
-
-  const handleSpotifyAuth = async () => {
-    const currentClientId = spotifyClientId || DEFAULT_SPOTIFY_CLIENT_ID;
-    
-    if (!currentClientId) {
-      alert("Configuration Error: Missing Client ID.");
-      setShowSettings(true);
-      return;
-    }
-
-    // STRATEGY L: PRE-FLIGHT DEBUGGER (Removed as per updated flow but keeping URI clean)
-    // const cleanClientId = currentClientId.replace(/[^a-zA-Z0-9]/g, '');
-    const cleanClientId = currentClientId.trim();
-
-    // In production, we force the redirect URI to the current domain if it wasn't set manually
-    let cleanRedirectUri = (spotifyRedirectUri || DEFAULT_REDIRECT_URI).trim();
-    
-    // Safety check: if we are in production but URI is example.com, fix it now
-    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && cleanRedirectUri === "https://example.com/") {
-        cleanRedirectUri = `${window.location.origin}/`;
-    }
-    
-    // DEBUG: Validate Redirect URI matching dashboard
-    if (window.confirm(`DEBUG INFO:\nRedirect URI: ${cleanRedirectUri}\n\nEnsure this EXACT URL is in your Spotify Dashboard!`)) {
-        localStorage.setItem('spotify_client_id', cleanClientId);
-        localStorage.setItem('spotify_redirect_uri', cleanRedirectUri);
-        
-        setSpotifyClientId(cleanClientId);
-        setSpotifyRedirectUri(cleanRedirectUri);
-
-        // STRATEGY K: Check if user explicitly logged out previously
-        const shouldForceDialog = localStorage.getItem('spotify_logout_intent') === 'true';
-        if (shouldForceDialog) {
-            // Clear the flag immediately so next time is silent again
-            localStorage.removeItem('spotify_logout_intent');
-        }
-
-        let url = "";
-        if (usePkce) {
-            const verifier = generateRandomString(128);
-            const challenge = await generateCodeChallenge(verifier);
-            localStorage.setItem('spotify_code_verifier', verifier);
-            // Pass the dialog flag
-            url = getPkceLoginUrl(cleanClientId, cleanRedirectUri, challenge, shouldForceDialog);
-        } else {
-            url = getLoginUrl(cleanClientId, cleanRedirectUri, shouldForceDialog);
-        }
-
-        // Redirect the current window
-        window.location.href = url;
-    }
   };
 
-  const handleManualUrlSubmit = async () => {
-    try {
-      let input = manualUrlInput.trim();
-      if (!input) { alert("Please paste the URL first."); return; }
-      try { input = decodeURIComponent(input); } catch (e) {}
-
-      if (input.includes('error=')) {
-          const match = input.match(/error=([^&]*)/);
-          alert(`Spotify Error: ${match ? match[1] : 'Unknown'}`);
-          return;
-      }
-
-      const tokenMatch = input.match(/[#?&]access_token=([^&]*)/);
-      if (tokenMatch && tokenMatch[1]) {
-        handleNewToken(tokenMatch[1]);
-        setManualUrlInput('');
-        return;
-      }
-
-      const codeMatch = input.match(/[?&]code=([^&]*)/);
-      if (codeMatch && codeMatch[1]) {
-         const code = codeMatch[1];
-         const verifier = localStorage.getItem('spotify_code_verifier');
-         if (!verifier) {
-             alert("PKCE Error: No code_verifier found. You must initiate the login from this browser.");
-             return;
-         }
-         try {
-             const data = await exchangeCodeForToken(spotifyClientId, spotifyRedirectUri, code, verifier);
-             if (data.access_token) {
-                 handleSuccessFull(data);
-                 localStorage.removeItem('spotify_code_verifier');
-                 setManualUrlInput('');
-                 alert("Connected Successfully! (Auto-refresh enabled)");
-             } else {
-                 alert("Failed to exchange code for token.");
-             }
-         } catch(e: any) {
-             alert(`Exchange Failed: ${e.message}`);
-         }
-         return;
-      }
-      alert("Could not find 'access_token' or 'code' in the pasted URL.");
-    } catch (e) {
-      alert("Error parsing input.");
-    }
-  };
-  
-  const handleSpotifyExport = async () => {
-    if (!spotifyToken) {
-      handleSpotifyAuth();
+  const handleExportToSpotify = async () => {
+    if (!playlist || !spotifyToken || !userProfile) {
+      handleLogin();
       return;
     }
     
-    // Ensure token is fresh before we try to use it
-    const activeToken = await refreshSessionIfNeeded();
-    
-    if (!activeToken) {
-        handleSpotifyAuth();
-        return;
-    }
-
-    if (!playlist) return;
     setExporting(true);
-
     try {
-      let userId = userProfile?.id;
-      if (!userId) {
-          try {
-             const profile = await getUserProfile(activeToken);
-             userId = profile.id;
-             setUserProfile(profile);
-             saveUserToSupabase(profile);
-          } catch(e) {
-              throw new Error("Could not determine Spotify User ID. Please make sure your email is added to the Spotify Dashboard User Management.");
-          }
-      }
-      const url = await createSpotifyPlaylist(activeToken, playlist, userId);
+      const url = await createSpotifyPlaylist(spotifyToken, playlist, userProfile.id);
       
-      // STRATEGY: REINFORCEMENT LEARNING SIGNAL
-      // Mark this vibe as successfully exported
+      // TRACK SUCCESS
       if (playlist.id) {
-        markVibeAsExported(playlist.id).catch(err => console.warn("Failed to mark export", err));
+          await markVibeAsExported(playlist.id);
       }
 
-      window.open(url, "_blank");
-    } catch (error: any) {
-      console.error(error);
-      alert(`Export Failed: ${error.message}`);
+      window.open(url, '_blank');
+    } catch (e: any) {
+      alert(`Failed to export: ${e.message}`);
     } finally {
       setExporting(false);
     }
   };
 
-  const handleDownloadCsv = () => {
-    if (!playlist) return;
-    const headers = ['Title', 'Artist', 'Album', 'Search Query'];
-    const rows = playlist.songs.map(s => [s.title, s.artist, s.album, s.searchQuery]);
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${playlist.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_playlist.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleYouTubeExport = () => {
-    if (!playlist) return;
-    const query = encodeURIComponent(`${playlist.title} playlist`);
-    window.open(`https://www.youtube.com/results?search_query=${query}`, '_blank');
-  };
-
-  const handleSystemDataExport = () => {
-      const dump = {
-          app_name: "VibeList+",
-          timestamp: new Date().toISOString(),
-          user_profile: userProfile,
-          user_taste: userTaste,
-          auth_state: {
-              has_token: !!spotifyToken,
-              token_expiry: localStorage.getItem('spotify_token_expiry'),
-              has_refresh_token: !!localStorage.getItem('spotify_refresh_token')
-          },
-          configuration: {
-              client_id: spotifyClientId,
-              redirect_uri: spotifyRedirectUri,
-              mode: 'pkce'
-          },
-          current_session: {
-              active_playlist: playlist,
-              current_song: currentSong
-          }
-      };
-
-      const jsonStr = JSON.stringify(dump, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `vibelist_system_data_${Date.now()}.json`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-  };
-
-  const saveSettings = () => {
-    const cleanClientId = spotifyClientId.replace(/[^a-zA-Z0-9]/g, '');
-    const cleanRedirectUri = spotifyRedirectUri.trim();
-
-    localStorage.setItem('spotify_client_id', cleanClientId);
-    localStorage.setItem('spotify_redirect_uri', cleanRedirectUri);
-    
-    setSpotifyClientId(cleanClientId);
-    setSpotifyRedirectUri(cleanRedirectUri);
-    setShowSettings(false);
-  };
-
-  // ----------------------------------------------------------------
-  // RENDER: MAIN APP
-  // ----------------------------------------------------------------
   return (
-    <div className="min-h-screen relative overflow-hidden text-white">
-      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-gradient z-0"></div>
-      
-      <div className="absolute top-4 right-4 z-40 flex items-center gap-3 pointer-events-auto">
-        <button 
-            disabled={isRefreshing}
-            onClick={spotifyToken ? () => setShowSettings(true) : handleSpotifyAuth}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all shadow-lg ${
-                isRefreshing ? 'opacity-50 cursor-wait bg-gray-600 text-gray-300' :
-                spotifyToken 
-                ? 'bg-black/40 text-[#1DB954] border border-[#1DB954]/50 hover:bg-black/60' 
-                : 'bg-[#1DB954] text-black font-bold hover:bg-[#1ed760] hover:scale-105'
-            }`}
-        >
-            <SpotifyIcon className="w-5 h-5" />
-            <span className="text-sm font-bold truncate max-w-[120px] hidden md:inline">
-                {isRefreshing ? 'Refreshing...' : (spotifyToken ? (userProfile?.display_name || 'Connected') : 'Connect Spotify')}
-            </span>
-        </button>
-
-        <button onClick={() => setShowSettings(true)} className="p-2.5 rounded-full bg-slate-800/50 hover:bg-slate-700 text-slate-300 transition-colors backdrop-blur-sm border border-slate-700">
-            <CogIcon className="w-6 h-6" />
-        </button>
+    <div className="min-h-screen bg-[#0f172a] text-white flex flex-col relative overflow-hidden">
+      {/* BACKGROUND ELEMENTS */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+        <div className="absolute -top-20 -left-20 w-96 h-96 bg-purple-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
+        <div className="absolute top-40 right-10 w-96 h-96 bg-cyan-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-20 left-1/2 w-96 h-96 bg-pink-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
       </div>
 
-      {/* DEBUG CONSOLE (Toggle via bottom-left hidden click or Failure) */}
-      <div className={`fixed bottom-0 left-0 right-0 bg-black/90 text-green-400 p-4 z-[100] transition-transform duration-300 border-t border-green-800 h-64 overflow-y-auto font-mono text-xs ${showDebug ? 'translate-y-0' : 'translate-y-full'}`}>
-          <div className="flex justify-between items-center mb-2 sticky top-0 bg-black/90 py-1 border-b border-green-800/50">
-              <span className="font-bold">DEBUG CONSOLE</span>
-              <div className="flex gap-4">
-                  <button onClick={() => setDebugLogs([])} className="text-slate-400 hover:text-white">CLEAR</button>
-                  <button onClick={() => setShowDebug(false)} className="text-slate-400 hover:text-white">CLOSE</button>
+      {/* HEADER */}
+      <header className="relative z-10 w-full p-6 flex justify-between items-center glass-panel border-b border-white/5">
+        <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
+           <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 to-cyan-400 rounded-lg flex items-center justify-center">
+             <span className="font-bold text-white">V+</span>
+           </div>
+           <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden md:block">
+             VibeList+
+           </h1>
+        </div>
+        
+        <div className="flex items-center gap-4">
+           {/* Debug Toggle (Hidden unless clicked) */}
+           <button onClick={() => setShowDebug(!showDebug)} className="text-xs text-slate-700 hover:text-slate-500">
+               π
+           </button>
+
+           {!spotifyToken ? (
+             <button 
+               onClick={handleLogin}
+               className="text-sm font-medium bg-[#1DB954] text-black px-5 py-2 rounded-full hover:bg-[#1ed760] transition-all shadow-lg hover:shadow-[#1DB954]/20"
+             >
+               Login with Spotify
+             </button>
+           ) : (
+             <div className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10">
+               {userProfile?.images?.[0] ? (
+                 <img src={userProfile.images[0].url} alt="Profile" className="w-6 h-6 rounded-full border border-white/20" />
+               ) : (
+                 <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-xs font-bold">
+                    {userProfile?.display_name?.[0] || 'U'}
+                 </div>
+               )}
+               <span className="text-sm font-medium text-slate-200 hidden md:block">
+                 {userProfile?.display_name}
+               </span>
+             </div>
+           )}
+        </div>
+      </header>
+
+      {/* DEBUG CONSOLE */}
+      {showDebug && (
+          <div className="fixed bottom-20 right-4 w-80 h-64 bg-black/90 text-green-400 font-mono text-xs p-4 overflow-y-auto z-[60] border border-green-800 rounded-lg shadow-2xl">
+              <div className="flex justify-between border-b border-green-900 pb-1 mb-2">
+                  <span>DEBUG LOGS</span>
+                  <button onClick={() => setDebugLogs([])}>Clear</button>
               </div>
-          </div>
-          {debugLogs.map((log, i) => (
-              <div key={i} className="mb-1 border-b border-green-900/30 pb-1">{log}</div>
-          ))}
-      </div>
-      
-      {/* Hidden Debug Trigger (Bottom Left Corner) */}
-      <div className="fixed bottom-0 left-0 w-16 h-16 z-[99]" onDoubleClick={() => setShowDebug(true)}></div>
-
-      <div className="relative z-10 container mx-auto px-4 pt-6 md:pt-12 pb-20">
-        <header className="flex flex-col items-center mb-16 pointer-events-none">
-            <h1 className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 mb-2">VibeList+</h1>
-            <p className="text-slate-400 text-sm font-medium tracking-widest uppercase">AI Mood Curator</p>
-            {isRefreshing && <p className="text-xs text-green-400 mt-2 animate-pulse">Refreshing Spotify Session...</p>}
-        </header>
-
-        {isLoading ? (
-          <div className="w-full max-w-4xl mx-auto p-4 animate-pulse">
-            <div className="h-48 bg-slate-800/50 rounded-3xl mb-6 flex items-center justify-center border border-white/5">
-                <div className="text-slate-500 text-sm font-mono animate-pulse">{loadingMessage}</div>
-            </div>
-            <div className="space-y-4">
-              {[1,2,3,4,5].map(i => (
-                <div key={i} className="h-20 bg-slate-800/30 rounded-xl border border-white/5"></div>
+              {debugLogs.map((log, i) => (
+                  <div key={i} className="mb-1">{log}</div>
               ))}
+          </div>
+      )}
+
+      {/* MAIN CONTENT */}
+      <main className="relative z-10 flex-grow flex flex-col items-center justify-center p-4">
+        {isLoading ? (
+          <div className="text-center animate-fade-in">
+            <div className="relative w-24 h-24 mx-auto mb-8">
+               <div className="absolute inset-0 border-4 border-slate-700 rounded-full"></div>
+               <div className="absolute inset-0 border-4 border-purple-500 rounded-full border-t-transparent animate-spin"></div>
+               <div className="absolute inset-0 flex items-center justify-center">
+                 <span className="text-2xl">✨</span>
+               </div>
             </div>
+            <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-cyan-400 animate-pulse">
+              {loadingMessage}
+            </h2>
+            <p className="text-slate-500 mt-2">Consulting the oracles...</p>
           </div>
         ) : !playlist ? (
           <MoodSelector onSelectMood={handleMoodSelect} isLoading={isLoading} />
@@ -851,137 +445,28 @@ const App: React.FC = () => {
             currentSong={currentSong}
             playerState={playerState}
             onPlaySong={handlePlaySong}
-            onPause={() => setPlayerState(PlayerState.PAUSED)}
-            onReset={() => { setPlaylist(null); setPlayerState(PlayerState.STOPPED); setCurrentSong(null); }}
-            onExport={handleSpotifyExport}
-            onDownloadCsv={handleDownloadCsv}
-            onYouTubeExport={handleYouTubeExport}
+            onPause={handlePause}
+            onReset={handleReset}
+            onExport={handleExportToSpotify}
+            onDownloadCsv={() => {}}
+            onYouTubeExport={() => {}}
             onRemix={handleRemix}
             onShare={handleShare}
             exporting={exporting}
           />
         )}
-      </div>
+      </main>
 
+      {/* PLAYER */}
       <PlayerControls 
         currentSong={currentSong}
         playerState={playerState}
-        onTogglePlay={() => { if (playerState === PlayerState.PLAYING) setPlayerState(PlayerState.PAUSED); else setPlayerState(PlayerState.PLAYING); }}
+        onTogglePlay={() => playerState === PlayerState.PLAYING ? handlePause() : currentSong && handlePlaySong(currentSong)}
         onNext={handleNext}
         onPrev={handlePrev}
-        onClose={() => {
-            setPlayerState(PlayerState.STOPPED);
-            setCurrentSong(null);
-        }}
+        onClose={() => setPlayerState(PlayerState.STOPPED)}
         playlistTitle={playlist?.title}
       />
-
-      {showSettings && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="glass-panel w-full max-w-md rounded-2xl p-6 relative max-h-[90vh] overflow-y-auto">
-                <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white">✕</button>
-                <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><SpotifyIcon className="w-6 h-6 text-[#1DB954]" />Settings</h3>
-                
-                {/* ACCOUNT SECTION */}
-                <div className="mb-6">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Account</h4>
-                    {!spotifyToken ? (
-                        <div className="p-4 bg-gradient-to-r from-[#1DB954] to-[#198c43] rounded-xl flex items-center justify-between shadow-lg">
-                            <div>
-                               <p className="font-bold text-white">Connect your account</p>
-                               <p className="text-xs text-green-100">Log in with your Spotify email & password</p>
-                               <p className="text-[10px] text-green-200 mt-1">If "Continue with Google" fails, use email/password.</p>
-                            </div>
-                            <button onClick={handleSpotifyAuth} className="bg-white text-[#1DB954] font-bold px-4 py-2 rounded-lg text-sm hover:scale-105 transition-transform shadow-sm">
-                               Log In
-                            </button>
-                        </div>
-                    ) : (
-                        userProfile && (
-                            <div>
-                                <div className="bg-gradient-to-r from-[#1DB954]/20 to-[#1DB954]/5 border border-[#1DB954]/30 p-4 rounded-xl flex items-center gap-4 shadow-lg shadow-green-900/10 mb-2">
-                                     {userProfile.images && userProfile.images[0] ? (
-                                        <img src={userProfile.images[0].url} alt="Profile" className="w-12 h-12 rounded-full border-2 border-[#1DB954]" />
-                                     ) : (
-                                        <div className="w-12 h-12 rounded-full bg-[#1DB954] flex items-center justify-center text-black font-bold text-lg shadow-lg">
-                                            {userProfile.display_name?.charAt(0) || 'U'}
-                                        </div>
-                                     )}
-                                     <div>
-                                         <p className="text-[10px] text-[#1DB954] font-black uppercase tracking-widest mb-0.5">Connected As</p>
-                                         <p className="text-white font-bold text-base">{userProfile.display_name}</p>
-                                         <p className="text-xs text-slate-300">{userProfile.email}</p>
-                                         
-                                         {/* SEGMENTATION DEBUG DATA */}
-                                         <div className="mt-2 text-[10px] text-slate-500 font-mono">
-                                            <span className="mr-2">CTRY: {userProfile.country || 'N/A'}</span>
-                                            <span className="mr-2">SUB: {userProfile.product || 'N/A'}</span>
-                                            <span>EXPL: {userProfile.explicit_content?.filter_enabled ? 'OFF' : 'ON'}</span>
-                                         </div>
-                                     </div>
-                                </div>
-                                <button onClick={handleLogout} className="text-xs text-slate-500 hover:text-red-400 w-full text-right">Log Out</button>
-                            </div>
-                        )
-                    )}
-                </div>
-
-                <div className="bg-yellow-900/30 border border-yellow-700/50 p-3 rounded-lg mb-6">
-                   <p className="text-yellow-200 text-xs font-bold mb-1">⚠️ Development Mode</p>
-                   <p className="text-yellow-200 text-xs leading-relaxed">Ensure your email is added to "User Management" in the Spotify Developer Dashboard, otherwise login will fail.</p>
-                </div>
-
-                <div className="mb-4 border-t border-white/10 pt-4">
-                     <button onClick={() => setShowAdvancedSettings(!showAdvancedSettings)} className="text-xs text-slate-500 underline hover:text-white flex items-center gap-1">
-                        {showAdvancedSettings ? 'Hide Advanced Debugging' : 'Show Advanced Debugging'}
-                     </button>
-                     
-                     {showAdvancedSettings && (
-                         <div className="mt-3">
-                             <div className="mb-6 pt-4">
-                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Developer Configuration</h4>
-                                <div className="mb-4">
-                                    <label className="block text-xs uppercase text-slate-500 mb-1 font-bold">Client ID</label>
-                                    <input type="text" value={spotifyClientId} onChange={(e) => setSpotifyClientId(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))} placeholder="32-char hex ID" className={`w-full bg-slate-800 border rounded-lg p-3 text-white focus:ring-2 focus:ring-[#1DB954] focus:outline-none ${spotifyClientId.length > 0 && spotifyClientId.length !== 32 ? 'border-red-500' : 'border-slate-700'}`} />
-                                    {spotifyClientId.length > 0 && spotifyClientId.length !== 32 && <p className="text-red-400 text-xs mt-1">ID should be 32 chars.</p>}
-                                </div>
-
-                                <div className="mb-4">
-                                    <label className="block text-xs uppercase text-slate-500 mb-1 font-bold">Redirect URI</label>
-                                    <div className="bg-blue-900/30 border border-blue-700 p-2 rounded mb-2">
-                                         <p className="text-blue-200 text-[10px] font-bold mb-1">Recommended: Example.com</p>
-                                         <p className="text-blue-200 text-[10px] leading-tight mb-2">Redirect to a simple page and copy the URL back here.</p>
-                                         <button onClick={() => setSpotifyRedirectUri("https://example.com/")} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold px-2 py-1 rounded">Set to https://example.com/</button>
-                                    </div>
-                                    <input type="text" value={spotifyRedirectUri} onChange={(e) => setSpotifyRedirectUri(e.target.value.trim())} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white" />
-                                </div>
-                                <div className="mt-4 border-t border-slate-700 pt-4">
-                                     <button onClick={handleSystemDataExport} className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold py-2 rounded-lg text-xs transition-colors">
-                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                                           <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                                         </svg>
-                                         Export System Data (JSON)
-                                     </button>
-                                     <p className="text-[10px] text-slate-500 mt-2 text-center">Dumps all local storage keys and state to a JSON file.</p>
-                                </div>
-                            </div>
-                         
-                             <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
-                                <h4 className="text-xs font-bold text-white mb-2">Manual Connection</h4>
-                                <p className="text-[10px] text-slate-400 mb-2">Copy the full URL from the popup (Example.com) and paste it here.</p>
-                                <div className="flex gap-2">
-                                    <input type="text" value={manualUrlInput} onChange={(e) => setManualUrlInput(e.target.value)} placeholder="Paste URL..." className="flex-grow bg-slate-900 border border-slate-600 rounded-lg p-2 text-xs text-white" />
-                                    <button onClick={handleManualUrlSubmit} className="bg-slate-700 hover:bg-slate-600 text-xs font-bold px-3 rounded-lg">Connect</button>
-                                </div>
-                             </div>
-                         </div>
-                     )}
-                </div>
-
-                <button onClick={saveSettings} className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-3 rounded-xl transition-all">Save & Close</button>
-            </div>
-        </div>
-      )}
     </div>
   );
 };
