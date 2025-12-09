@@ -56,37 +56,54 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
     for (const q of uniqueQueries) {
       if (!q.trim()) continue;
 
-      let url = '';
-
+      // STRATEGY R: ROBUST FALLBACK
+      // 1. Try Proxy (if Production)
       if (isProduction) {
-          // PRODUCTION: Use the Server-Side Proxy (api/search.js)
-          // This bypasses Mobile Carrier blocks and CORS issues completely.
-          // Note: The proxy function internally adds country=US, limit=1, etc.
-          url = `/api/search?term=${encodeURIComponent(q)}`;
-      } else {
-          // LOCALHOST: Use Direct Connection
-          // Development machines usually don't have carrier blocks, and /api/ isn't served by Vite by default.
-          url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=1&entity=song&country=US&lang=en_us`;
+          try {
+              const proxyUrl = `/api/search?term=${encodeURIComponent(q)}`;
+              const response = await fetch(proxyUrl);
+              
+              if (response.ok) {
+                  const data = await response.json();
+                  if (data.resultCount > 0) {
+                      result = data.results[0];
+                      break; // Found via Proxy!
+                  }
+                  // If response ok but 0 results, continue loop (try next query)
+                  continue; 
+              } else {
+                  // If Proxy returns 404/500, throw to trigger fallback
+                  console.warn(`Proxy failed for "${q}": ${response.status}`);
+                  throw new Error(`ProxyStatus ${response.status}`);
+              }
+          } catch (proxyErr) {
+              // Proxy failed (e.g. 404 Not Found), fall through to Direct attempt
+              console.warn("Proxy unreachable, falling back to Direct", proxyErr);
+          }
       }
-      
+
+      // 2. Direct Fallback (Localhost OR Production-Fallback)
+      // If Proxy failed (or we are local), we try direct.
+      // Note: On Mobile Production, this might still fail (CORS), but on Desktop Production, this SAVES the app.
       try {
-          // Standard Fetch (No JSONP, No CORS hacks needed for Proxy)
-          const response = await fetch(url);
+          // FIX: Removed country=US from Direct Fetch to prevent Desktop CORS/Redirect failures
+          const directUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=1&entity=song`;
+          
+          const response = await fetch(directUrl);
           
           if (!response.ok) {
-             // If proxy fails or iTunes fails
-             throw new Error(`Status ${response.status}`);
+             throw new Error(`DirectStatus ${response.status}`);
           }
 
           const data = await response.json();
           
           if (data.resultCount > 0) {
             result = data.results[0];
-            break; // Found it! Stop searching.
+            break; // Found via Direct!
           }
-      } catch (innerErr) {
-          console.warn(`Search failed for query: ${q}`, innerErr);
-          lastError = innerErr;
+      } catch (directErr) {
+          console.warn(`Direct search failed for query: ${q}`, directErr);
+          lastError = directErr;
       }
     }
 

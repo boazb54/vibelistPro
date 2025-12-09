@@ -1,4 +1,4 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { GeneratedPlaylistRaw } from "../types";
 
 export const generatePlaylistFromMood = async (mood: string, userContext?: any): Promise<GeneratedPlaylistRaw> => {
@@ -32,20 +32,20 @@ export const generatePlaylistFromMood = async (mood: string, userContext?: any):
       responseMimeType: "application/json",
       safetySettings: [
         {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+          category: 'HARM_CATEGORY_HARASSMENT',
+          threshold: 'BLOCK_ONLY_HIGH',
         },
         {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+          category: 'HARM_CATEGORY_HATE_SPEECH',
+          threshold: 'BLOCK_ONLY_HIGH',
         },
         {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+          category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+          threshold: 'BLOCK_ONLY_HIGH',
         },
         {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+          category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+          threshold: 'BLOCK_ONLY_HIGH',
         },
       ],
       // FIX: Use string literals instead of Enum 'Type.OBJECT' to prevent import crashes
@@ -79,4 +79,36 @@ export const generatePlaylistFromMood = async (mood: string, userContext?: any):
   }
   
   throw new Error("Failed to generate playlist content");
+};
+
+// STRATEGY P: AI-Powered Audio Transcription
+// Uses Gemini 2.5 Flash to accept raw audio and transcribe it.
+export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<string> => {
+    if (!process.env.API_KEY) {
+        throw new Error("API Key missing");
+    }
+
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // Use 2.5 Flash for fast, cheap, multimodal transcription
+    const model = "gemini-2.5-flash";
+
+    const response = await ai.models.generateContent({
+        model,
+        contents: [
+            {
+                inlineData: {
+                    mimeType: mimeType,
+                    data: base64Audio
+                }
+            },
+            {
+                // STRATEGY Q: Native Transcription (No Translation)
+                // We ask Gemini to transcribe exactly what was said in the original language.
+                // This allows Hebrew/Spanish/etc to pass through correctly to the playlist generator.
+                text: "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble."
+            }
+        ]
+    });
+
+    return response.text || "";
 };
