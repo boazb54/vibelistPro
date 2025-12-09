@@ -26,7 +26,7 @@ const App: React.FC = () => {
 
   const addLog = (msg: string) => {
       const time = new Date().toLocaleTimeString();
-      setDebugLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
+      setDebugLogs(prev => [`[${time}] ${msg}`, ...prev].slice(50));
   };
 
   const [playlist, setPlaylist] = useState<Playlist | null>(() => {
@@ -490,6 +490,7 @@ const App: React.FC = () => {
         if (saveError) {
              addLog(`Supabase Error: ${saveError.message} - ${saveError.details || ''}`);
              console.warn("DB Save Error:", saveError);
+             setShowDebug(true); // <--- CRITICAL: Auto-open debug on DB error
         } else if (savedVibe) {
           finalPlaylist.id = savedVibe.id; // Attach DB ID to local state
           addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
@@ -497,6 +498,7 @@ const App: React.FC = () => {
       } catch (saveErr: any) {
         addLog(`DB Exception: ${saveErr.message}`);
         console.warn("Background save failed (non-fatal)", saveErr);
+        setShowDebug(true); // Auto-open debug
       }
 
       setPlaylist(finalPlaylist);
@@ -969,7 +971,7 @@ const App: React.FC = () => {
                                 <p className="text-[10px] text-slate-400 mb-2">Copy the full URL from the popup (Example.com) and paste it here.</p>
                                 <div className="flex gap-2">
                                     <input type="text" value={manualUrlInput} onChange={(e) => setManualUrlInput(e.target.value)} placeholder="Paste URL..." className="flex-grow bg-slate-900 border border-slate-600 rounded-lg p-2 text-xs text-white" />
-                                    <button onClick={handleManualUrlSubmit} className="bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold px-3 rounded-lg">Connect</button>
+                                    <button onClick={handleManualUrlSubmit} className="bg-slate-700 hover:bg-slate-600 text-xs font-bold px-3 rounded-lg">Connect</button>
                                 </div>
                              </div>
                          </div>
