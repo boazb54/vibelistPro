@@ -21,8 +21,13 @@ export const saveVibe = async (mood: string, playlist: Playlist, userId: string 
       .select()
       .single();
 
+    if (error) {
+      console.error("Supabase Raw Error:", error);
+    }
+
     return { data, error };
   } catch (error: any) {
+    console.error("Supabase Exception:", error);
     return { data: null, error };
   }
 };
