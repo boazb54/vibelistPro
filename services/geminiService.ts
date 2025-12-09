@@ -1,4 +1,4 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
 import { GeneratedPlaylistRaw } from "../types";
 
 export const generatePlaylistFromMood = async (
@@ -74,24 +74,23 @@ export const generatePlaylistFromMood = async (
           threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
         },
       ],
-      // FIX: Use string literals instead of Enum 'Type.OBJECT' to prevent import crashes
       responseSchema: {
-        type: 'OBJECT',
+        type: Type.OBJECT,
         required: ["playlist_title", "mood", "description", "songs"],
         properties: {
-          playlist_title: { type: 'STRING' },
-          mood: { type: 'STRING' },
-          description: { type: 'STRING' },
+          playlist_title: { type: Type.STRING },
+          mood: { type: Type.STRING },
+          description: { type: Type.STRING },
           songs: {
-            type: 'ARRAY',
+            type: Type.ARRAY,
             items: {
-              type: 'OBJECT',
+              type: Type.OBJECT,
               required: ["title", "artist", "album", "search_query"],
               properties: {
-                title: { type: 'STRING' },
-                artist: { type: 'STRING' },
-                album: { type: 'STRING' },
-                search_query: { type: 'STRING', description: "Optimized search query to find this exact song" }
+                title: { type: Type.STRING },
+                artist: { type: Type.STRING },
+                album: { type: Type.STRING },
+                search_query: { type: Type.STRING, description: "Optimized search query to find this exact song" }
               }
             }
           }
