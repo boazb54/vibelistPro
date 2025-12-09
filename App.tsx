@@ -5,6 +5,7 @@ import PlayerControls from './components/PlayerControls';
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile } from './types';
 import { generatePlaylistFromMood } from './services/geminiService';
 import { fetchSongMetadata } from './services/itunesService';
+import { CogIcon } from './components/Icons';
 import { 
   getLoginUrl, 
   getPkceLoginUrl,
@@ -142,32 +143,27 @@ const App: React.FC = () => {
 
   const refreshSessionIfNeeded = async (): Promise<string | null> => {
     if (!spotifyToken) return null;
-    // Simple check: if we get 401 later, we handle it. 
-    // Ideally check expiration time. For now, rely on existing token.
     return spotifyToken;
   };
 
   // --- REFACTORED CORE LOGIC: INSTANT RENDER & PARALLEL BURST ---
   const handleMoodSelect = async (mood: string, isRemix: boolean = false) => {
-    // Increment session ID to invalidate any previous running generations
-    // This handles the case where user clicks "Remix" quickly multiple times
     const currentSessionId = ++generationSessionId.current;
 
     setIsLoading(true);
     setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
     
-    // If remixing, we grab current songs to exclude them (Anti-Repetition)
+    // Grab exclusions if remixing
     const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
     
-    // Clear previous state (optional, but good for "Loading" feedback)
+    // Clear state
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
-    setDebugLogs([]); // Start fresh logs
+    setDebugLogs([]); 
 
     addLog(`Generating vibe for: "${mood}"...`);
 
-    // Prepare Context
     let userContext = {};
     if (userProfile) {
         userContext = {
@@ -186,19 +182,17 @@ const App: React.FC = () => {
             excludeSongs
         );
 
-        // RACE CONDITION CHECK
         if (currentSessionId !== generationSessionId.current) return;
 
         // 2. INSTANT RENDER (The Sketch)
-        // We immediately show the song titles while fetching audio in background.
-        // This makes the app feel INSTANT (4s) instead of slow (40s).
+        // Show text immediately.
         const skeletonSongs: Song[] = generatedData.songs.map((s, idx) => ({
-            id: `temp-${idx}`, // Temporary ID
+            id: `temp-${idx}`, 
             title: s.title,
             artist: s.artist,
             album: s.album,
-            previewUrl: null, // No audio yet
-            artworkUrl: null, // No art yet
+            previewUrl: null, 
+            artworkUrl: null, 
             searchQuery: s.search_query
         }));
 
@@ -214,25 +208,22 @@ const App: React.FC = () => {
         addLog("Instant render complete. Hydrating metadata...");
 
         // 3. BURST FETCHING (The Painting)
-        // Fetch metadata in parallel chunks (Burst Mode)
         const allSongsRaw = generatedData.songs;
         const validSongs: Song[] = [];
-        const CHUNK_SIZE = 12; // Process 12 songs at a time (Fast)
+        // OPTIMIZATION: Reduced chunk size to 6 to prevent network stalling/timeout
+        const CHUNK_SIZE = 6; 
 
+        // Not using token for iTunes fetch, but kept for future structure
         const token = await refreshSessionIfNeeded();
 
         for (let i = 0; i < allSongsRaw.length; i += CHUNK_SIZE) {
-             // Check if user cancelled/remixed while we were fetching
              if (currentSessionId !== generationSessionId.current) return;
 
              const batch = allSongsRaw.slice(i, i + CHUNK_SIZE);
              addLog(`Hydrating batch ${Math.floor(i / CHUNK_SIZE) + 1}...`);
 
-             // Fire all requests in parallel
              const results = await Promise.all(batch.map(async (raw) => {
                  try {
-                     // Primary: iTunes for Previews
-                     // Future: We can use fetchSpotifyMetadata(token, raw) if we prefer
                      return await fetchSongMetadata(raw);
                  } catch (e) {
                      console.warn(`Failed metadata for ${raw.title}`);
@@ -246,7 +237,6 @@ const App: React.FC = () => {
         if (currentSessionId !== generationSessionId.current) return;
 
         // 4. FINAL UPDATE (Rich Data)
-        // Update the UI with the fully loaded songs (Images/Audio pop in)
         const finalPlaylist: Playlist = {
             ...skeletonPlaylist,
             songs: validSongs
@@ -254,16 +244,14 @@ const App: React.FC = () => {
         setPlaylist(finalPlaylist);
         addLog("Hydration complete. UI Updated.");
 
-        // 5. MEMORY & LEARNING (Save to Supabase)
+        // 5. MEMORY & LEARNING
         try {
             const { data: savedVibe, error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null);
             
             if (saveError) {
                 addLog(`Database Error: ${saveError.message}`);
-                // Auto-open debug if DB fails so we can see why
                 setShowDebug(true); 
             } else if (savedVibe) {
-                // Attach the DB ID to the playlist in state so we can track exports later
                 setPlaylist(prev => prev ? { ...prev, id: savedVibe.id } : null);
                 addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
             }
@@ -345,7 +333,6 @@ const App: React.FC = () => {
     try {
       const url = await createSpotifyPlaylist(spotifyToken, playlist, userProfile.id);
       
-      // TRACK SUCCESS
       if (playlist.id) {
           await markVibeAsExported(playlist.id);
       }
@@ -379,7 +366,12 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-4">
-           {/* Debug Toggle (Hidden unless clicked) */}
+           {/* Settings Button */}
+           <button title="Settings">
+             <CogIcon className="w-6 h-6 text-slate-400 hover:text-white transition-colors" />
+           </button>
+
+           {/* Debug Toggle */}
            <button onClick={() => setShowDebug(!showDebug)} className="text-xs text-slate-700 hover:text-slate-500">
                π
            </button>
@@ -464,7 +456,10 @@ const App: React.FC = () => {
         onTogglePlay={() => playerState === PlayerState.PLAYING ? handlePause() : currentSong && handlePlaySong(currentSong)}
         onNext={handleNext}
         onPrev={handlePrev}
-        onClose={() => setPlayerState(PlayerState.STOPPED)}
+        onClose={() => {
+           setPlayerState(PlayerState.STOPPED);
+           setCurrentSong(null); // Actually close the player
+        }}
         playlistTitle={playlist?.title}
       />
     </div>
