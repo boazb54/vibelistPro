@@ -420,8 +420,8 @@ const App: React.FC = () => {
                           return null;
                       }
                   } catch (e: any) {
-                      // STRATEGY E: Explicitly log network errors
-                      addLog(`Error fetching ${s.title}: ${e.name || e.message}`);
+                      // FIX: Log detailed error message instead of generic Error name
+                      addLog(`Error fetching ${s.title}: ${e.message || e.name}`);
                       return null; // Ignore failed fetches
                   }
               })
@@ -717,7 +717,7 @@ const App: React.FC = () => {
     <div className="min-h-screen relative overflow-hidden text-white">
       <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-gradient z-0"></div>
       
-      <div className="absolute top-4 right-4 z-40 flex items-center gap-3">
+      <div className="absolute top-4 right-4 z-40 flex items-center gap-3 pointer-events-auto">
         <button 
             disabled={isRefreshing}
             onClick={spotifyToken ? () => setShowSettings(true) : handleSpotifyAuth}
@@ -729,7 +729,7 @@ const App: React.FC = () => {
             }`}
         >
             <SpotifyIcon className="w-5 h-5" />
-            <span className="text-sm font-bold truncate max-w-[120px]">
+            <span className="text-sm font-bold truncate max-w-[120px] hidden md:inline">
                 {isRefreshing ? 'Refreshing...' : (spotifyToken ? (userProfile?.display_name || 'Connected') : 'Connect Spotify')}
             </span>
         </button>
@@ -764,9 +764,15 @@ const App: React.FC = () => {
         </header>
 
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center min-h-[400px]">
-             <div className="relative w-24 h-24 mb-6"><div className="absolute inset-0 border-t-4 border-cyan-400 rounded-full animate-spin"></div><div className="absolute inset-2 border-t-4 border-purple-500 rounded-full animate-spin" style={{animationDirection: 'reverse', animationDuration: '1.5s'}}></div></div>
-             <p className="text-xl text-slate-300 animate-pulse">{loadingMessage}</p>
+          <div className="w-full max-w-4xl mx-auto p-4 animate-pulse">
+            <div className="h-48 bg-slate-800/50 rounded-3xl mb-6 flex items-center justify-center border border-white/5">
+                <div className="text-slate-500 text-sm font-mono animate-pulse">{loadingMessage}</div>
+            </div>
+            <div className="space-y-4">
+              {[1,2,3,4,5].map(i => (
+                <div key={i} className="h-20 bg-slate-800/30 rounded-xl border border-white/5"></div>
+              ))}
+            </div>
           </div>
         ) : !playlist ? (
           <MoodSelector onSelectMood={handleMoodSelect} isLoading={isLoading} />
