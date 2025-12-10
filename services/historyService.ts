@@ -1,23 +1,39 @@
+
 import { supabase } from './supabaseClient';
-import { Playlist, SpotifyUserProfile, UserTasteProfile } from '../types';
+import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from '../types';
 
 /**
  * Saves a generated playlist to the 'generated_vibes' table.
  * This creates the "Memory" for our LLM to learn from later.
  * Returns { data, error } object so the UI can handle logging.
  */
-export const saveVibe = async (mood: string, playlist: Playlist, userId: string | null) => {
+export const saveVibe = async (
+  mood: string, 
+  playlist: Playlist, 
+  userId: string | null,
+  stats?: VibeGenerationStats // NEW: Optional stats for logging
+) => {
   try {
+    const payload: any = { 
+      user_id: userId,
+      mood_prompt: mood,
+      playlist_json: playlist,
+      is_exported: false
+    };
+
+    // Add logging stats if provided
+    if (stats) {
+      payload.gemini_time_ms = stats.geminiTimeMs;
+      payload.itunes_time_ms = stats.itunesTimeMs;
+      payload.total_duration_ms = stats.totalDurationMs;
+      payload.success_count = stats.successCount;
+      payload.fail_count = stats.failCount;
+      payload.failure_details = stats.failureDetails;
+    }
+
     const { data, error } = await supabase
       .from('generated_vibes')
-      .insert([
-        { 
-          user_id: userId,
-          mood_prompt: mood,
-          playlist_json: playlist,
-          is_exported: false
-        }
-      ])
+      .insert([payload])
       .select()
       .single();
 
