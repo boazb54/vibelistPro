@@ -1,12 +1,13 @@
+
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
-import { GeneratedPlaylistRaw } from "../types";
+import { GeminiResponseWithMetrics, GeneratedPlaylistRaw } from "../types";
 
 export const generatePlaylistFromMood = async (
   mood: string, 
   userContext?: { country?: string, explicit_filter_enabled?: boolean },
   tasteProfile?: { topArtists: string[], topGenres: string[] },
   excludeSongs?: string[]
-): Promise<GeneratedPlaylistRaw> => {
+): Promise<GeminiResponseWithMetrics> => {
   
   // 1. Explicit Check: Ensure the key exists before crashing the SDK
   if (!process.env.API_KEY) {
@@ -17,6 +18,9 @@ export const generatePlaylistFromMood = async (
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = "gemini-2.5-flash";
   
+  // MEASURE STEP C: Prompt Building
+  const t_prompt_start = performance.now();
+
   // STRATEGY: DISCOVERY BRIDGE & PERSONALIZATION
   // We inject instructions to use the taste profile as a compass, not a map.
   const systemInstruction = `You are a professional music curator/DJ with deep knowledge of music across all genres.
@@ -49,6 +53,12 @@ export const generatePlaylistFromMood = async (
     prompt += `\n\nEXCLUSION LIST (The user just saw these, do NOT repeat them):
     ${excludeSongs.join(', ')}`;
   }
+
+  const t_prompt_end = performance.now();
+  const promptBuildTimeMs = Math.round(t_prompt_end - t_prompt_start);
+
+  // MEASURE STEP D: API Call
+  const t_api_start = performance.now();
 
   const response = await ai.models.generateContent({
     model,
@@ -99,8 +109,19 @@ export const generatePlaylistFromMood = async (
     }
   });
 
+  const t_api_end = performance.now();
+  const geminiApiTimeMs = Math.round(t_api_end - t_api_start);
+
   if (response.text) {
-      return JSON.parse(response.text) as GeneratedPlaylistRaw;
+      const rawData = JSON.parse(response.text) as GeneratedPlaylistRaw;
+      return {
+          ...rawData,
+          promptText: prompt,
+          metrics: {
+              promptBuildTimeMs,
+              geminiApiTimeMs
+          }
+      };
   }
   
   throw new Error("Failed to generate playlist content");

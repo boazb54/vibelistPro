@@ -23,12 +23,19 @@ export const saveVibe = async (
 
     // Add logging stats if provided
     if (stats) {
+      // Existing metrics
       payload.gemini_time_ms = stats.geminiTimeMs;
       payload.itunes_time_ms = stats.itunesTimeMs;
       payload.total_duration_ms = stats.totalDurationMs;
       payload.success_count = stats.successCount;
       payload.fail_count = stats.failCount;
       payload.failure_details = stats.failureDetails;
+
+      // NEW: Granular metrics & Prompt Log
+      payload.context_time_ms = stats.contextTimeMs;
+      payload.prompt_build_time_ms = stats.promptBuildTimeMs;
+      payload.gemini_api_time_ms = stats.geminiApiTimeMs;
+      payload.prompt_text = stats.promptText;
     }
 
     const { data, error } = await supabase
