@@ -1,3 +1,4 @@
+
 export interface Song {
   id: string; // Unique ID (often from iTunes or generated)
   title: string;
@@ -78,4 +79,14 @@ export interface SpotifyArtist {
 export interface UserTasteProfile {
   topArtists: string[];
   topGenres: string[];
+}
+
+// NEW: Performance Logging Stats
+export interface VibeGenerationStats {
+  geminiTimeMs: number;
+  itunesTimeMs: number;
+  totalDurationMs: number;
+  successCount: number;
+  failCount: number;
+  failureDetails: { title: string; artist: string; reason: string }[];
 }

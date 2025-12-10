@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
 import { CogIcon } from './components/Icons'; 
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile } from './types';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from './types';
 import { generatePlaylistFromMood } from './services/geminiService';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
@@ -162,6 +163,12 @@ const App: React.FC = () => {
   // --- SAFE MODE LOGIC: SEQUENTIAL & STRICT ---
   const handleMoodSelect = async (mood: string, isRemix: boolean = false) => {
     const currentSessionId = ++generationSessionId.current;
+    // PERFORMANCE TRACKING
+    const t0_start = performance.now();
+    let t1_gemini_end = 0;
+    let t2_itunes_start = 0;
+    let t3_itunes_end = 0;
+    const failureDetails: { title: string, artist: string, reason: string }[] = [];
 
     setIsLoading(true);
     setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
@@ -192,9 +199,12 @@ const App: React.FC = () => {
             excludeSongs
         );
 
+        t1_gemini_end = performance.now(); // Gemini Done
+
         if (currentSessionId !== generationSessionId.current) return;
 
         addLog("AI generation complete. Fetching metadata (Safe Mode)...");
+        t2_itunes_start = performance.now(); // iTunes Start
 
         // 2. BATCH FETCH (Sequential Chunks)
         // We use smaller chunks and wait for them to ensure high success rate
@@ -210,13 +220,26 @@ const App: React.FC = () => {
              
              const results = await Promise.all(batchPromises);
              
-             // STRICT FILTER: Only keep songs that are NOT null (found a preview)
-             const foundSongs = results.filter((s): s is Song => s !== null);
-             validSongs.push(...foundSongs);
+             // STRICT FILTER & LOGGING
+             results.forEach((s, index) => {
+                 if (s !== null) {
+                     validSongs.push(s);
+                 } else {
+                     // Log missing songs
+                     const rawSong = batch[index];
+                     failureDetails.push({
+                         title: rawSong.title,
+                         artist: rawSong.artist,
+                         reason: "Metadata or Preview not found in iTunes"
+                     });
+                 }
+             });
              
              // Optional: Add a tiny delay to be polite to the API
              await new Promise(r => setTimeout(r, 100));
         }
+
+        t3_itunes_end = performance.now(); // iTunes End
 
         if (currentSessionId !== generationSessionId.current) return;
 
@@ -232,9 +255,20 @@ const App: React.FC = () => {
         setIsLoading(false);
         addLog(`Complete. Found ${validSongs.length}/${allSongsRaw.length} songs with previews.`);
 
-        // 4. SAVE
+        // 4. SAVE (With Metrics)
+        const t4_total_end = performance.now();
+        
+        const stats: VibeGenerationStats = {
+            geminiTimeMs: Math.round(t1_gemini_end - t0_start),
+            itunesTimeMs: Math.round(t3_itunes_end - t2_itunes_start),
+            totalDurationMs: Math.round(t4_total_end - t0_start),
+            successCount: validSongs.length,
+            failCount: failureDetails.length,
+            failureDetails: failureDetails
+        };
+
         try {
-            const { data: savedVibe, error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null);
+            const { data: savedVibe, error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null, stats);
             
             if (saveError) {
                 addLog(`Database Error: ${saveError.message}`);
@@ -242,6 +276,7 @@ const App: React.FC = () => {
             } else if (savedVibe) {
                 setPlaylist(prev => prev ? { ...prev, id: savedVibe.id } : null);
                 addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
+                addLog(`Timing: Gemini=${stats.geminiTimeMs}ms, iTunes=${stats.itunesTimeMs}ms`);
             }
         } catch (dbErr) {
             console.error(dbErr);
