@@ -163,7 +163,8 @@ const App: React.FC = () => {
   // --- SAFE MODE LOGIC: SEQUENTIAL & STRICT ---
   const handleMoodSelect = async (mood: string, isRemix: boolean = false) => {
     const currentSessionId = ++generationSessionId.current;
-    // PERFORMANCE TRACKING
+    
+    // PERFORMANCE TRACKING START
     const t0_start = performance.now();
     let t1_gemini_end = 0;
     let t2_itunes_start = 0;
@@ -182,6 +183,8 @@ const App: React.FC = () => {
 
     addLog(`Generating vibe for: "${mood}"...`);
 
+    // MEASURE STEP B: Context Assembly
+    const t_context_start = performance.now();
     let userContext = {};
     if (userProfile) {
         userContext = {
@@ -189,9 +192,11 @@ const App: React.FC = () => {
             explicit_filter_enabled: userProfile.explicit_content?.filter_enabled
         };
     }
+    const t_context_end = performance.now();
+    const contextTimeMs = Math.round(t_context_end - t_context_start);
 
     try {
-        // 1. CALL GEMINI
+        // 1. CALL GEMINI (STEPS C & D)
         const generatedData = await generatePlaylistFromMood(
             mood, 
             userContext, 
@@ -199,14 +204,14 @@ const App: React.FC = () => {
             excludeSongs
         );
 
-        t1_gemini_end = performance.now(); // Gemini Done
+        t1_gemini_end = performance.now(); // Gemini Phase Done
 
         if (currentSessionId !== generationSessionId.current) return;
 
         addLog("AI generation complete. Fetching metadata (Safe Mode)...");
-        t2_itunes_start = performance.now(); // iTunes Start
+        t2_itunes_start = performance.now(); // iTunes Start (Step E)
 
-        // 2. BATCH FETCH (Sequential Chunks)
+        // 2. BATCH FETCH (Sequential Chunks) - STEP E
         // We use smaller chunks and wait for them to ensure high success rate
         const validSongs: Song[] = [];
         const BATCH_SIZE = 5; 
@@ -255,13 +260,21 @@ const App: React.FC = () => {
         setIsLoading(false);
         addLog(`Complete. Found ${validSongs.length}/${allSongsRaw.length} songs with previews.`);
 
-        // 4. SAVE (With Metrics)
+        // 4. SAVE (Step F) (With Granular Metrics)
         const t4_total_end = performance.now();
         
         const stats: VibeGenerationStats = {
-            geminiTimeMs: Math.round(t1_gemini_end - t0_start),
-            itunesTimeMs: Math.round(t3_itunes_end - t2_itunes_start),
+            // High Level
+            geminiTimeMs: Math.round(t1_gemini_end - t0_start), // B+C+D
+            itunesTimeMs: Math.round(t3_itunes_end - t2_itunes_start), // E
             totalDurationMs: Math.round(t4_total_end - t0_start),
+            
+            // Granular
+            contextTimeMs: contextTimeMs, // B
+            promptBuildTimeMs: generatedData.metrics.promptBuildTimeMs, // C
+            geminiApiTimeMs: generatedData.metrics.geminiApiTimeMs, // D
+            promptText: generatedData.promptText,
+
             successCount: validSongs.length,
             failCount: failureDetails.length,
             failureDetails: failureDetails
@@ -276,7 +289,7 @@ const App: React.FC = () => {
             } else if (savedVibe) {
                 setPlaylist(prev => prev ? { ...prev, id: savedVibe.id } : null);
                 addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
-                addLog(`Timing: Gemini=${stats.geminiTimeMs}ms, iTunes=${stats.itunesTimeMs}ms`);
+                addLog(`Timing: Gemini=${stats.geminiTimeMs}ms (API=${stats.geminiApiTimeMs}ms), iTunes=${stats.itunesTimeMs}ms`);
             }
         } catch (dbErr) {
             console.error(dbErr);
