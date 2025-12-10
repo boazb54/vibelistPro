@@ -18,7 +18,7 @@ import {
   fetchUserTopArtists
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
-import { saveVibe, markVibeAsExported } from './services/historyService';
+import { saveVibe, markVibeAsExported, saveUserProfile } from './services/historyService';
 import { supabase } from './services/supabaseClient';
 import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
 
@@ -104,7 +104,8 @@ const App: React.FC = () => {
     try {
       const profile = await getUserProfile(token);
       setUserProfile(profile);
-      refreshProfileAndTaste(token);
+      // Pass profile down so we can save it immediately
+      refreshProfileAndTaste(token, profile);
     } catch (e) {
       console.error("Failed to fetch profile", e);
       localStorage.removeItem('spotify_token');
@@ -112,15 +113,23 @@ const App: React.FC = () => {
     }
   };
 
-  const refreshProfileAndTaste = async (token: string) => {
+  const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
           const taste = await fetchUserTopArtists(token);
           if (taste) {
               setUserTaste(taste);
               addLog(`Taste profile loaded: ${taste.topGenres.slice(0, 3).join(', ')}`);
+              
+              // NEW: Save entire profile + taste to Supabase 'users' table
+              saveUserProfile(profile, taste);
+          } else {
+              // Even if taste fails, save basic profile
+              saveUserProfile(profile, null);
           }
       } catch (e) {
           console.warn("Could not load taste profile", e);
+          // Still try to save basic profile
+          saveUserProfile(profile, null);
       }
   };
 
