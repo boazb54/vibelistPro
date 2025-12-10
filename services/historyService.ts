@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { Playlist } from '../types';
+import { Playlist, SpotifyUserProfile, UserTasteProfile } from '../types';
 
 /**
  * Saves a generated playlist to the 'generated_vibes' table.
@@ -47,5 +47,35 @@ export const markVibeAsExported = async (vibeId: string) => {
     console.log(`Vibe ${vibeId} marked as exported (Success Signal).`);
   } catch (error) {
     console.warn('Failed to update vibe export status:', error);
+  }
+};
+
+/**
+ * NEW: Syncs the Spotify User Profile + Taste Data to the 'users' table.
+ * This runs every time the user logs in to ensure we have their latest data.
+ */
+export const saveUserProfile = async (profile: SpotifyUserProfile, taste: UserTasteProfile | null) => {
+  try {
+    const { error } = await supabase
+      .from('users')
+      .upsert({
+        id: profile.id,
+        email: profile.email,
+        display_name: profile.display_name,
+        country: profile.country,
+        product: profile.product,
+        explicit_filter: profile.explicit_content?.filter_enabled || false,
+        top_artists: taste?.topArtists || [],
+        top_genres: taste?.topGenres || [],
+        last_login: new Date().toISOString()
+      }, { onConflict: 'id' });
+
+    if (error) {
+      console.error("Failed to save user profile:", error);
+    } else {
+      console.log("User profile synced to Supabase.");
+    }
+  } catch (error) {
+    console.error("Error saving user profile:", error);
   }
 };
