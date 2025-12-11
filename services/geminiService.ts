@@ -79,6 +79,7 @@ export const generatePlaylistFromMood = async (
     config: {
       systemInstruction,
       responseMimeType: "application/json",
+      thinkingConfig: { thinkingBudget: 0 }, // <--- THE FIX: FORCE DISABLE THINKING
       safetySettings: [
         {
           category: HarmCategory.HARM_CATEGORY_HARASSMENT,
