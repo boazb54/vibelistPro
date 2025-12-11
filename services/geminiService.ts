@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { GeminiResponseWithMetrics, GeneratedPlaylistRaw } from "../types";
 
 export const generatePlaylistFromMood = async (
@@ -21,18 +21,33 @@ export const generatePlaylistFromMood = async (
   // MEASURE STEP C: Prompt Building
   const t_prompt_start = performance.now();
 
-  // STRATEGY: DISCOVERY BRIDGE & PERSONALIZATION
+  // STRATEGY: DISCOVERY BRIDGE & PERSONALIZATION (PROMPT ENGINEERING VERSION)
   // We inject instructions to use the taste profile as a compass, not a map.
   const systemInstruction = `You are a professional music curator/DJ with deep knowledge of music across all genres.
   Your goal is to create a perfect playlist for the user's requested mood or activity.
   You should pick 25 songs that perfectly match the vibe.
-  Provide a creative title and a short description for the playlist.
   
+  CRITICAL: Return the result as raw, valid JSON only. Do not use Markdown formatting (no \`\`\`json or backticks). Do not include any text before or after the JSON object.
+  
+  Use this exact JSON structure for your output:
+  {
+    "playlist_title": "Creative Title",
+    "mood": "The mood requested",
+    "description": "Short description of the vibe",
+    "songs": [
+      {
+        "title": "Song Title",
+        "artist": "Artist Name",
+        "album": "Album Name",
+        "search_query": "Artist Name Song Title"
+      }
+    ]
+  }
+
   CRITICAL RULES:
   1. The songs should be real and findable on Spotify/iTunes.
-  2. Structure the output strictly as JSON.
-  3. If "User Taste" is provided: Use it as a stylistic compass to understand the user's preferred energy. Do NOT just list the user's top artists. Find "Hidden Gems", B-sides, and adjacent artists that match their taste profile but offer true discovery.
-  4. If "Exclusion List" is provided: Do NOT include any of the songs listed. The user has already seen them and wants something new (Remix Mode).`;
+  2. If "User Taste" is provided: Use it as a stylistic compass to understand the user's preferred energy. Do NOT just list the user's top artists. Find "Hidden Gems", B-sides, and adjacent artists that match their taste profile but offer true discovery.
+  3. If "Exclusion List" is provided: Do NOT include any of the songs listed. The user has already seen them and wants something new (Remix Mode).`;
 
   let prompt = `Create a playlist for the mood: "${mood}".`;
   
@@ -84,28 +99,6 @@ export const generatePlaylistFromMood = async (
           threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
         },
       ],
-      responseSchema: {
-        type: Type.OBJECT,
-        required: ["playlist_title", "mood", "description", "songs"],
-        properties: {
-          playlist_title: { type: Type.STRING },
-          mood: { type: Type.STRING },
-          description: { type: Type.STRING },
-          songs: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              required: ["title", "artist", "album", "search_query"],
-              properties: {
-                title: { type: Type.STRING },
-                artist: { type: Type.STRING },
-                album: { type: Type.STRING },
-                search_query: { type: Type.STRING, description: "Optimized search query to find this exact song" }
-              }
-            }
-          }
-        }
-      }
     }
   });
 
@@ -113,7 +106,9 @@ export const generatePlaylistFromMood = async (
   const geminiApiTimeMs = Math.round(t_api_end - t_api_start);
 
   if (response.text) {
-      const rawData = JSON.parse(response.text) as GeneratedPlaylistRaw;
+      // CLEANUP: Remove potential markdown wrapping before parsing
+      const cleanText = response.text.replace(/```json|```/g, '').trim();
+      const rawData = JSON.parse(cleanText) as GeneratedPlaylistRaw;
       return {
           ...rawData,
           promptText: prompt,
