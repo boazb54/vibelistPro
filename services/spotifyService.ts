@@ -1,3 +1,4 @@
+
 import { SPOTIFY_AUTH_ENDPOINT, SPOTIFY_SCOPES } from "../constants";
 import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, UserTasteProfile } from "../types";
 import { fetchSongMetadata } from "./itunesService";
@@ -117,7 +118,7 @@ export const fetchSpotifyMetadata = async (token: string, generatedSong: Generat
                     artworkUrl: track.album.images[0]?.url || null,
                     spotifyUri: track.uri,
                     durationMs: track.duration_ms,
-                    searchQuery: generatedSong.search_query
+                    searchQuery: `${generatedSong.title} ${generatedSong.artist}`
                 };
             }
         }

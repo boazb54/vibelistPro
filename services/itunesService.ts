@@ -1,3 +1,4 @@
+
 import { Song, GeneratedSongRaw } from "../types";
 
 interface ItunesResult {
@@ -71,15 +72,10 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
     // STRATEGY: RETRY LOOP (SAFE MODE)
     // We try multiple variations to find a valid preview.
     
-    // 1. Try Optimized Query from Gemini
-    let result = await searchItunes(generatedSong.search_query);
+    // 1. Try Title + Artist (Standard)
+    let result = await searchItunes(`${generatedSong.title} ${generatedSong.artist}`);
 
-    // 2. Try Title + Artist
-    if (!result) {
-        result = await searchItunes(`${generatedSong.title} ${generatedSong.artist}`);
-    }
-
-    // 3. Try Clean Title + Artist
+    // 2. Try Clean Title + Artist (Fallback)
     if (!result) {
         const cleaned = `${cleanText(generatedSong.title)} ${cleanText(generatedSong.artist)}`;
         result = await searchItunes(cleaned);
@@ -99,6 +95,6 @@ export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promis
         artworkUrl: result.artworkUrl100.replace('100x100', '600x600'),
         itunesUrl: result.trackViewUrl,
         durationMs: result.trackTimeMillis,
-        searchQuery: generatedSong.search_query
+        searchQuery: `${generatedSong.title} ${generatedSong.artist}` // Manually constructed
     };
 };
