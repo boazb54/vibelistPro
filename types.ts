@@ -1,4 +1,5 @@
 
+
 export interface Song {
   id: string; // Unique ID (often from iTunes or generated)
   title: string;
@@ -23,8 +24,6 @@ export interface Playlist {
 export interface GeneratedSongRaw {
   title: string;
   artist: string;
-  album: string;
-  search_query: string;
 }
 
 export interface GeneratedPlaylistRaw {
@@ -32,6 +31,15 @@ export interface GeneratedPlaylistRaw {
   mood: string;
   description: string;
   songs: GeneratedSongRaw[];
+}
+
+// NEW: Wrapper to return metrics along with the playlist data
+export interface GeminiResponseWithMetrics extends GeneratedPlaylistRaw {
+  promptText: string;
+  metrics: {
+    promptBuildTimeMs: number;
+    geminiApiTimeMs: number;
+  };
 }
 
 export enum PlayerState {
@@ -83,10 +91,14 @@ export interface UserTasteProfile {
 
 // NEW: Performance Logging Stats
 export interface VibeGenerationStats {
-  geminiTimeMs: number;
-  itunesTimeMs: number;
+  geminiTimeMs: number; // Total Gemini time (Step B+C+D)
+  contextTimeMs: number; // Step B: Context Assembly
+  promptBuildTimeMs: number; // Step C: Prompt Construction
+  geminiApiTimeMs: number; // Step D: Google API Wait
+  itunesTimeMs: number; // Step E: Filtering
   totalDurationMs: number;
   successCount: number;
   failCount: number;
   failureDetails: { title: string; artist: string; reason: string }[];
+  promptText?: string;
 }
