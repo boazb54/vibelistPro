@@ -102,32 +102,3 @@ export const saveUserProfile = async (profile: SpotifyUserProfile, taste: UserTa
     console.error("Error saving user profile:", error);
   }
 };
-
-/**
- * NEW (Version 1): Logs failed generation attempts to 'generation_failures' table.
- * Used for diagnosing why a user couldn't get a playlist (API error, quota, safety block, etc).
- */
-export const logGenerationFailure = async (
-  mood: string, 
-  errorReason: string, 
-  userId?: string | null
-) => {
-  try {
-    // Fire and forget - do not await strictly if not needed by UI
-    const { error } = await supabase
-      .from('generation_failures')
-      .insert([
-        {
-          mood_prompt: mood,
-          error_reason: errorReason,
-          user_id: userId || null
-        }
-      ]);
-
-    if (error) {
-      console.error("Failed to log generation failure to Supabase:", error);
-    }
-  } catch (e) {
-    console.error("Exception logging generation failure:", e);
-  }
-};
