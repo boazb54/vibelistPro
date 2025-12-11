@@ -19,7 +19,7 @@ import {
   fetchUserTopArtists
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
-import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure } from './services/historyService';
+import { saveVibe, markVibeAsExported, saveUserProfile } from './services/historyService';
 import { supabase } from './services/supabaseClient';
 import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
 
@@ -298,11 +298,6 @@ const App: React.FC = () => {
     } catch (error: any) {
         console.error("Generation failed", error);
         setLoadingMessage("Error generating playlist. Please try again.");
-        
-        // NEW (Version 1): Log the failure to Supabase so we can diagnose it
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logGenerationFailure(mood, errorMessage, userProfile?.id);
-
         setTimeout(() => setIsLoading(false), 2000);
     }
   };
