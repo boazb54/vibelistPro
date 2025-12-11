@@ -18,7 +18,8 @@ export const saveVibe = async (
       user_id: userId,
       mood_prompt: mood,
       playlist_json: playlist,
-      is_exported: false
+      is_exported: false,
+      is_failed: false // Explicitly mark as success
     };
 
     // Add logging stats if provided
@@ -52,6 +53,48 @@ export const saveVibe = async (
   } catch (error: any) {
     console.error("Supabase Exception:", error);
     return { data: null, error };
+  }
+};
+
+/**
+ * NEW: Logs a failed generation attempt to the database.
+ * This captures "Survivorship Bias" data - what were users asking for when it broke?
+ */
+export const logGenerationFailure = async (
+  mood: string,
+  errorReason: string,
+  userId: string | null,
+  stats?: Partial<VibeGenerationStats>
+) => {
+  try {
+    console.log("Logging generation failure to DB...");
+    
+    const payload: any = {
+      user_id: userId,
+      mood_prompt: mood,
+      playlist_json: null, // No playlist generated
+      is_failed: true,
+      error_message: errorReason,
+      is_exported: false,
+      
+      // Capture whatever timing data we managed to get before the crash
+      total_duration_ms: stats?.totalDurationMs || 0,
+      context_time_ms: stats?.contextTimeMs || 0,
+      gemini_time_ms: stats?.geminiTimeMs || 0,
+      prompt_text: stats?.promptText || null
+    };
+
+    const { error } = await supabase
+      .from('generated_vibes')
+      .insert([payload]);
+
+    if (error) {
+      console.error("Failed to log failure stats:", error.message);
+    } else {
+      console.log("Failure logged successfully.");
+    }
+  } catch (e) {
+    console.error("Error logging failure:", e);
   }
 };
 
