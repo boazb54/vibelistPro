@@ -19,7 +19,7 @@ import {
   fetchUserTopArtists
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
-import { saveVibe, markVibeAsExported, saveUserProfile } from './services/historyService';
+import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure } from './services/historyService';
 import { supabase } from './services/supabaseClient';
 import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
 
@@ -169,6 +169,10 @@ const App: React.FC = () => {
     let t1_gemini_end = 0;
     let t2_itunes_start = 0;
     let t3_itunes_end = 0;
+    // Capture these for error logging if needed
+    let capturedPromptText = "";
+    let capturedContextTime = 0;
+
     const failureDetails: { title: string, artist: string, reason: string }[] = [];
 
     setIsLoading(true);
@@ -194,6 +198,7 @@ const App: React.FC = () => {
     }
     const t_context_end = performance.now();
     const contextTimeMs = Math.round(t_context_end - t_context_start);
+    capturedContextTime = contextTimeMs;
 
     try {
         // 1. CALL GEMINI (STEPS C & D)
@@ -204,6 +209,8 @@ const App: React.FC = () => {
             excludeSongs
         );
 
+        // Capture data for potential error logging
+        capturedPromptText = generatedData.promptText;
         t1_gemini_end = performance.now(); // Gemini Phase Done
 
         if (currentSessionId !== generationSessionId.current) return;
@@ -297,6 +304,24 @@ const App: React.FC = () => {
 
     } catch (error: any) {
         console.error("Generation failed", error);
+        
+        // --- FAILURE LOGGING SYSTEM ---
+        const t_fail = performance.now();
+        const failDuration = Math.round(t_fail - t0_start);
+        
+        // Log the failure to Supabase so we know what caused it
+        // and what the user was trying to do.
+        await logGenerationFailure(
+            mood,
+            error?.message || "Unknown error",
+            userProfile?.id || null,
+            {
+                totalDurationMs: failDuration,
+                contextTimeMs: capturedContextTime,
+                promptText: capturedPromptText
+            }
+        );
+
         setLoadingMessage("Error generating playlist. Please try again.");
         setTimeout(() => setIsLoading(false), 2000);
     }
