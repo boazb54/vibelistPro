@@ -128,6 +128,17 @@ export interface SpotifyPlayHistory {
   context: any;
 }
 
+// NEW: Raw Playlist Data Structure
+export interface SpotifyPlaylist {
+  id: string;
+  name: string;
+  description: string | null;
+  images: SpotifyImage[];
+  owner: { display_name?: string; id: string };
+  tracks: { href: string; total: number };
+  uri: string;
+}
+
 export interface ExtendedUserProfile {
   profile: SpotifyUserProfile;
   top_artists: {
@@ -142,4 +153,5 @@ export interface ExtendedUserProfile {
   };
   recently_played: SpotifyPlayHistory[];
   followed_artists: SpotifyArtist[];
+  playlists: SpotifyPlaylist[]; // NEW: Added playlists array
 }
