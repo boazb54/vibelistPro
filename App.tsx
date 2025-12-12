@@ -16,7 +16,8 @@ import {
   createSpotifyPlaylist, 
   getUserProfile, 
   fetchSpotifyMetadata,
-  fetchUserTopArtists
+  fetchUserTopArtists,
+  syncFullSpotifyProfile
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
 import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure } from './services/historyService';
@@ -115,23 +116,39 @@ const App: React.FC = () => {
   };
 
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
+      let currentTaste = null;
       try {
+          // 1. FAST PATH: Get basic taste for UI (existing behavior)
           const taste = await fetchUserTopArtists(token);
           if (taste) {
+              currentTaste = taste;
               setUserTaste(taste);
               addLog(`Taste profile loaded: ${taste.topGenres.slice(0, 3).join(', ')}`);
               
-              // NEW: Save entire profile + taste to Supabase 'users' table
+              // Save basic profile immediately
               saveUserProfile(profile, taste);
           } else {
-              // Even if taste fails, save basic profile
               saveUserProfile(profile, null);
           }
       } catch (e) {
           console.warn("Could not load taste profile", e);
-          // Still try to save basic profile
           saveUserProfile(profile, null);
       }
+
+      // 2. VERSION ONE: SILENT BACKGROUND SYNC
+      // We do NOT await this. It runs in the background to build the data lake.
+      syncFullSpotifyProfile(token)
+          .then((fullData) => {
+              if (fullData) {
+                  // When sync finishes, update Supabase with the deep data.
+                  // We pass 'currentTaste' again to ensure 'top_artists' column isn't cleared.
+                  saveUserProfile(profile, currentTaste, fullData);
+                  addLog("Background data sync complete.");
+              }
+          })
+          .catch(err => {
+              console.warn("Background sync failed:", err);
+          });
   };
 
   const handleLogin = async () => {

@@ -79,6 +79,7 @@ export interface SpotifyArtist {
   name: string;
   genres: string[];
   popularity: number;
+  images?: SpotifyImage[]; // Enhanced to include images
 }
 
 export interface UserTasteProfile {
@@ -105,4 +106,40 @@ export interface VibeGenerationStats {
   inputModality?: 'text' | 'voice';
   deviceType?: string;
   ipAddress?: string;
+}
+
+// --- VERSION ONE: NEW DATA TYPES ---
+
+export type SpotifyTimeRange = 'short_term' | 'medium_term' | 'long_term';
+
+export interface SpotifyTrack {
+  id: string;
+  name: string;
+  artists: { name: string; id: string }[];
+  album: { name: string; images: SpotifyImage[]; release_date: string };
+  popularity: number;
+  uri: string;
+  preview_url: string | null;
+}
+
+export interface SpotifyPlayHistory {
+  track: SpotifyTrack;
+  played_at: string;
+  context: any;
+}
+
+export interface ExtendedUserProfile {
+  profile: SpotifyUserProfile;
+  top_artists: {
+    short_term: SpotifyArtist[];
+    medium_term: SpotifyArtist[];
+    long_term: SpotifyArtist[];
+  };
+  top_tracks: {
+    short_term: SpotifyTrack[];
+    medium_term: SpotifyTrack[];
+    long_term: SpotifyTrack[];
+  };
+  recently_played: SpotifyPlayHistory[];
+  followed_artists: SpotifyArtist[];
 }
