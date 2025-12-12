@@ -1,4 +1,5 @@
 
+
 import { supabase } from './supabaseClient';
 import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ExtendedUserProfile } from '../types';
 
@@ -158,7 +159,8 @@ export const saveUserProfile = async (
 
     // Version One: Inject the large JSON blob if present
     if (extendedData) {
-        payload.spotify_data = extendedData;
+        payload.spotify_data = extendedData; // Contains tracks, artists, history
+        payload.playlists_data = extendedData.playlists || []; // NEW: Dedicated column for Playlists
         payload.last_data_sync = new Date().toISOString();
     }
 

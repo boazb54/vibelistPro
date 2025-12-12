@@ -1,6 +1,7 @@
 
+
 import { SPOTIFY_AUTH_ENDPOINT, SPOTIFY_SCOPES } from "../constants";
-import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, UserTasteProfile, SpotifyTimeRange, ExtendedUserProfile, SpotifyTrack, SpotifyPlayHistory } from "../types";
+import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, UserTasteProfile, SpotifyTimeRange, ExtendedUserProfile, SpotifyTrack, SpotifyPlayHistory, SpotifyPlaylist } from "../types";
 import { fetchSongMetadata } from "./itunesService";
 
 export const getDefaultRedirectUri = (): string => {
@@ -273,6 +274,20 @@ const fetchFollowedArtists = async (token: string, limit: number = 50): Promise<
     }
 };
 
+const fetchUserPlaylists = async (token: string, limit: number = 50): Promise<SpotifyPlaylist[]> => {
+    try {
+        const res = await fetch(`https://api.spotify.com/v1/me/playlists?limit=${limit}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.items || [];
+    } catch (e) {
+        console.warn("Failed to fetch user playlists", e);
+        return [];
+    }
+};
+
 /**
  * AGGREGATOR: Harvests deep profile data in parallel.
  * Uses Promise.allSettled so one failure doesn't break the whole sync.
@@ -293,7 +308,8 @@ export const syncFullSpotifyProfile = async (token: string): Promise<ExtendedUse
            fetchTopItems(token, 'tracks', 'long_term'),
            
            fetchRecentlyPlayed(token),
-           fetchFollowedArtists(token)
+           fetchFollowedArtists(token),
+           fetchUserPlaylists(token) // Added playlist fetch
         ];
         
         const results = await Promise.allSettled(promises);
@@ -314,7 +330,8 @@ export const syncFullSpotifyProfile = async (token: string): Promise<ExtendedUse
                long_term: getVal(5)
            },
            recently_played: getVal(6),
-           followed_artists: getVal(7)
+           followed_artists: getVal(7),
+           playlists: getVal(8) // Added result extraction
         };
     } catch (e) {
         console.error("Full profile sync failed (Version One)", e);
