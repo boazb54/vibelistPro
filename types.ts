@@ -1,20 +1,19 @@
 
-
 export interface Song {
-  id: string; // Unique ID (often from iTunes or generated)
+  id: string; 
   title: string;
   artist: string;
   album: string;
   previewUrl: string | null;
   artworkUrl: string | null;
-  spotifyUri?: string; // If we could fetch it, for now mostly placeholder or user-matched
+  spotifyUri?: string; 
   durationMs?: number;
   itunesUrl?: string;
-  searchQuery: string; // The query used to find this
+  searchQuery: string; 
 }
 
 export interface Playlist {
-  id?: string; // Supabase UUID for history tracking
+  id?: string; 
   title: string;
   mood: string;
   description: string;
@@ -33,7 +32,6 @@ export interface GeneratedPlaylistRaw {
   songs: GeneratedSongRaw[];
 }
 
-// NEW: Wrapper to return metrics along with the playlist data
 export interface GeminiResponseWithMetrics extends GeneratedPlaylistRaw {
   promptText: string;
   metrics: {
@@ -76,7 +74,6 @@ export interface SpotifyUserProfile {
   uri: string;
 }
 
-// NEW: For Discovery Bridge
 export interface SpotifyArtist {
   id: string;
   name: string;
@@ -89,16 +86,23 @@ export interface UserTasteProfile {
   topGenres: string[];
 }
 
-// NEW: Performance Logging Stats
 export interface VibeGenerationStats {
-  geminiTimeMs: number; // Total Gemini time (Step B+C+D)
-  contextTimeMs: number; // Step B: Context Assembly
-  promptBuildTimeMs: number; // Step C: Prompt Construction
-  geminiApiTimeMs: number; // Step D: Google API Wait
-  itunesTimeMs: number; // Step E: Filtering
+  geminiTimeMs: number; 
+  contextTimeMs: number; 
+  promptBuildTimeMs: number; 
+  geminiApiTimeMs: number; 
+  itunesTimeMs: number; 
   totalDurationMs: number;
   successCount: number;
   failCount: number;
   failureDetails: { title: string; artist: string; reason: string }[];
   promptText?: string;
+  
+  // NEW: Contextual Analytics
+  localTime?: string;
+  dayOfWeek?: string;
+  browserLanguage?: string;
+  inputModality?: 'text' | 'voice';
+  deviceType?: string;
+  ipAddress?: string;
 }

@@ -62,7 +62,7 @@ const App: React.FC = () => {
     if (sharedMood) {
        window.history.replaceState({}, '', window.location.pathname);
        setTimeout(() => {
-         if (!playlist) handleMoodSelect(sharedMood);
+         if (!playlist) handleMoodSelect(sharedMood, 'text');
        }, 500);
     }
   }, []);
@@ -161,9 +161,22 @@ const App: React.FC = () => {
   };
 
   // --- SAFE MODE LOGIC: SEQUENTIAL & STRICT ---
-  const handleMoodSelect = async (mood: string, isRemix: boolean = false) => {
+  const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
     const currentSessionId = ++generationSessionId.current;
     
+    // --- 1. CAPTURE CONTEXTUAL DATA ---
+    // We capture this *before* generation so we reflect the state at click time.
+    const localTime = new Date().toLocaleTimeString();
+    const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const browserLanguage = navigator.language;
+    const deviceType = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+    
+    // Start IP fetch in background (don't await it yet)
+    const ipPromise = fetch('https://api.ipify.org?format=json')
+        .then(res => res.json())
+        .then(data => data.ip)
+        .catch(() => 'unknown');
+
     // PERFORMANCE TRACKING START
     const t0_start = performance.now();
     let t1_gemini_end = 0;
@@ -185,7 +198,7 @@ const App: React.FC = () => {
     setPlayerState(PlayerState.STOPPED);
     setDebugLogs([]);
 
-    addLog(`Generating vibe for: "${mood}"...`);
+    addLog(`Generating vibe for: "${mood}" (${modality})...`);
 
     // MEASURE STEP B: Context Assembly
     const t_context_start = performance.now();
@@ -267,8 +280,9 @@ const App: React.FC = () => {
         setIsLoading(false);
         addLog(`Complete. Found ${validSongs.length}/${allSongsRaw.length} songs with previews.`);
 
-        // 4. SAVE (Step F) (With Granular Metrics)
+        // 4. SAVE (Step F) (With Granular Metrics + Context)
         const t4_total_end = performance.now();
+        const ipAddress = await ipPromise; // Resolve IP now
         
         const stats: VibeGenerationStats = {
             // High Level
@@ -284,7 +298,15 @@ const App: React.FC = () => {
 
             successCount: validSongs.length,
             failCount: failureDetails.length,
-            failureDetails: failureDetails
+            failureDetails: failureDetails,
+
+            // Contextual Analytics
+            localTime,
+            dayOfWeek,
+            browserLanguage,
+            inputModality: modality,
+            deviceType,
+            ipAddress
         };
 
         try {
@@ -296,7 +318,6 @@ const App: React.FC = () => {
             } else if (savedVibe) {
                 setPlaylist(prev => prev ? { ...prev, id: savedVibe.id } : null);
                 addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
-                addLog(`Timing: Gemini=${stats.geminiTimeMs}ms (API=${stats.geminiApiTimeMs}ms), iTunes=${stats.itunesTimeMs}ms`);
             }
         } catch (dbErr) {
             console.error(dbErr);
@@ -308,7 +329,8 @@ const App: React.FC = () => {
         // --- FAILURE LOGGING SYSTEM ---
         const t_fail = performance.now();
         const failDuration = Math.round(t_fail - t0_start);
-        
+        const ipAddress = await ipPromise; // Resolve IP even for errors
+
         // Log the failure to Supabase so we know what caused it
         // and what the user was trying to do.
         await logGenerationFailure(
@@ -318,7 +340,14 @@ const App: React.FC = () => {
             {
                 totalDurationMs: failDuration,
                 contextTimeMs: capturedContextTime,
-                promptText: capturedPromptText
+                promptText: capturedPromptText,
+                // Add context to failures too
+                localTime,
+                dayOfWeek,
+                browserLanguage,
+                inputModality: modality,
+                deviceType,
+                ipAddress
             }
         );
 
@@ -337,7 +366,9 @@ const App: React.FC = () => {
 
   const handleRemix = () => {
       if (playlist) {
-          handleMoodSelect(playlist.mood, true);
+          // Pass 'text' as default modality for remix, or we could track it? 
+          // For now, remix is considered a button click -> 'text'.
+          handleMoodSelect(playlist.mood, 'text', true);
       }
   };
 
