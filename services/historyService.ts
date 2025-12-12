@@ -32,11 +32,19 @@ export const saveVibe = async (
       payload.fail_count = stats.failCount;
       payload.failure_details = stats.failureDetails;
 
-      // NEW: Granular metrics & Prompt Log
+      // Granular metrics & Prompt Log
       payload.context_time_ms = stats.contextTimeMs;
       payload.prompt_build_time_ms = stats.promptBuildTimeMs;
       payload.gemini_api_time_ms = stats.geminiApiTimeMs;
       payload.prompt_text = stats.promptText;
+
+      // NEW: Contextual Analytics mapping
+      payload.local_time = stats.localTime;
+      payload.day_of_week = stats.dayOfWeek;
+      payload.browser_language = stats.browserLanguage;
+      payload.input_modality = stats.inputModality;
+      payload.device_type = stats.deviceType;
+      payload.ip_address = stats.ipAddress;
     }
 
     const { data, error } = await supabase
@@ -81,7 +89,15 @@ export const logGenerationFailure = async (
       total_duration_ms: stats?.totalDurationMs || 0,
       context_time_ms: stats?.contextTimeMs || 0,
       gemini_time_ms: stats?.geminiTimeMs || 0,
-      prompt_text: stats?.promptText || null
+      prompt_text: stats?.promptText || null,
+
+      // NEW: Contextual Analytics mapping for failures
+      local_time: stats?.localTime,
+      day_of_week: stats?.dayOfWeek,
+      browser_language: stats?.browserLanguage,
+      input_modality: stats?.inputModality,
+      device_type: stats?.deviceType,
+      ip_address: stats?.ipAddress
     };
 
     const { error } = await supabase
