@@ -1,6 +1,6 @@
 
 import { supabase } from './supabaseClient';
-import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from '../types';
+import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ExtendedUserProfile } from '../types';
 
 /**
  * Saves a generated playlist to the 'generated_vibes' table.
@@ -135,12 +135,16 @@ export const markVibeAsExported = async (vibeId: string) => {
 /**
  * NEW: Syncs the Spotify User Profile + Taste Data to the 'users' table.
  * This runs every time the user logs in to ensure we have their latest data.
+ * 
+ * VERSION ONE UPDATE: Accepts optional 'extendedData' to save the deep profile analysis.
  */
-export const saveUserProfile = async (profile: SpotifyUserProfile, taste: UserTasteProfile | null) => {
+export const saveUserProfile = async (
+  profile: SpotifyUserProfile, 
+  taste: UserTasteProfile | null,
+  extendedData?: ExtendedUserProfile | null
+) => {
   try {
-    const { error } = await supabase
-      .from('users')
-      .upsert({
+    const payload: any = {
         id: profile.id,
         email: profile.email,
         display_name: profile.display_name,
@@ -150,12 +154,22 @@ export const saveUserProfile = async (profile: SpotifyUserProfile, taste: UserTa
         top_artists: taste?.topArtists || [],
         top_genres: taste?.topGenres || [],
         last_login: new Date().toISOString()
-      }, { onConflict: 'id' });
+    };
+
+    // Version One: Inject the large JSON blob if present
+    if (extendedData) {
+        payload.spotify_data = extendedData;
+        payload.last_data_sync = new Date().toISOString();
+    }
+
+    const { error } = await supabase
+      .from('users')
+      .upsert(payload, { onConflict: 'id' });
 
     if (error) {
       console.error("Failed to save user profile:", error);
     } else {
-      console.log("User profile synced to Supabase.");
+      console.log(`User profile synced to Supabase (Extended Data: ${!!extendedData}).`);
     }
   } catch (error) {
     console.error("Error saving user profile:", error);
