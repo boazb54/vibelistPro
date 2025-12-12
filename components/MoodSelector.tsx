@@ -1,10 +1,11 @@
+
 import React, { useState, useRef } from 'react';
 import { MOODS } from '../constants';
 import { MicIcon } from './Icons';
 import { transcribeAudio } from '../services/geminiService';
 
 interface MoodSelectorProps {
-  onSelectMood: (mood: string) => void;
+  onSelectMood: (mood: string, modality: 'text' | 'voice') => void;
   isLoading: boolean;
 }
 
@@ -14,6 +15,8 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
   // STRATEGY P: Manual Toggle State
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
+  // NEW: Track which input method was used last
+  const [inputModality, setInputModality] = useState<'text' | 'voice'>('text');
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -23,13 +26,16 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (customMood.trim()) {
-      onSelectMood(customMood.trim());
+      // Pass the tracked modality
+      onSelectMood(customMood.trim(), inputModality);
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (e.target.value.length <= CHAR_LIMIT) {
       setCustomMood(e.target.value);
+      // If user types, switch modality to text
+      setInputModality('text');
     }
   };
 
@@ -96,6 +102,8 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
                     const newValue = customMood ? `${customMood} ${cleanTranscript}` : cleanTranscript;
                     if (newValue.length <= CHAR_LIMIT) {
                         setCustomMood(newValue);
+                        // Mark as Voice input
+                        setInputModality('voice');
                     }
                 }
             } catch (error: any) {
@@ -192,7 +200,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
           <button
             key={m.id}
             disabled={isLoading || isRecording || isProcessingAudio}
-            onClick={() => onSelectMood(m.id)}
+            onClick={() => onSelectMood(m.id, 'text')}
             className={`group relative overflow-hidden rounded-2xl p-6 transition-all duration-300 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
               bg-gradient-to-br ${m.color} bg-opacity-10 border border-white/5 hover:border-white/20`}
           >
