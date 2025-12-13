@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
-import AdminDataInspector from './components/AdminDataInspector'; // Added
+import AdminDataInspector from './components/AdminDataInspector.tsx'; // Added
 import { CogIcon } from './components/Icons'; 
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ExtendedUserProfile } from './types';
 import { generatePlaylistFromMood } from './services/geminiService';
