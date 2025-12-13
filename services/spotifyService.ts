@@ -1,7 +1,6 @@
 
-
 import { SPOTIFY_AUTH_ENDPOINT, SPOTIFY_SCOPES } from "../constants";
-import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, UserTasteProfile, SpotifyTimeRange, ExtendedUserProfile, SpotifyTrack, SpotifyPlayHistory, SpotifyPlaylist } from "../types";
+import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, SpotifyTrack, UserTasteProfile } from "../types";
 import { fetchSongMetadata } from "./itunesService";
 
 export const getDefaultRedirectUri = (): string => {
@@ -118,7 +117,8 @@ export const fetchSpotifyMetadata = async (token: string, generatedSong: Generat
                     artworkUrl: track.album.images[0]?.url || null,
                     spotifyUri: track.uri,
                     durationMs: track.duration_ms,
-                    searchQuery: `${generatedSong.title} ${generatedSong.artist}`
+                    searchQuery: `${generatedSong.title} ${generatedSong.artist}`,
+                    estimatedVibe: generatedSong.estimated_vibe // Pass through Gemini's qualitative data
                 };
             }
         }
@@ -206,170 +206,39 @@ export const getUserProfile = async (token: string) => {
   return res.json();
 };
 
-export const fetchUserTopArtists = async (token: string): Promise<UserTasteProfile | null> => {
+/**
+ * Fetches user taste profile (Top 50 Artists & Top 50 Tracks)
+ */
+export const fetchUserTasteProfile = async (token: string): Promise<UserTasteProfile | null> => {
   try {
-    const res = await fetch('https://api.spotify.com/v1/me/top/artists?limit=10&time_range=medium_term', {
+    // 1. Fetch Top 50 Artists
+    const artistsPromise = fetch('https://api.spotify.com/v1/me/top/artists?limit=50&time_range=medium_term', {
       headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return null;
+    }).then(res => res.ok ? res.json() : { items: [] });
+
+    // 2. Fetch Top 50 Tracks (RESTORED for Gemini Analysis)
+    const tracksPromise = fetch('https://api.spotify.com/v1/me/top/tracks?limit=50&time_range=medium_term', {
+        headers: { Authorization: `Bearer ${token}` },
+    }).then(res => res.ok ? res.json() : { items: [] });
     
-    const data = await res.json();
-    if (!data.items) return null;
+    const [artistsData, tracksData] = await Promise.all([artistsPromise, tracksPromise]);
 
-    const topArtists = data.items.map((artist: SpotifyArtist) => artist.name);
-    const allGenres = data.items.flatMap((artist: SpotifyArtist) => artist.genres);
-    const topGenres = [...new Set(allGenres)].slice(0, 10) as string[];
+    const topArtists = (artistsData.items || []).map((a: SpotifyArtist) => a.name);
+    
+    // Extract genres from artists
+    const allGenres = (artistsData.items || []).flatMap((a: SpotifyArtist) => a.genres);
+    const topGenres = [...new Set(allGenres)].slice(0, 20) as string[];
 
-    return { topArtists, topGenres };
+    // Map Tracks for Gemini
+    const topTracks = (tracksData.items || []).map((t: any) => 
+        `${t.name} by ${t.artists.map((a:any) => a.name).join(', ')}`
+    );
+
+    return { topArtists, topGenres, topTracks };
   } catch (e) {
     console.error("Error fetching taste profile", e);
     return null;
   }
 };
-
-// --- VERSION ONE: ADVANCED DATA HARVESTING ---
-
-/**
- * Generic fetcher for Top Artists/Tracks with configurable time ranges
- * Includes "Audio Features Harvest" step if fetching tracks.
- */
-const fetchTopItems = async (token: string, type: 'artists' | 'tracks', range: SpotifyTimeRange, limit: number = 50): Promise<any[]> => {
-    try {
-        const res = await fetch(`https://api.spotify.com/v1/me/top/${type}?time_range=${range}&limit=${limit}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return [];
-        const data = await res.json();
-        let items = data.items || [];
-
-        // ENRICHMENT STEP: If we fetched tracks, get their audio features
-        if (type === 'tracks' && items.length > 0) {
-             try {
-                // Spotify allows max 100 IDs per request. We limit to 50 so we can do one batch.
-                const ids = items.map((item: any) => item.id).join(',');
-                
-                const featuresRes = await fetch(`https://api.spotify.com/v1/audio-features?ids=${ids}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-
-                if (featuresRes.ok) {
-                    const featuresData = await featuresRes.json();
-                    const featuresList = featuresData.audio_features || [];
-                    
-                    // Create a lookup map for speed
-                    const featuresMap = new Map();
-                    featuresList.forEach((f: any) => {
-                        if (f) featuresMap.set(f.id, f);
-                    });
-
-                    // Merge features into track objects
-                    items = items.map((item: any) => ({
-                        ...item,
-                        audio_features: featuresMap.get(item.id) || null
-                    }));
-                }
-             } catch (featureErr) {
-                 console.warn(`Failed to fetch audio features for ${range}`, featureErr);
-                 // Proceed with basic tracks if features fail
-             }
-        }
-
-        return items;
-    } catch (e) {
-        console.warn(`Failed to fetch top ${type} (${range})`, e);
-        return [];
-    }
-};
-
-const fetchRecentlyPlayed = async (token: string, limit: number = 50): Promise<SpotifyPlayHistory[]> => {
-    try {
-        const res = await fetch(`https://api.spotify.com/v1/me/player/recently-played?limit=${limit}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return [];
-        const data = await res.json();
-        return data.items || [];
-    } catch (e) {
-        console.warn("Failed to fetch recently played", e);
-        return [];
-    }
-};
-
-const fetchFollowedArtists = async (token: string, limit: number = 50): Promise<SpotifyArtist[]> => {
-    try {
-        const res = await fetch(`https://api.spotify.com/v1/me/following?type=artist&limit=${limit}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return [];
-        const data = await res.json();
-        return data.artists?.items || [];
-    } catch (e) {
-        console.warn("Failed to fetch followed artists", e);
-        return [];
-    }
-};
-
-const fetchUserPlaylists = async (token: string, limit: number = 50): Promise<SpotifyPlaylist[]> => {
-    try {
-        const res = await fetch(`https://api.spotify.com/v1/me/playlists?limit=${limit}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return [];
-        const data = await res.json();
-        return data.items || [];
-    } catch (e) {
-        console.warn("Failed to fetch user playlists", e);
-        return [];
-    }
-};
-
-/**
- * AGGREGATOR: Harvests deep profile data in parallel.
- * Uses Promise.allSettled so one failure doesn't break the whole sync.
- */
-export const syncFullSpotifyProfile = async (token: string): Promise<ExtendedUserProfile | null> => {
-    try {
-        // Ensure we have the base profile
-        const profile = await getUserProfile(token);
-        
-        // Parallel Fetching Strategy
-        const promises = [
-           fetchTopItems(token, 'artists', 'short_term'),
-           fetchTopItems(token, 'artists', 'medium_term'),
-           fetchTopItems(token, 'artists', 'long_term'),
-           
-           fetchTopItems(token, 'tracks', 'short_term'),
-           fetchTopItems(token, 'tracks', 'medium_term'),
-           fetchTopItems(token, 'tracks', 'long_term'),
-           
-           fetchRecentlyPlayed(token),
-           fetchFollowedArtists(token),
-           fetchUserPlaylists(token) // Added playlist fetch
-        ];
-        
-        const results = await Promise.allSettled(promises);
-        
-        // Helper to extract value safely
-        const getVal = (index: number) => results[index].status === 'fulfilled' ? (results[index] as PromiseFulfilledResult<any>).value : [];
-        
-        return {
-           profile,
-           top_artists: {
-               short_term: getVal(0),
-               medium_term: getVal(1),
-               long_term: getVal(2)
-           },
-           top_tracks: {
-               short_term: getVal(3),
-               medium_term: getVal(4),
-               long_term: getVal(5)
-           },
-           recently_played: getVal(6),
-           followed_artists: getVal(7),
-           playlists: getVal(8) // Added result extraction
-        };
-    } catch (e) {
-        console.error("Full profile sync failed (Version One)", e);
-        return null;
-    }
-};
+// Backward compatibility export if needed
+export const fetchUserTopArtists = fetchUserTasteProfile;

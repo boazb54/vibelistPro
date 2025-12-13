@@ -5,7 +5,7 @@ import { GeminiResponseWithMetrics, GeneratedPlaylistRaw } from "../types";
 export const generatePlaylistFromMood = async (
   mood: string, 
   userContext?: { country?: string, explicit_filter_enabled?: boolean },
-  tasteProfile?: { topArtists: string[], topGenres: string[] },
+  tasteProfile?: { topArtists: string[], topGenres: string[] }, // REVERTED: Removed topTracks
   excludeSongs?: string[]
 ): Promise<GeminiResponseWithMetrics> => {
   
@@ -22,12 +22,11 @@ export const generatePlaylistFromMood = async (
   const t_prompt_start = performance.now();
 
   // STRATEGY: DISCOVERY BRIDGE & PERSONALIZATION (PROMPT ENGINEERING VERSION)
-  // We inject instructions to use the taste profile as a compass, not a map.
   const systemInstruction = `You are a professional music curator/DJ with deep knowledge of music across all genres.
   Your goal is to create a perfect playlist for the user's requested mood or activity.
   You should pick 15 songs that perfectly match the vibe.
   
-  CRITICAL: Return the result as raw, valid JSON only. Do not use Markdown formatting (no \`\`\`json or backticks). Do not include any text before or after the JSON object.
+  CRITICAL: Return the result as raw, valid JSON only. Do not use Markdown formatting.
   
   Use this exact JSON structure for your output:
   {
@@ -37,15 +36,21 @@ export const generatePlaylistFromMood = async (
     "songs": [
       {
         "title": "Song Title",
-        "artist": "Artist Name"
+        "artist": "Artist Name",
+        "estimated_vibe": {
+          "energy": "Low" | "Medium" | "High" | "Explosive",
+          "mood": "Adjective (e.g. Uplifting, Melancholic)",
+          "genre_hint": "Specific Sub-genre"
+        }
       }
     ]
   }
 
   CRITICAL RULES:
   1. The songs should be real and findable on Spotify/iTunes.
-  2. If "User Taste" is provided: Use it as a stylistic compass to understand the user's preferred energy. Do NOT just list the user's top artists. Find "Hidden Gems", B-sides, and adjacent artists that match their taste profile but offer true discovery.
-  3. If "Exclusion List" is provided: Do NOT include any of the songs listed. The user has already seen them and wants something new (Remix Mode).`;
+  2. If "User Taste" is provided: Use it as a stylistic compass. Find "Hidden Gems" that match their taste profile but offer true discovery.
+  3. If "Exclusion List" is provided: Do NOT include any of the songs listed.
+  4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel. Do not invent fake numeric metrics.`;
 
   let prompt = `Create a playlist for the mood: "${mood}".`;
   
@@ -55,10 +60,18 @@ export const generatePlaylistFromMood = async (
   }
 
   // INJECT TASTE (PERSONALIZATION)
-  if (tasteProfile && tasteProfile.topArtists.length > 0) {
-    prompt += `\n\nUSER TASTE PROFILE (Use for style adaptation, but prioritize discovery):
-    - Top Artists: ${tasteProfile.topArtists.join(', ')}
-    - Top Genres: ${tasteProfile.topGenres.join(', ')}`;
+  if (tasteProfile) {
+    prompt += `\n\nUSER TASTE PROFILE (Session Context - Use for style adaptation, but prioritize discovery):`;
+    
+    if (tasteProfile.topArtists.length > 0) {
+      prompt += `\n- Top Artists they like: ${tasteProfile.topArtists.slice(0, 30).join(', ')}`;
+    }
+    
+    if (tasteProfile.topGenres.length > 0) {
+      prompt += `\n- Top Genres: ${tasteProfile.topGenres.join(', ')}`;
+    }
+
+    // REVERTED: Removed topTracks injection
   }
 
   // INJECT EXCLUSIONS (REMIX LOGIC)
@@ -79,7 +92,7 @@ export const generatePlaylistFromMood = async (
     config: {
       systemInstruction,
       responseMimeType: "application/json",
-      thinkingConfig: { thinkingBudget: 0 }, // <--- THE FIX: FORCE DISABLE THINKING
+      thinkingConfig: { thinkingBudget: 0 },
       safetySettings: [
         {
           category: HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -121,15 +134,12 @@ export const generatePlaylistFromMood = async (
   throw new Error("Failed to generate playlist content");
 };
 
-// STRATEGY P: AI-Powered Audio Transcription
-// Uses Gemini 2.5 Flash to accept raw audio and transcribe it.
 export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<string> => {
     if (!process.env.API_KEY) {
         throw new Error("API Key missing");
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    // Use 2.5 Flash for fast, cheap, multimodal transcription
     const model = "gemini-2.5-flash";
 
     const response = await ai.models.generateContent({
@@ -142,13 +152,52 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
                 }
             },
             {
-                // STRATEGY Q: Native Transcription (No Translation)
-                // We ask Gemini to transcribe exactly what was said in the original language.
-                // This allows Hebrew/Spanish/etc to pass through correctly to the playlist generator.
                 text: "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble."
             }
         ]
     });
 
     return response.text || "";
+};
+
+// --- NEW: ANALYZE USER TASTE (DEBUGGER FEATURE) ---
+export const analyzeUserTopTracks = async (tracks: string[]) => {
+    if (!process.env.API_KEY) throw new Error("API Key missing");
+    if (!tracks || tracks.length === 0) return { error: "No tracks to analyze" };
+
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const model = "gemini-2.5-flash";
+
+    const trackList = tracks.join('\n');
+    
+    const systemInstruction = `You are a music analysis engine. 
+    Analyze the provided list of songs.
+    
+    For each song, return a JSON object with these exact fields:
+    - song: The input song title/artist
+    - genre: Specific sub-genre (e.g. "Dream Pop", "Techno", "Trap")
+    - energy: Low, Medium, High, or Explosive
+    - mood: Joyful, Melancholic, Aggressive, Calm, or Romantic
+    - tempo: Downtempo, Mid-Tempo, or Uptempo
+    - vocals: Instrumental, Minimal, or Lyrical
+    - texture: Organic, Electric, or Synthetic
+    
+    Return the result as a raw JSON array.`;
+
+    const prompt = `Here are the songs:\n${trackList}`;
+
+    const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+            systemInstruction,
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingBudget: 0 }
+        }
+    });
+
+    if (response.text) {
+        return JSON.parse(response.text.replace(/```json|```/g, '').trim());
+    }
+    return { error: "Failed to analyze" };
 };
