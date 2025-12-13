@@ -3,8 +3,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
+import AdminDataInspector from './components/AdminDataInspector'; // Added
 import { CogIcon } from './components/Icons'; 
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from './types';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ExtendedUserProfile } from './types';
 import { generatePlaylistFromMood } from './services/geminiService';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
@@ -33,9 +34,11 @@ const App: React.FC = () => {
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<SpotifyUserProfile | null>(null);
   const [userTaste, setUserTaste] = useState<UserTasteProfile | null>(null);
+  const [extendedProfile, setExtendedProfile] = useState<ExtendedUserProfile | null>(null); // Added state
   const [exporting, setExporting] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
+  const [showInspector, setShowInspector] = useState(false); // Added state
 
   // FIX: Race condition lock for strict mode / fast mobile browsers
   const authProcessed = useRef(false);
@@ -142,6 +145,7 @@ const App: React.FC = () => {
               if (fullData) {
                   // When sync finishes, update Supabase with the deep data.
                   // We pass 'currentTaste' again to ensure 'top_artists' column isn't cleared.
+                  setExtendedProfile(fullData); // Store in state for Inspector
                   saveUserProfile(profile, currentTaste, fullData);
                   addLog("Background data sync complete.");
               }
@@ -164,6 +168,7 @@ const App: React.FC = () => {
         if (confirm("Logout of Spotify?")) {
             setSpotifyToken(null);
             setUserProfile(null);
+            setExtendedProfile(null); // Clear extended profile
             localStorage.removeItem('spotify_token');
             localStorage.removeItem('spotify_refresh_token');
         }
@@ -482,7 +487,17 @@ const App: React.FC = () => {
                <CogIcon className="w-6 h-6" />
            </button>
 
-           <button onClick={() => setShowDebug(!showDebug)} className="text-xs text-slate-700 hover:text-slate-500">
+           <button 
+             onClick={(e) => {
+               if (e.shiftKey) {
+                 setShowInspector(prev => !prev);
+               } else {
+                 setShowDebug(!showDebug);
+               }
+             }} 
+             className="text-xs text-slate-700 hover:text-slate-500 font-mono"
+             title="Debug (Shift+Click for Data Inspector)"
+           >
                π
            </button>
 
@@ -509,6 +524,14 @@ const App: React.FC = () => {
            )}
         </div>
       </header>
+
+      {/* ADMIN DATA INSPECTOR */}
+      {showInspector && extendedProfile && (
+        <AdminDataInspector 
+          data={extendedProfile} 
+          onClose={() => setShowInspector(false)} 
+        />
+      )}
 
       {/* DEBUG CONSOLE */}
       {showDebug && (

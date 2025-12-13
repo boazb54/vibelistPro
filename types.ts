@@ -112,6 +112,28 @@ export interface VibeGenerationStats {
 
 export type SpotifyTimeRange = 'short_term' | 'medium_term' | 'long_term';
 
+// NEW: Audio Features Interface
+export interface SpotifyAudioFeatures {
+  danceability: number;
+  energy: number;
+  key: number;
+  loudness: number;
+  mode: number;
+  speechiness: number;
+  acousticness: number;
+  instrumentalness: number;
+  liveness: number;
+  valence: number;
+  tempo: number;
+  type: string;
+  id: string;
+  uri: string;
+  track_href: string;
+  analysis_url: string;
+  duration_ms: number;
+  time_signature: number;
+}
+
 export interface SpotifyTrack {
   id: string;
   name: string;
@@ -120,6 +142,8 @@ export interface SpotifyTrack {
   popularity: number;
   uri: string;
   preview_url: string | null;
+  // NEW: Optional audio features field
+  audio_features?: SpotifyAudioFeatures | null;
 }
 
 export interface SpotifyPlayHistory {
