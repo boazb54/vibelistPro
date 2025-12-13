@@ -3,10 +3,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
-import AdminDataInspector from './components/AdminDataInspector.tsx'; // Added
 import { CogIcon } from './components/Icons'; 
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ExtendedUserProfile } from './types';
-import { generatePlaylistFromMood } from './services/geminiService';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from './types';
+import { generatePlaylistFromMood, analyzeUserTopTracks } from './services/geminiService';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
   getLoginUrl, 
@@ -17,8 +16,7 @@ import {
   createSpotifyPlaylist, 
   getUserProfile, 
   fetchSpotifyMetadata,
-  fetchUserTopArtists,
-  syncFullSpotifyProfile
+  fetchUserTasteProfile
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
 import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure } from './services/historyService';
@@ -34,11 +32,9 @@ const App: React.FC = () => {
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<SpotifyUserProfile | null>(null);
   const [userTaste, setUserTaste] = useState<UserTasteProfile | null>(null);
-  const [extendedProfile, setExtendedProfile] = useState<ExtendedUserProfile | null>(null); // Added state
   const [exporting, setExporting] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
-  const [showInspector, setShowInspector] = useState(false); // Added state
 
   // FIX: Race condition lock for strict mode / fast mobile browsers
   const authProcessed = useRef(false);
@@ -119,16 +115,31 @@ const App: React.FC = () => {
   };
 
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
-      let currentTaste = null;
       try {
-          // 1. FAST PATH: Get basic taste for UI (existing behavior)
-          const taste = await fetchUserTopArtists(token);
+          // 1. FETCH TASTE
+          const taste = await fetchUserTasteProfile(token);
           if (taste) {
-              currentTaste = taste;
               setUserTaste(taste);
-              addLog(`Taste profile loaded: ${taste.topGenres.slice(0, 3).join(', ')}`);
+              addLog(`Session Taste Loaded: ${taste.topArtists.length} artists, ${taste.topTracks.length} tracks.`);
               
-              // Save basic profile immediately
+              // 1.5 LOG TOP ARTISTS (User Request: Include Artist Table)
+              addLog("--- TOP 50 ARTISTS ---");
+              addLog(JSON.stringify(taste.topArtists, null, 2));
+
+              // 2. TRIGGER GEMINI ANALYSIS (DEBUGGER ONLY)
+              if (taste.topTracks.length > 0) {
+                  addLog("Sending Top Tracks to Gemini for Feature Analysis (Energy, Mood, Genre)...");
+                  analyzeUserTopTracks(taste.topTracks)
+                      .then((analysis) => {
+                          addLog("--- GEMINI AUDIO ANALYSIS & GENRE ---");
+                          // We stringify with indentation, but in the log window it will be flat text lines
+                          // Just logging the raw JSON string is enough for the debugger to "see" it works
+                          addLog(JSON.stringify(analysis, null, 2));
+                      })
+                      .catch(err => addLog(`Gemini Analysis Failed: ${err.message}`));
+              }
+
+              // 3. SAVE PROFILE
               saveUserProfile(profile, taste);
           } else {
               saveUserProfile(profile, null);
@@ -137,22 +148,6 @@ const App: React.FC = () => {
           console.warn("Could not load taste profile", e);
           saveUserProfile(profile, null);
       }
-
-      // 2. VERSION ONE: SILENT BACKGROUND SYNC
-      // We do NOT await this. It runs in the background to build the data lake.
-      syncFullSpotifyProfile(token)
-          .then((fullData) => {
-              if (fullData) {
-                  // When sync finishes, update Supabase with the deep data.
-                  // We pass 'currentTaste' again to ensure 'top_artists' column isn't cleared.
-                  setExtendedProfile(fullData); // Store in state for Inspector
-                  saveUserProfile(profile, currentTaste, fullData);
-                  addLog("Background data sync complete.");
-              }
-          })
-          .catch(err => {
-              console.warn("Background sync failed:", err);
-          });
   };
 
   const handleLogin = async () => {
@@ -168,7 +163,7 @@ const App: React.FC = () => {
         if (confirm("Logout of Spotify?")) {
             setSpotifyToken(null);
             setUserProfile(null);
-            setExtendedProfile(null); // Clear extended profile
+            setUserTaste(null); // Clear RAM taste data
             localStorage.removeItem('spotify_token');
             localStorage.removeItem('spotify_refresh_token');
         }
@@ -177,34 +172,25 @@ const App: React.FC = () => {
     }
   };
 
-  const refreshSessionIfNeeded = async (): Promise<string | null> => {
-    if (!spotifyToken) return null;
-    return spotifyToken;
-  };
-
   // --- SAFE MODE LOGIC: SEQUENTIAL & STRICT ---
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
     const currentSessionId = ++generationSessionId.current;
     
     // --- 1. CAPTURE CONTEXTUAL DATA ---
-    // We capture this *before* generation so we reflect the state at click time.
     const localTime = new Date().toLocaleTimeString();
     const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     const browserLanguage = navigator.language;
     const deviceType = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
     
-    // Start IP fetch in background (don't await it yet)
     const ipPromise = fetch('https://api.ipify.org?format=json')
         .then(res => res.json())
         .then(data => data.ip)
         .catch(() => 'unknown');
 
-    // PERFORMANCE TRACKING START
     const t0_start = performance.now();
     let t1_gemini_end = 0;
     let t2_itunes_start = 0;
     let t3_itunes_end = 0;
-    // Capture these for error logging if needed
     let capturedPromptText = "";
     let capturedContextTime = 0;
 
@@ -222,7 +208,6 @@ const App: React.FC = () => {
 
     addLog(`Generating vibe for: "${mood}" (${modality})...`);
 
-    // MEASURE STEP B: Context Assembly
     const t_context_start = performance.now();
     let userContext = {};
     if (userProfile) {
@@ -244,17 +229,15 @@ const App: React.FC = () => {
             excludeSongs
         );
 
-        // Capture data for potential error logging
         capturedPromptText = generatedData.promptText;
-        t1_gemini_end = performance.now(); // Gemini Phase Done
+        t1_gemini_end = performance.now(); 
 
         if (currentSessionId !== generationSessionId.current) return;
 
         addLog("AI generation complete. Fetching metadata (Safe Mode)...");
-        t2_itunes_start = performance.now(); // iTunes Start (Step E)
+        t2_itunes_start = performance.now();
 
-        // 2. BATCH FETCH (Sequential Chunks) - STEP E
-        // We use smaller chunks and wait for them to ensure high success rate
+        // 2. BATCH FETCH (Sequential Chunks)
         const validSongs: Song[] = [];
         const BATCH_SIZE = 5; 
         const allSongsRaw = generatedData.songs;
@@ -267,12 +250,10 @@ const App: React.FC = () => {
              
              const results = await Promise.all(batchPromises);
              
-             // STRICT FILTER & LOGGING
              results.forEach((s, index) => {
                  if (s !== null) {
                      validSongs.push(s);
                  } else {
-                     // Log missing songs
                      const rawSong = batch[index];
                      failureDetails.push({
                          title: rawSong.title,
@@ -282,11 +263,10 @@ const App: React.FC = () => {
                  }
              });
              
-             // Optional: Add a tiny delay to be polite to the API
              await new Promise(r => setTimeout(r, 100));
         }
 
-        t3_itunes_end = performance.now(); // iTunes End
+        t3_itunes_end = performance.now();
 
         if (currentSessionId !== generationSessionId.current) return;
 
@@ -302,27 +282,24 @@ const App: React.FC = () => {
         setIsLoading(false);
         addLog(`Complete. Found ${validSongs.length}/${allSongsRaw.length} songs with previews.`);
 
-        // 4. SAVE (Step F) (With Granular Metrics + Context)
+        // 4. SAVE (With Granular Metrics + Context)
         const t4_total_end = performance.now();
-        const ipAddress = await ipPromise; // Resolve IP now
+        const ipAddress = await ipPromise; 
         
         const stats: VibeGenerationStats = {
-            // High Level
-            geminiTimeMs: Math.round(t1_gemini_end - t0_start), // B+C+D
-            itunesTimeMs: Math.round(t3_itunes_end - t2_itunes_start), // E
+            geminiTimeMs: Math.round(t1_gemini_end - t0_start), 
+            itunesTimeMs: Math.round(t3_itunes_end - t2_itunes_start), 
             totalDurationMs: Math.round(t4_total_end - t0_start),
             
-            // Granular
-            contextTimeMs: contextTimeMs, // B
-            promptBuildTimeMs: generatedData.metrics.promptBuildTimeMs, // C
-            geminiApiTimeMs: generatedData.metrics.geminiApiTimeMs, // D
+            contextTimeMs: contextTimeMs, 
+            promptBuildTimeMs: generatedData.metrics.promptBuildTimeMs, 
+            geminiApiTimeMs: generatedData.metrics.geminiApiTimeMs, 
             promptText: generatedData.promptText,
 
             successCount: validSongs.length,
             failCount: failureDetails.length,
             failureDetails: failureDetails,
 
-            // Contextual Analytics
             localTime,
             dayOfWeek,
             browserLanguage,
@@ -348,13 +325,10 @@ const App: React.FC = () => {
     } catch (error: any) {
         console.error("Generation failed", error);
         
-        // --- FAILURE LOGGING SYSTEM ---
         const t_fail = performance.now();
         const failDuration = Math.round(t_fail - t0_start);
-        const ipAddress = await ipPromise; // Resolve IP even for errors
+        const ipAddress = await ipPromise; 
 
-        // Log the failure to Supabase so we know what caused it
-        // and what the user was trying to do.
         await logGenerationFailure(
             mood,
             error?.message || "Unknown error",
@@ -363,7 +337,6 @@ const App: React.FC = () => {
                 totalDurationMs: failDuration,
                 contextTimeMs: capturedContextTime,
                 promptText: capturedPromptText,
-                // Add context to failures too
                 localTime,
                 dayOfWeek,
                 browserLanguage,
@@ -388,8 +361,6 @@ const App: React.FC = () => {
 
   const handleRemix = () => {
       if (playlist) {
-          // Pass 'text' as default modality for remix, or we could track it? 
-          // For now, remix is considered a button click -> 'text'.
           handleMoodSelect(playlist.mood, 'text', true);
       }
   };
@@ -488,15 +459,9 @@ const App: React.FC = () => {
            </button>
 
            <button 
-             onClick={(e) => {
-               if (e.shiftKey) {
-                 setShowInspector(prev => !prev);
-               } else {
-                 setShowDebug(!showDebug);
-               }
-             }} 
+             onClick={() => setShowDebug(!showDebug)} 
              className="text-xs text-slate-700 hover:text-slate-500 font-mono"
-             title="Debug (Shift+Click for Data Inspector)"
+             title="Debug"
            >
                π
            </button>
@@ -525,23 +490,15 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* ADMIN DATA INSPECTOR */}
-      {showInspector && extendedProfile && (
-        <AdminDataInspector 
-          data={extendedProfile} 
-          onClose={() => setShowInspector(false)} 
-        />
-      )}
-
       {/* DEBUG CONSOLE */}
       {showDebug && (
-          <div className="fixed bottom-20 right-4 w-80 h-64 bg-black/90 text-green-400 font-mono text-xs p-4 overflow-y-auto z-[60] border border-green-800 rounded-lg shadow-2xl">
+          <div className="fixed bottom-20 right-4 w-80 h-96 bg-black/95 text-green-400 font-mono text-xs p-4 overflow-y-auto z-[60] border border-green-800 rounded-lg shadow-2xl">
               <div className="flex justify-between border-b border-green-900 pb-1 mb-2">
                   <span>DEBUG LOGS</span>
                   <button onClick={() => setDebugLogs([])}>Clear</button>
               </div>
               {debugLogs.map((log, i) => (
-                  <div key={i} className="mb-1">{log}</div>
+                  <div key={i} className="mb-1 break-words whitespace-pre-wrap">{log}</div>
               ))}
           </div>
       )}
