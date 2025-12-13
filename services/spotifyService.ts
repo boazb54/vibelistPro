@@ -211,13 +211,13 @@ export const getUserProfile = async (token: string) => {
  */
 export const fetchUserTasteProfile = async (token: string): Promise<UserTasteProfile | null> => {
   try {
-    // 1. Fetch Top 50 Artists
-    const artistsPromise = fetch('https://api.spotify.com/v1/me/top/artists?limit=50&time_range=medium_term', {
+    // 1. Fetch Top 50 Artists (Long Term)
+    const artistsPromise = fetch('https://api.spotify.com/v1/me/top/artists?limit=50&time_range=long_term', {
       headers: { Authorization: `Bearer ${token}` },
     }).then(res => res.ok ? res.json() : { items: [] });
 
-    // 2. Fetch Top 50 Tracks (RESTORED for Gemini Analysis)
-    const tracksPromise = fetch('https://api.spotify.com/v1/me/top/tracks?limit=50&time_range=medium_term', {
+    // 2. Fetch Top 50 Tracks (Long Term - for Gemini Analysis)
+    const tracksPromise = fetch('https://api.spotify.com/v1/me/top/tracks?limit=50&time_range=long_term', {
         headers: { Authorization: `Bearer ${token}` },
     }).then(res => res.ok ? res.json() : { items: [] });
     
