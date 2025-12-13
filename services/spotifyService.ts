@@ -231,6 +231,7 @@ export const fetchUserTopArtists = async (token: string): Promise<UserTasteProfi
 
 /**
  * Generic fetcher for Top Artists/Tracks with configurable time ranges
+ * Includes "Audio Features Harvest" step if fetching tracks.
  */
 const fetchTopItems = async (token: string, type: 'artists' | 'tracks', range: SpotifyTimeRange, limit: number = 50): Promise<any[]> => {
     try {
@@ -239,7 +240,41 @@ const fetchTopItems = async (token: string, type: 'artists' | 'tracks', range: S
         });
         if (!res.ok) return [];
         const data = await res.json();
-        return data.items || [];
+        let items = data.items || [];
+
+        // ENRICHMENT STEP: If we fetched tracks, get their audio features
+        if (type === 'tracks' && items.length > 0) {
+             try {
+                // Spotify allows max 100 IDs per request. We limit to 50 so we can do one batch.
+                const ids = items.map((item: any) => item.id).join(',');
+                
+                const featuresRes = await fetch(`https://api.spotify.com/v1/audio-features?ids=${ids}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+
+                if (featuresRes.ok) {
+                    const featuresData = await featuresRes.json();
+                    const featuresList = featuresData.audio_features || [];
+                    
+                    // Create a lookup map for speed
+                    const featuresMap = new Map();
+                    featuresList.forEach((f: any) => {
+                        if (f) featuresMap.set(f.id, f);
+                    });
+
+                    // Merge features into track objects
+                    items = items.map((item: any) => ({
+                        ...item,
+                        audio_features: featuresMap.get(item.id) || null
+                    }));
+                }
+             } catch (featureErr) {
+                 console.warn(`Failed to fetch audio features for ${range}`, featureErr);
+                 // Proceed with basic tracks if features fail
+             }
+        }
+
+        return items;
     } catch (e) {
         console.warn(`Failed to fetch top ${type} (${range})`, e);
         return [];
