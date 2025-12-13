@@ -1,4 +1,10 @@
 
+export interface AiVibeEstimate {
+  energy: string;      // e.g. "High", "Chill", "Medium"
+  mood: string;        // e.g. "Uplifting", "Melancholic"
+  genre_hint: string;  // e.g. "Synth-pop"
+}
+
 export interface Song {
   id: string; 
   title: string;
@@ -9,7 +15,8 @@ export interface Song {
   spotifyUri?: string; 
   durationMs?: number;
   itunesUrl?: string;
-  searchQuery: string; 
+  searchQuery: string;
+  estimatedVibe?: AiVibeEstimate; // NEW: AI Qualitative Data
 }
 
 export interface Playlist {
@@ -23,6 +30,7 @@ export interface Playlist {
 export interface GeneratedSongRaw {
   title: string;
   artist: string;
+  estimated_vibe?: AiVibeEstimate; // NEW: Requested from Gemini
 }
 
 export interface GeneratedPlaylistRaw {
@@ -79,12 +87,19 @@ export interface SpotifyArtist {
   name: string;
   genres: string[];
   popularity: number;
-  images?: SpotifyImage[]; // Enhanced to include images
+  images?: SpotifyImage[];
+}
+
+export interface SpotifyTrack {
+  id: string;
+  name: string;
+  artists: { name: string }[];
 }
 
 export interface UserTasteProfile {
   topArtists: string[];
   topGenres: string[];
+  topTracks: string[]; // RESTORED: For Gemini Analysis
 }
 
 export interface VibeGenerationStats {
@@ -99,83 +114,10 @@ export interface VibeGenerationStats {
   failureDetails: { title: string; artist: string; reason: string }[];
   promptText?: string;
   
-  // NEW: Contextual Analytics
   localTime?: string;
   dayOfWeek?: string;
   browserLanguage?: string;
   inputModality?: 'text' | 'voice';
   deviceType?: string;
   ipAddress?: string;
-}
-
-// --- VERSION ONE: NEW DATA TYPES ---
-
-export type SpotifyTimeRange = 'short_term' | 'medium_term' | 'long_term';
-
-// NEW: Audio Features Interface
-export interface SpotifyAudioFeatures {
-  danceability: number;
-  energy: number;
-  key: number;
-  loudness: number;
-  mode: number;
-  speechiness: number;
-  acousticness: number;
-  instrumentalness: number;
-  liveness: number;
-  valence: number;
-  tempo: number;
-  type: string;
-  id: string;
-  uri: string;
-  track_href: string;
-  analysis_url: string;
-  duration_ms: number;
-  time_signature: number;
-}
-
-export interface SpotifyTrack {
-  id: string;
-  name: string;
-  artists: { name: string; id: string }[];
-  album: { name: string; images: SpotifyImage[]; release_date: string };
-  popularity: number;
-  uri: string;
-  preview_url: string | null;
-  // NEW: Optional audio features field
-  audio_features?: SpotifyAudioFeatures | null;
-}
-
-export interface SpotifyPlayHistory {
-  track: SpotifyTrack;
-  played_at: string;
-  context: any;
-}
-
-// NEW: Raw Playlist Data Structure
-export interface SpotifyPlaylist {
-  id: string;
-  name: string;
-  description: string | null;
-  images: SpotifyImage[];
-  owner: { display_name?: string; id: string };
-  tracks: { href: string; total: number };
-  uri: string;
-}
-
-export interface ExtendedUserProfile {
-  profile: SpotifyUserProfile;
-  top_artists: {
-    short_term: SpotifyArtist[];
-    medium_term: SpotifyArtist[];
-    long_term: SpotifyArtist[];
-  };
-  top_tracks: {
-    short_term: SpotifyTrack[];
-    medium_term: SpotifyTrack[];
-    long_term: SpotifyTrack[];
-  };
-  recently_played: SpotifyPlayHistory[];
-  followed_artists: SpotifyArtist[];
-  playlists: SpotifyPlaylist[]; // NEW: Added playlists array
 }
