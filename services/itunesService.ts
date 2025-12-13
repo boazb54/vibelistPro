@@ -42,59 +42,53 @@ const searchItunes = async (query: string): Promise<ItunesResult | null> => {
             const response = await fetch(proxyUrl);
             if (response.ok) {
                 const data = await response.json();
-                if (data.resultCount > 0 && data.results[0].previewUrl) {
-                    return data.results[0];
-                }
+                return data.results && data.results.length > 0 ? data.results[0] : null;
             }
         } catch (e) {
-            // Proxy failed, continue to direct
+            console.error("Proxy search failed", e);
         }
     }
 
-    // B. Try Direct (Fallback/Local)
+    // B. Localhost / Fallback: Direct Call
     try {
-        const directUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&limit=1&entity=song`;
-        const response = await fetch(directUrl);
-        if (response.ok) {
-            const data = await response.json();
-            if (data.resultCount > 0 && data.results[0].previewUrl) {
-                return data.results[0];
-            }
-        }
-    } catch (e) {
-        // Direct failed
+        const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&limit=1&entity=song`;
+        const response = await fetch(url);
+        const data = await response.json();
+        return data.results && data.results.length > 0 ? data.results[0] : null;
+    } catch (error) {
+        console.error("iTunes Search Error:", error);
+        return null;
     }
-
-    return null;
 };
 
 export const fetchSongMetadata = async (generatedSong: GeneratedSongRaw): Promise<Song | null> => {
-    // STRATEGY: RETRY LOOP (SAFE MODE)
-    // We try multiple variations to find a valid preview.
-    
-    // 1. Try Title + Artist (Standard)
-    let result = await searchItunes(`${generatedSong.title} ${generatedSong.artist}`);
+  try {
+    const queries = [
+      `${generatedSong.title} ${generatedSong.artist}`,
+      `${generatedSong.title}`, 
+      `${generatedSong.artist} ${generatedSong.title}`
+    ];
 
-    // 2. Try Clean Title + Artist (Fallback)
-    if (!result) {
-        const cleaned = `${cleanText(generatedSong.title)} ${cleanText(generatedSong.artist)}`;
-        result = await searchItunes(cleaned);
+    for (const q of queries) {
+      const result = await searchItunes(cleanText(q));
+      if (result && result.previewUrl) {
+        return {
+          id: result.trackId.toString(),
+          title: result.trackName,
+          artist: result.artistName,
+          album: result.collectionName,
+          previewUrl: result.previewUrl,
+          artworkUrl: result.artworkUrl100.replace('100x100', '600x600'),
+          durationMs: result.trackTimeMillis,
+          itunesUrl: result.trackViewUrl,
+          searchQuery: q,
+          estimatedVibe: generatedSong.estimated_vibe // Pass the qualitative AI data
+        };
+      }
     }
-
-    // STRICT FILTER: If still no result or no previewUrl, return null.
-    if (!result || !result.previewUrl) {
-        return null;
-    }
-
-    return {
-        id: result.trackId.toString(),
-        title: result.trackName,
-        artist: result.artistName,
-        album: result.collectionName,
-        previewUrl: result.previewUrl,
-        artworkUrl: result.artworkUrl100.replace('100x100', '600x600'),
-        itunesUrl: result.trackViewUrl,
-        durationMs: result.trackTimeMillis,
-        searchQuery: `${generatedSong.title} ${generatedSong.artist}` // Manually constructed
-    };
+    return null;
+  } catch (error) {
+    console.error("Metadata fetch failed", error);
+    return null;
+  }
 };
