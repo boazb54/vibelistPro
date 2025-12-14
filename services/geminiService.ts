@@ -1,11 +1,11 @@
 
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack } from "../types";
+import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile } from "../types";
 
 export const generatePlaylistFromMood = async (
   mood: string, 
-  userContext?: { country?: string, explicit_filter_enabled?: boolean },
-  tasteProfile?: { topArtists: string[], topGenres: string[] }, // REVERTED: Removed topTracks
+  contextSignals: ContextualSignals,
+  tasteProfile?: UserTasteProfile,
   excludeSongs?: string[]
 ): Promise<GeminiResponseWithMetrics> => {
   
@@ -21,12 +21,20 @@ export const generatePlaylistFromMood = async (
   // MEASURE STEP C: Prompt Building
   const t_prompt_start = performance.now();
 
-  // STRATEGY: DISCOVERY BRIDGE & PERSONALIZATION (PROMPT ENGINEERING VERSION)
+  // STRATEGY: CONTEXT-AWARE INTENT PARSING
   const systemInstruction = `You are a professional music curator/DJ with deep knowledge of music across all genres.
-  Your goal is to create a perfect playlist for the user's requested mood or activity.
-  You should pick 15 songs that perfectly match the vibe.
-  
-  CRITICAL: Return the result as raw, valid JSON only. Do not use Markdown formatting.
+  Your goal is to create a perfect playlist based on the user's intent.
+
+  CRITICAL PRIORITY RULES (Intent > Context > Taste):
+  1. USER INTENT (The 'query'): This is absolute. If they ask for "Party", give them party music, even if their history is only classical.
+  2. CONTEXT (Time/Device/Lang): Use this to fine-tune the vibe. 
+     - "Party" at 8 AM (local_time) -> "Morning Energy" / Funk / Soul.
+     - "Focus" on "Mobile" -> Shorter, more engaging tracks.
+     - "Text" input -> Follow literally. "Voice" input -> Interpret the emotion more loosely.
+  3. TASTE BIAS: Use the user's history ONLY as a stylistic compass to pick songs they might like *within* the requested genre. Do not let taste override the requested mood.
+
+  OUTPUT FORMAT:
+  Return the result as raw, valid JSON only. Do not use Markdown formatting.
   
   Use this exact JSON structure for your output:
   {
@@ -47,38 +55,42 @@ export const generatePlaylistFromMood = async (
   }
 
   CRITICAL RULES:
-  1. The songs should be real and findable on Spotify/iTunes.
-  2. If "User Taste" is provided: Use it as a stylistic compass. Find "Hidden Gems" that match their taste profile but offer true discovery.
+  1. Pick 15 songs.
+  2. The songs must be real and findable on Spotify/iTunes.
   3. If "Exclusion List" is provided: Do NOT include any of the songs listed.
-  4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel. Do not invent fake numeric metrics.`;
+  4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel.
+  `;
 
-  let prompt = `Create a playlist for the mood: "${mood}".`;
-  
-  if (userContext) {
-    if (userContext.country) prompt += ` The user is in ${userContext.country}.`;
-    if (userContext.explicit_filter_enabled) prompt += ` Please avoid explicit content if possible.`;
-  }
+  // NEW: STRUCTURED PROMPT PAYLOAD
+  // We package everything into a JSON object so the model understands the relationships.
+  const promptPayload = {
+      user_target: {
+          query: mood,
+          modality: contextSignals.input_modality
+      },
+      environmental_context: {
+          local_time: contextSignals.local_time,
+          day_of_week: contextSignals.day_of_week,
+          device_type: contextSignals.device_type,
+          browser_language: contextSignals.browser_language,
+          country: contextSignals.country || 'Unknown'
+      },
+      taste_bias: tasteProfile ? {
+          type: tasteProfile.session_analysis?.taste_profile_type || 'unknown',
+          top_artists: tasteProfile.topArtists.slice(0, 20),
+          top_genres: tasteProfile.topGenres.slice(0, 10),
+          // We provide the semantic profile if available for deeper alignment
+          vibe_fingerprint: tasteProfile.session_analysis 
+            ? { 
+                energy: tasteProfile.session_analysis.energy_bias, 
+                favored_genres: tasteProfile.session_analysis.dominant_genres 
+              } 
+            : null
+      } : null,
+      exclusions: excludeSongs || []
+  };
 
-  // INJECT TASTE (PERSONALIZATION)
-  if (tasteProfile) {
-    prompt += `\n\nUSER TASTE PROFILE (Session Context - Use for style adaptation, but prioritize discovery):`;
-    
-    if (tasteProfile.topArtists.length > 0) {
-      prompt += `\n- Top Artists they like: ${tasteProfile.topArtists.slice(0, 30).join(', ')}`;
-    }
-    
-    if (tasteProfile.topGenres.length > 0) {
-      prompt += `\n- Top Genres: ${tasteProfile.topGenres.join(', ')}`;
-    }
-
-    // REVERTED: Removed topTracks injection
-  }
-
-  // INJECT EXCLUSIONS (REMIX LOGIC)
-  if (excludeSongs && excludeSongs.length > 0) {
-    prompt += `\n\nEXCLUSION LIST (The user just saw these, do NOT repeat them):
-    ${excludeSongs.join(', ')}`;
-  }
+  const prompt = JSON.stringify(promptPayload, null, 2);
 
   const t_prompt_end = performance.now();
   const promptBuildTimeMs = Math.round(t_prompt_end - t_prompt_start);
@@ -123,7 +135,7 @@ export const generatePlaylistFromMood = async (
       const rawData = JSON.parse(cleanText) as GeneratedPlaylistRaw;
       return {
           ...rawData,
-          promptText: prompt,
+          promptText: prompt, // We save the JSON string as the prompt text for debugging
           metrics: {
               promptBuildTimeMs,
               geminiApiTimeMs
