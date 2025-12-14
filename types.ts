@@ -5,6 +5,24 @@ export interface AiVibeEstimate {
   genre_hint: string;  // e.g. "Synth-pop"
 }
 
+// NEW: Improved Schema Interfaces
+export interface SemanticTags {
+  primary_genre: string;
+  secondary_genres: string[];
+  energy: string; // "low" | "medium" | "high" | "explosive"
+  mood: string[]; 
+  tempo: string; // "slow" | "mid" | "fast"
+  vocals: string; // "instrumental" | "lead_vocal" | "choral"
+  texture: string; // "organic" | "electric" | "synthetic"
+}
+
+export interface AnalyzedTrack {
+  song_name: string;
+  artist_name: string;
+  semantic_tags: SemanticTags;
+  confidence: string; // "low" | "medium" | "high"
+}
+
 export interface Song {
   id: string; 
   title: string;
