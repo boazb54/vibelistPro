@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { GeminiResponseWithMetrics, GeneratedPlaylistRaw } from "../types";
+import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack } from "../types";
 
 export const generatePlaylistFromMood = async (
   mood: string, 
@@ -161,7 +161,7 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
 };
 
 // --- NEW: ANALYZE USER TASTE (DEBUGGER FEATURE) ---
-export const analyzeUserTopTracks = async (tracks: string[]) => {
+export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTrack[] | { error: string }> => {
     if (!process.env.API_KEY) throw new Error("API Key missing");
     if (!tracks || tracks.length === 0) return { error: "No tracks to analyze" };
 
@@ -170,21 +170,35 @@ export const analyzeUserTopTracks = async (tracks: string[]) => {
 
     const trackList = tracks.join('\n');
     
+    // UPDATED SCHEMA INSTRUCTION BASED ON USER SPECIFICATION
     const systemInstruction = `You are a music analysis engine. 
     Analyze the provided list of songs.
     
-    For each song, return a JSON object with these exact fields:
-    - song: The input song title/artist
-    - genre: Specific sub-genre (e.g. "Dream Pop", "Techno", "Trap")
-    - energy: Low, Medium, High, or Explosive
-    - mood: Joyful, Melancholic, Aggressive, Calm, or Romantic
-    - tempo: Downtempo, Mid-Tempo, or Uptempo
-    - vocals: Instrumental, Minimal, or Lyrical
-    - texture: Organic, Electric, or Synthetic
+    For each song, return a JSON object using this exact schema:
+    {
+      "song_name": "Song Name",
+      "artist_name": "Artist Name",
+      "semantic_tags": {
+        "primary_genre": "specific genre (lowercase)",
+        "secondary_genres": ["genre1", "genre2"],
+        "energy": "low" | "medium" | "high" | "explosive",
+        "mood": ["mood1", "mood2"],
+        "tempo": "slow" | "mid" | "fast",
+        "vocals": "instrumental" | "lead_vocal" | "choral",
+        "texture": "organic" | "electric" | "synthetic"
+      },
+      "confidence": "low" | "medium" | "high"
+    }
+
+    RULES:
+    1. Split the input string (e.g. "Song by Artist") into "song_name" and "artist_name".
+    2. Normalize values: Use lowercase, controlled vocabulary only.
+    3. Use arrays for attributes that can be multiple (mood, secondary_genres).
+    4. Interpret attributes as soft signals, not absolute facts.
     
     Return the result as a raw JSON array.`;
 
-    const prompt = `Here are the songs:\n${trackList}`;
+    const prompt = `Here are the songs to analyze:\n${trackList}`;
 
     const response = await ai.models.generateContent({
         model,
