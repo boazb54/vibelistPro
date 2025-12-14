@@ -4,7 +4,7 @@ import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
 import { CogIcon } from './components/Icons'; 
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from './types';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
@@ -227,33 +227,44 @@ const App: React.FC = () => {
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
-    setDebugLogs([]);
+    
+    // NOTE: Removed setDebugLogs([]) to preserve the Taste Profile logs in the debugger
 
     addLog(`Generating vibe for: "${mood}" (${modality})...`);
 
     const t_context_start = performance.now();
-    let userContext = {};
-    if (userProfile) {
-        userContext = {
-            country: userProfile.country,
-            explicit_filter_enabled: userProfile.explicit_content?.filter_enabled
-        };
-    }
+
+    // NEW: Pack contextual signals strictly
+    const contextSignals: ContextualSignals = {
+        local_time: localTime,
+        day_of_week: dayOfWeek,
+        device_type: deviceType,
+        input_modality: modality,
+        browser_language: browserLanguage,
+        country: userProfile?.country
+    };
+
     const t_context_end = performance.now();
     const contextTimeMs = Math.round(t_context_end - t_context_start);
     capturedContextTime = contextTimeMs;
 
     try {
         // 1. CALL GEMINI (STEPS C & D)
+        // Pass contextSignals directly instead of loose parameters
         const generatedData = await generatePlaylistFromMood(
             mood, 
-            userContext, 
+            contextSignals, 
             userTaste || undefined, 
             excludeSongs
         );
 
         capturedPromptText = generatedData.promptText;
         t1_gemini_end = performance.now(); 
+
+        // --- ADDED FOR QA: Log full prompt context ---
+        addLog("--- CONTEXTUAL PROMPT PAYLOAD ---");
+        addLog(generatedData.promptText);
+        // ---------------------------------------------
 
         if (currentSessionId !== generationSessionId.current) return;
 
