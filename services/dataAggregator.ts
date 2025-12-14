@@ -38,7 +38,7 @@ export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticPr
     .map(([name]) => name);
 
 
-  // 2. GENRE AGGREGATION
+  // 2. GENRE AGGREGATION (Updated with Diversity Fallback)
   const genreScores: Record<string, number> = {};
   let totalGenreWeight = 0;
 
@@ -63,13 +63,39 @@ export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticPr
     }
   });
 
-  // Filter outliers (< 10-15%) & Keep Top 3
-  const dominantGenres = Object.entries(genreScores)
-    .map(([genre, score]) => ({ genre, score, percentage: score / (totalGenreWeight || 1) }))
-    .filter(item => item.percentage >= 0.10) // Drop low-frequency outliers
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-    .map(item => item.genre);
+  // Calculate percentages and sort
+  const allGenres = Object.entries(genreScores)
+      .map(([genre, score]) => ({ 
+          genre, 
+          score, 
+          percentage: totalGenreWeight > 0 ? score / totalGenreWeight : 0 
+      }))
+      .sort((a, b) => b.score - a.score);
+
+  let tasteProfileType: 'diverse' | 'focused' = 'diverse';
+  let dominantGenres: string[] = [];
+  const topGenre = allGenres[0];
+
+  // LOGIC: IF top genre commands >= 20% of the weight, it's a "Focused" session.
+  // Otherwise, it's "Diverse" (entropy is high).
+  if (topGenre && topGenre.percentage >= 0.20) {
+      tasteProfileType = 'focused';
+      // Focused: Only keep significant genres (>= 10%)
+      dominantGenres = allGenres
+          .filter(g => g.percentage >= 0.10)
+          .map(g => g.genre);
+  } else {
+      tasteProfileType = 'diverse';
+      // Diverse: Keep top 5 genres regardless of how small their share is
+      dominantGenres = allGenres
+          .slice(0, 5)
+          .map(g => g.genre);
+  }
+  
+  // Safety Fallback: Ensure we never return an empty list if data exists
+  if (dominantGenres.length === 0 && allGenres.length > 0) {
+      dominantGenres = allGenres.slice(0, 3).map(g => g.genre);
+  }
 
 
   // 3. ENERGY DISTRIBUTION
@@ -152,6 +178,7 @@ export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticPr
   const textureBias = calculateBias(t => t.semantic_tags.texture);
 
   return {
+      taste_profile_type: tasteProfileType,
       dominant_genres: dominantGenres,
       energy_bias: energyBias,
       energy_distribution: energyDistribution,
