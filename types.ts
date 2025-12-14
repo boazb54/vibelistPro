@@ -23,6 +23,18 @@ export interface AnalyzedTrack {
   confidence: string; // "low" | "medium" | "high"
 }
 
+// NEW: Aggregated Session Profile (Deterministically calculated)
+export interface SessionSemanticProfile {
+  dominant_genres: string[];
+  energy_bias: string;
+  energy_distribution: Record<string, number>; // e.g. { low: 0.2, medium: 0.8 }
+  dominant_moods: string[];
+  tempo_bias: string;
+  vocals_bias: string;
+  texture_bias: string;
+  artist_examples: string[]; // Top 5 weighted artists
+}
+
 export interface Song {
   id: string; 
   title: string;
@@ -118,6 +130,7 @@ export interface UserTasteProfile {
   topArtists: string[];
   topGenres: string[];
   topTracks: string[]; // RESTORED: For Gemini Analysis
+  session_analysis?: SessionSemanticProfile; // NEW: Processed "Vibe Fingerprint"
 }
 
 export interface VibeGenerationStats {

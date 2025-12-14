@@ -6,6 +6,7 @@ import PlayerControls from './components/PlayerControls';
 import { CogIcon } from './components/Icons'; 
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks } from './services/geminiService';
+import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
   getLoginUrl, 
@@ -119,28 +120,50 @@ const App: React.FC = () => {
           // 1. FETCH TASTE
           const taste = await fetchUserTasteProfile(token);
           if (taste) {
-              setUserTaste(taste);
-              addLog(`Session Taste Loaded: ${taste.topArtists.length} artists, ${taste.topTracks.length} tracks.`);
-              
-              // 1.5 LOG TOP ARTISTS (User Request: Include Artist Table)
+              // 1.5 LOG TOP ARTISTS
               addLog("--- TOP 50 ARTISTS ---");
-              addLog(JSON.stringify(taste.topArtists, null, 2));
+              addLog(JSON.stringify(taste.topArtists.slice(0, 10), null, 2) + ` ...and ${Math.max(0, taste.topArtists.length - 10)} more`);
 
-              // 2. TRIGGER GEMINI ANALYSIS (DEBUGGER ONLY)
+              // 2. TRIGGER GEMINI ANALYSIS
               if (taste.topTracks.length > 0) {
                   addLog("Sending Top Tracks to Gemini for Feature Analysis (Energy, Mood, Genre)...");
+                  
+                  // Run in background so we don't block the UI, but update taste state when done
                   analyzeUserTopTracks(taste.topTracks)
                       .then((analysis) => {
-                          addLog("--- GEMINI AUDIO ANALYSIS & GENRE ---");
-                          // We stringify with indentation, but in the log window it will be flat text lines
-                          // Just logging the raw JSON string is enough for the debugger to "see" it works
-                          addLog(JSON.stringify(analysis, null, 2));
-                      })
-                      .catch(err => addLog(`Gemini Analysis Failed: ${err.message}`));
-              }
+                          if ('error' in analysis) {
+                              addLog(`Gemini Analysis Error: ${analysis.error}`);
+                              setUserTaste(taste); // Set basics even if AI fails
+                              return;
+                          }
 
-              // 3. SAVE PROFILE
-              saveUserProfile(profile, taste);
+                          addLog("--- GEMINI AUDIO ANALYSIS & GENRE (RAW) ---");
+                          addLog(`Analyzed ${analysis.length} tracks.`);
+                          // addLog(JSON.stringify(analysis[0], null, 2)); // Log first one as example
+
+                          // 3. AGGREGATE SESSION DATA (DETERMINISTIC MATH)
+                          addLog("--- AGGREGATING SESSION PROFILE (TYPESCRIPT) ---");
+                          const sessionProfile = aggregateSessionData(analysis);
+                          
+                          addLog(JSON.stringify(sessionProfile, null, 2));
+                          
+                          // Update taste with the AI enhanced profile
+                          const enhancedTaste: UserTasteProfile = {
+                              ...taste,
+                              session_analysis: sessionProfile
+                          };
+                          
+                          setUserTaste(enhancedTaste);
+                          saveUserProfile(profile, enhancedTaste);
+                      })
+                      .catch(err => {
+                          addLog(`Gemini Analysis Failed: ${err.message}`);
+                          setUserTaste(taste);
+                      });
+              } else {
+                  setUserTaste(taste);
+                  saveUserProfile(profile, taste);
+              }
           } else {
               saveUserProfile(profile, null);
           }
