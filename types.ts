@@ -25,6 +25,7 @@ export interface AnalyzedTrack {
 
 // NEW: Aggregated Session Profile (Deterministically calculated)
 export interface SessionSemanticProfile {
+  taste_profile_type: 'diverse' | 'focused'; // NEW: Logic flag for prompt engineering
   dominant_genres: string[];
   energy_bias: string;
   energy_distribution: Record<string, number>; // e.g. { low: 0.2, medium: 0.8 }
