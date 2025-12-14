@@ -36,6 +36,16 @@ export interface SessionSemanticProfile {
   artist_examples: string[]; // Top 5 weighted artists
 }
 
+// NEW: Context Object for Intent Parsing
+export interface ContextualSignals {
+  local_time: string;
+  day_of_week: string;
+  device_type: string;
+  input_modality: 'text' | 'voice';
+  browser_language: string;
+  country?: string;
+}
+
 export interface Song {
   id: string; 
   title: string;
