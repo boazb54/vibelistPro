@@ -112,7 +112,8 @@ export const markVibeAsExported = async (vibeId: string) => {
 };
 
 /**
- * REVERT: Restored saving of User Taste Profile (Artists/Genres)
+ * Saves essential user account info only.
+ * REMOVED: Saving of top_artists and top_genres to comply with Spotify Developer Terms.
  */
 export const saveUserProfile = async (
   profile: SpotifyUserProfile,
@@ -129,11 +130,8 @@ export const saveUserProfile = async (
         last_login: new Date().toISOString()
     };
 
-    // REVERTED: Restore saving of taste profile if it exists
-    if (tasteProfile) {
-        payload.top_artists = tasteProfile.topArtists;
-        payload.top_genres = tasteProfile.topGenres;
-    }
+    // NOTE: We deliberately do NOT save tasteProfile.topArtists or topGenres to the database
+    // to strictly adhere to data minimization principles.
 
     const { error } = await supabase
       .from('users')
