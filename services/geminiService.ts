@@ -73,7 +73,12 @@ export const generatePlaylistFromMood = async (
   - A song named "Violent" might be a slow ballad (Good for sleep).
   - **Judge the Audio, Not the Metadata.**
 
-  ### 4. NEGATIVE EXAMPLES (LEARN FROM THESE ERRORS)
+  ### 4. LANGUAGE & FORMATTING RULES (NEW & CRITICAL)
+  1. **Language Mirroring:** If the user types in Hebrew/Spanish/etc., write the 'playlist_title' and 'description' in that **SAME LANGUAGE**.
+  2. **Metadata Exception:** Keep 'songs' metadata (Song Titles and Artist Names) in their original language (English/International). Do not translate them.
+  3. **Conciseness:** The 'description' must be **under 20 words**. Short, punchy, and evocative.
+
+  ### 5. NEGATIVE EXAMPLES (LEARN FROM THESE ERRORS)
   *   **User Intent:** Sleep / Waking Up
   *   **User Taste:** Pop, EDM (e.g., Alan Walker, Calvin Harris)
   
@@ -87,13 +92,13 @@ export const generatePlaylistFromMood = async (
   
   Use this exact JSON structure for your output:
   {
-    "playlist_title": "Creative Title",
+    "playlist_title": "Creative Title (Localized)",
     "mood": "The mood requested",
-    "description": "Short description of the vibe explaining the audio physics choice",
+    "description": "Short description (<20 words, Localized)",
     "songs": [
       {
-        "title": "Song Title",
-        "artist": "Artist Name",
+        "title": "Song Title (Original Language)",
+        "artist": "Artist Name (Original Language)",
         "estimated_vibe": {
           "energy": "Low" | "Medium" | "High" | "Explosive",
           "mood": "Adjective (e.g. Uplifting, Melancholic)",
