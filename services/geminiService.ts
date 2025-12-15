@@ -29,22 +29,51 @@ export const generatePlaylistFromMood = async (
   When selecting songs, you must evaluate them in this order:
   
   1. **INTENT (PHYSICAL CONSTRAINTS):** Does the song's audio texture match the requested activity?
-     - *Sleep/Relax/Waking Up:* Requires Low BPM (<90), Organic/Ambient Texture. **NO HEAVY DRUMS. NO DROPS.**
      - *Workout:* Requires High Energy, Steady Beat.
      - *Focus:* Requires Steady Pulse, Minimal Lyrics.
+     - *Sleep/Relax:* See Polarity Logic below.
   
   2. **CONTEXT:** Time of day and location tuning.
   
   3. **TASTE (STYLISTIC COMPASS):** Only use the user's favorite artists/genres if they fit the **Physical Constraints** of Step 1.
      - **CRITICAL:** If the user loves "Techno" but asks for "Sleep", **DO NOT** play "Chill Techno" (it still has kicks). Play an "Ambient" or "Beatless" track by a Techno artist, or ignore the genre entirely.
 
-  ### 2. "TITLE BIAS" WARNING
+  ### 2. TEMPORAL + LINGUISTIC POLARITY & INTENT DECODING (CRITICAL LOGIC)
+  Determine whether the user describes a **PROBLEM** (needs fixing) or a **GOAL** (needs matching).
+
+  **SCENARIO: User expresses fatigue ("tired", "low energy", "חסר אנרגיות")**
+  
+  *   **IF user explicitly requests sleep/relaxation:**
+      *   → GOAL: Matching (Sleep/Calm)
+      *   → Ignore time.
+  
+  *   **ELSE IF local_time is Morning/Afternoon (06:00–17:00):**
+      *   → GOAL: Gentle Energy Lift (Compensation).
+      *   → AUDIO PHYSICS: 
+          - Energy: Low → Medium.
+          - Tempo: Slow → Mid.
+          - Rhythm: Present but soft.
+          - No ambient drones. No heavy drops.
+  
+  *   **ELSE IF local_time is Evening/Night (20:00–05:00):**
+      *   → GOAL: Relaxation / Sleep.
+      *   → AUDIO PHYSICS: 
+          - Constant low energy.
+          - Slow tempo.
+          - Ambient / minimal.
+          - No drums.
+
+  **RULE: "Waking up" ≠ "Sleep"**
+  *   Waking up requires dynamic rising energy.
+  *   Sleep requires static low energy.
+
+  ### 3. "TITLE BIAS" WARNING
   **NEVER** infer a song's vibe from its title.
   - A song named "Pure Bliss" might be a high-energy Trance track (Bad for sleep).
   - A song named "Violent" might be a slow ballad (Good for sleep).
   - **Judge the Audio, Not the Metadata.**
 
-  ### 3. NEGATIVE EXAMPLES (LEARN FROM THESE ERRORS)
+  ### 4. NEGATIVE EXAMPLES (LEARN FROM THESE ERRORS)
   *   **User Intent:** Sleep / Waking Up
   *   **User Taste:** Pop, EDM (e.g., Alan Walker, Calvin Harris)
   
