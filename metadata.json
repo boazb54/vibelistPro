@@ -1,5 +1,7 @@
 {
-  "name": "VibeList+",
+  "name": "VibeList Pro-Main",
   "description": "AI-powered mood playlist generator with real music previews and Spotify export.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

@@ -1,8 +1,8 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
+import SettingsModal from './components/SettingsModal';
 import { CogIcon } from './components/Icons'; 
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks } from './services/geminiService';
@@ -36,6 +36,7 @@ const App: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // FIX: Race condition lock for strict mode / fast mobile browsers
   const authProcessed = useRef(false);
@@ -183,16 +184,21 @@ const App: React.FC = () => {
 
   const handleSettings = () => {
     if (spotifyToken) {
-        if (confirm("Logout of Spotify?")) {
-            setSpotifyToken(null);
-            setUserProfile(null);
-            setUserTaste(null); // Clear RAM taste data
-            localStorage.removeItem('spotify_token');
-            localStorage.removeItem('spotify_refresh_token');
-        }
+        setShowSettings(true);
     } else {
-        alert("Settings: Please login first to manage your account.");
+        alert("Please login first to manage your settings.");
+        handleLogin();
     }
+  };
+
+  const handleSignOut = () => {
+    setSpotifyToken(null);
+    setUserProfile(null);
+    setUserTaste(null);
+    localStorage.removeItem('spotify_token');
+    localStorage.removeItem('spotify_refresh_token');
+    setShowSettings(false);
+    handleReset(); // Reset the UI/Player state
   };
 
   // --- SAFE MODE LOGIC: SEQUENTIAL & STRICT ---
@@ -582,6 +588,14 @@ const App: React.FC = () => {
         onPrev={handlePrev}
         onClose={handleClosePlayer} 
         playlistTitle={playlist?.title}
+      />
+      
+      {/* SETTINGS MODAL */}
+      <SettingsModal 
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        userProfile={userProfile}
+        onSignOut={handleSignOut}
       />
     </div>
   );
