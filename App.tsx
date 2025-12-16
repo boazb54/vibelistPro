@@ -590,7 +590,7 @@ const App: React.FC = () => {
         playlistTitle={playlist?.title}
       />
       
-      {/* SETTINGS OVERLAY */}
+      {/* SETTINGS OVERLAY (Renamed back to SettingsOverlay) */}
       <SettingsOverlay 
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
