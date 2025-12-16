@@ -1,8 +1,8 @@
-
 import React, { useState, useRef } from 'react';
 import { MOODS } from '../constants';
 import { MicIcon } from './Icons';
 import { transcribeAudio } from '../services/geminiService';
+import HowItWorks from './HowItWorks';
 
 interface MoodSelectorProps {
   onSelectMood: (mood: string, modality: 'text' | 'voice') => void;
@@ -139,8 +139,8 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
         </p>
       </div>
 
-      {/* HERO INPUT SECTION */}
-      <form onSubmit={handleCustomSubmit} className="relative max-w-2xl mx-auto mb-12">
+      {/* HERO INPUT SECTION - Updated to max-w-4xl and py-12 as requested */}
+      <form onSubmit={handleCustomSubmit} className="relative max-w-4xl mx-auto mb-12">
         <div className="relative group">
             <div className={`absolute -inset-0.5 bg-gradient-to-r from-purple-600 to-blue-600 rounded-3xl opacity-60 group-focus-within:opacity-100 transition duration-500 blur ${isRecording ? 'animate-pulse opacity-100 duration-1000' : ''}`}></div>
             <div className="relative bg-slate-900 rounded-3xl p-1.5">
@@ -152,7 +152,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
                       placeholder={isRecording ? "Listening... (Tap mic to stop)" : (isProcessingAudio ? "AI is processing your voice..." : "E.g., 'I just finished a marathon' or 'Driving at 2AM'...")}
                       disabled={isLoading || isProcessingAudio}
                       rows={3}
-                      className={`w-full bg-slate-800/80 text-white placeholder-slate-400 rounded-2xl py-4 pl-5 pr-12 focus:outline-none resize-none align-top text-lg leading-relaxed transition-colors ${isRecording ? 'placeholder-red-400/70 text-red-200' : ''}`}
+                      className={`w-full bg-slate-800/80 text-white placeholder-slate-400 rounded-2xl py-12 pl-5 pr-12 focus:outline-none resize-none align-top text-lg leading-relaxed transition-colors ${isRecording ? 'placeholder-red-400/70 text-red-200' : ''}`}
                     />
                     {/* Voice Input Button */}
                     <button 
@@ -186,6 +186,9 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
             </div>
         </div>
       </form>
+
+      {/* PROCESS BRIDGE - V.1.1.3 Placement */}
+      <HowItWorks />
 
       {/* DIVIDER */}
       <div className="flex items-center justify-center gap-4 mb-8 opacity-50">
