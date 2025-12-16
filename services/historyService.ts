@@ -144,3 +144,21 @@ export const saveUserProfile = async (
     console.error("Error saving user profile:", error);
   }
 };
+
+/**
+ * Fetches user profile data from the database.
+ */
+export const fetchUserProfile = async (userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('email, display_name, country, product, created_at')
+      .eq('id', userId)
+      .single();
+
+    return { data, error };
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    return { data: null, error };
+  }
+};
