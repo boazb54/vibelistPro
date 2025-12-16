@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
-import SettingsModal from './components/SettingsModal';
+import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks } from './services/geminiService';
@@ -590,8 +590,8 @@ const App: React.FC = () => {
         playlistTitle={playlist?.title}
       />
       
-      {/* SETTINGS MODAL */}
-      <SettingsModal 
+      {/* SETTINGS OVERLAY */}
+      <SettingsOverlay 
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         userProfile={userProfile}
