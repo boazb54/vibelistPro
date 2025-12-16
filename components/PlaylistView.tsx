@@ -1,6 +1,7 @@
 import React from 'react';
 import { Playlist, Song, PlayerState } from '../types';
-import { PlayIcon, PauseIcon, SparklesIcon, SpotifyIcon } from './Icons';
+import { PlayIcon, PauseIcon, SparklesIcon, SpotifyIcon, BookmarkIcon, RefreshIcon, ShareIcon } from './Icons';
+import { isRtl } from '../utils/textUtils';
 
 interface PlaylistViewProps {
   playlist: Playlist;
@@ -29,44 +30,104 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
   onShare,
   exporting
 }) => {
+  // Calculate duration
+  const totalDurationMs = playlist.songs.reduce((acc, song) => acc + (song.durationMs || 0), 0);
+  const totalMinutes = Math.floor(totalDurationMs / 60000);
+
+  // Dynamic RTL Detection
+  const isRightToLeft = isRtl(playlist.title) || isRtl(playlist.description);
+  
+  // Logic: 
+  // 1. Meta Container uses Flex-Align (End vs Start)
+  // 2. Text Content uses Dir attribute (RTL vs LTR)
+  // 3. Stats Line uses Hybrid (Align Right + Dir LTR)
+  const containerAlign = isRightToLeft ? 'items-end' : 'items-start';
+  const textAlign = isRightToLeft ? 'text-right' : 'text-left';
+  const contentDir = isRightToLeft ? 'rtl' : 'ltr';
+  const fontClass = isRightToLeft ? "font-['Heebo']" : "";
+
+  const handleSaveVibe = () => {
+    console.log("Save Vibe clicked - functionality placeholder");
+  };
+
+  // 1. UNIFIED BUTTON CLASSES
+  const secondaryBtnClass = "bg-white/5 border border-white/10 hover:bg-white/20 text-white p-2 md:px-4 md:py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors duration-200 group h-full";
+  const primaryBtnClass = "bg-[#1DB954] text-black font-bold rounded-full px-8 py-3.5 flex items-center justify-center gap-2 hover:scale-105 transition-transform shadow-lg shadow-green-500/20 w-full md:w-auto";
+  const iconClass = "w-5 h-5 flex-shrink-0";
+
   return (
     <div className="w-full max-w-4xl mx-auto p-4 pb-32 animate-fade-in">
-      <div className="glass-panel rounded-3xl p-6 md:p-8 mb-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-purple-600 rounded-full filter blur-[100px] opacity-20 -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+      <div className="glass-panel rounded-3xl p-6 md:p-10 mb-6 relative overflow-hidden">
+        {/* Background Ambient Glow */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-purple-600 rounded-full filter blur-[120px] opacity-20 -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
-        <div className="relative z-10">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-            <div>
-              <div className="flex items-center gap-2 text-purple-300 mb-1 uppercase tracking-wider text-xs font-bold">
+        <div className="relative z-10 flex flex-col">
+          
+          {/* LAYER 1: META (Hybrid Alignment) */}
+          <div className={`flex flex-col gap-2 mb-4 ${containerAlign}`}>
+             <div className="flex items-center gap-2 text-purple-300 uppercase tracking-wider text-xs font-bold">
                 <SparklesIcon className="w-4 h-4" />
                 <span>AI Generated Vibe</span>
               </div>
-              <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 leading-tight">{playlist.title}</h1>
-              <p className="text-slate-300 max-w-xl text-sm md:text-base">{playlist.description}</p>
-            </div>
+              
+              <h1 className={`text-3xl md:text-5xl font-bold text-white leading-tight ${textAlign} ${fontClass}`} dir={contentDir}>
+                {playlist.title}
+              </h1>
+              
+              {/* Hybrid Meta Line: Flex-End (Layout) + Dir LTR (Text Integrity) */}
+              <div className={`w-full flex ${isRightToLeft ? 'justify-end' : 'justify-start'}`}>
+                <div className={`text-sm text-slate-400 font-medium ${fontClass}`} dir="ltr">
+                  {playlist.songs.length} Songs • {totalMinutes} min duration
+                </div>
+              </div>
+          </div>
+
+          {/* LAYER 2: CONTENT (Description - Mirrored) */}
+          <div className={`mb-8 w-full ${textAlign}`} dir={contentDir}>
+              <p className={`text-slate-300 text-base md:text-lg leading-relaxed max-w-3xl ${isRightToLeft ? 'ml-auto' : ''} ${fontClass}`}>
+                {playlist.description}
+              </p>
+          </div>
             
-            <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
-               <button onClick={onReset} className="px-4 py-2 rounded-full border border-slate-600 hover:bg-slate-800 text-slate-300 transition-colors text-sm font-medium w-auto">New Vibe</button>
+          {/* LAYER 3: ACTION LAYER (Always LTR, Right Anchored) */}
+          <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-4 md:gap-6 w-full border-t border-white/10 pt-6" dir="ltr">
                
-               <button onClick={onRemix} className="px-4 py-2 rounded-full bg-purple-600/20 hover:bg-purple-600/40 text-purple-200 border border-purple-500/30 transition-colors text-sm font-medium flex items-center gap-1.5">
-                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                 </svg>
-                 Remix
+               {/* Secondary Actions Grid */}
+               <div className="grid grid-cols-4 gap-2 w-full md:w-auto md:flex md:gap-3">
+                   
+                   <button onClick={onReset} title="New Vibe" className={secondaryBtnClass}>
+                     <SparklesIcon className={iconClass} />
+                     <span className="text-[10px] md:text-sm font-medium">New</span>
+                   </button>
+
+                   <button onClick={handleSaveVibe} title="Save Vibe" className={secondaryBtnClass}>
+                     <BookmarkIcon className={iconClass} />
+                     <span className="text-[10px] md:text-sm font-medium">Save</span>
+                   </button>
+
+                   <button onClick={onRemix} title="Remix Vibe" className={secondaryBtnClass}>
+                     <RefreshIcon className={iconClass} />
+                     <span className="text-[10px] md:text-sm font-medium">Remix</span>
+                   </button>
+                   
+                   <button onClick={onShare} title="Share Vibe" className={secondaryBtnClass}>
+                     <ShareIcon className={iconClass} />
+                     <span className="text-[10px] md:text-sm font-medium">Share</span>
+                   </button>
+
+               </div>
+
+               {/* Primary Action */}
+               <button onClick={onExport} disabled={exporting} className={primaryBtnClass}>
+                 <SpotifyIcon className={iconClass} />
+                 <span>{exporting ? 'Saving...' : 'Save to Spotify'}</span>
                </button>
 
-               <button onClick={onShare} className="p-2 rounded-full bg-slate-700/50 hover:bg-slate-600 text-slate-300 transition-colors" title="Copy Link">
-                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                   <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
-                 </svg>
-               </button>
-               
-              <button onClick={onExport} disabled={exporting} className="px-4 py-2 rounded-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold transition-transform hover:scale-105 active:scale-95 text-sm flex items-center justify-center gap-2 disabled:opacity-50">
-                {exporting ? 'Saving...' : 'Save to Spotify'}
-              </button>
             </div>
           </div>
-          <div className="space-y-3">
+
+          {/* Track List */}
+          <div className="mt-8 space-y-3">
             {playlist.songs.map((song) => {
               const isPlaying = currentSong?.id === song.id && playerState === PlayerState.PLAYING;
               const isCurrent = currentSong?.id === song.id;
@@ -78,6 +139,7 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
 
               return (
                 <div key={song.id} className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-200 ${isCurrent ? 'bg-white/10 border-l-4 border-purple-500' : 'hover:bg-white/5 border-l-4 border-transparent'}`}>
+                  {/* Artwork & Play Button (Always Left) */}
                   <div className="relative flex-shrink-0 w-12 h-12 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-800 shadow-lg">
                     {song.artworkUrl ? <img src={song.artworkUrl} alt={song.album} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-600 bg-slate-900"><span className="text-xs">No Art</span></div>}
                     
@@ -99,10 +161,14 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
                        </div>
                     )}
                   </div>
-                  <div className="flex-grow min-w-0">
-                    <h3 className={`font-semibold truncate ${isCurrent ? 'text-purple-300' : 'text-white'}`}>{song.title}</h3>
-                    <p className="text-sm text-slate-400 truncate">{song.artist} • {song.album}</p>
+                  
+                  {/* Track Info (Sandwich Middle: Mirrored if RTL) */}
+                  <div className={`flex-grow min-w-0 ${textAlign}`} dir={contentDir}>
+                    <h3 className={`font-semibold truncate ${isCurrent ? 'text-purple-300' : 'text-white'} ${fontClass}`}>{song.title}</h3>
+                    <p className={`text-sm text-slate-400 truncate ${fontClass}`}>{song.artist} • {song.album}</p>
                   </div>
+                  
+                  {/* Spotify Link (Always Right) */}
                   <div className="flex-shrink-0 flex gap-2">
                      <a 
                        href={spotifyLink} 
@@ -118,7 +184,6 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
               );
             })}
           </div>
-        </div>
       </div>
     </div>
   );

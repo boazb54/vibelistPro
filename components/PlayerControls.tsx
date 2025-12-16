@@ -24,21 +24,40 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    if (audioRef.current) {
+    const audio = audioRef.current;
+    if (audio) {
       if (playerState === PlayerState.PLAYING) {
-        audioRef.current.play().catch(e => console.warn("Playback prevented:", e));
+        // System Stability: Safe Play Promise Handling
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            // Auto-play prevented or interrupted.
+            if (error.name === 'AbortError' || error.name === 'NotAllowedError') {
+               // Safely ignore these specific errors (common during rapid track skipping or strict browser policies)
+               return;
+            }
+            console.error("Audio playback error:", error);
+          });
+        }
       } else {
-        audioRef.current.pause();
+        audio.pause();
       }
     }
-  }, [playerState, currentSong]); // Re-run if song or state changes
+  }, [playerState, currentSong]);
 
   useEffect(() => {
-     // When song changes, reload source
+     // When song changes, ensure pause before reload
     if (audioRef.current && currentSong?.previewUrl) {
+      audioRef.current.pause(); // Clean stop before switch
       audioRef.current.load();
       if (playerState === PlayerState.PLAYING) {
-         audioRef.current.play().catch(console.error);
+         const playPromise = audioRef.current.play();
+         if (playPromise !== undefined) {
+           playPromise.catch(error => {
+             if (error.name === 'AbortError' || error.name === 'NotAllowedError') return;
+             console.error("Audio playback error during switch:", error);
+           });
+         }
       }
     }
   }, [currentSong]);
