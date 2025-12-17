@@ -1,51 +1,88 @@
 import React from 'react';
-import { MicIcon, SparklesIcon, SpotifyIcon } from './Icons';
+import { MicIcon, SparkIcon, MusicNoteIcon } from './Icons';
 
 const HowItWorks: React.FC = () => {
+  // V.1.2.6 - Dual-layered "Spectral" Halo
+  // Matches the Purple-to-Blue energy of the main input textbox
+  const iconShineClass = "text-purple-400 brightness-125 drop-shadow-[0_0_5px_rgba(168,85,247,0.9)] drop-shadow-[0_0_15px_rgba(59,130,246,0.6)]";
+
   return (
-    <div className="w-full max-w-4xl mx-auto animate-fade-in">
-      {/* Ribbon Container: Thin horizontal row (max ~60px) */}
-      <div className="flex flex-row items-center justify-between px-3 md:px-8 py-3 bg-white/5 border border-white/10 rounded-full backdrop-blur-md shadow-2xl mx-1 md:mx-0">
-        
-        {/* Step 1: Input */}
-        <div className="flex items-center gap-2 md:gap-3 flex-1 justify-center md:justify-start">
-            <div className="p-1.5 rounded-full bg-purple-500/20 text-purple-400 flex-shrink-0">
-                <MicIcon className="w-4 h-4 md:w-5 md:h-5" />
-            </div>
-            <span className="text-xs md:text-sm font-medium text-slate-200 whitespace-nowrap">
-                <span className="md:hidden">Voice</span>
-                <span className="hidden md:inline">Text or Voice</span>
+    <div className="w-full animate-fade-in mt-3 px-0">
+      {/* 
+        V.1.2.8 Mobile Legibility Polish
+        - Icon Glow: Dual-tonal "glory halo" (Purple core + Blue outer glow).
+        - Typography (Mobile): Boosted to text-[11px] and text-slate-300 for crisp visibility.
+        - Typography (Desktop): Remains text-lg / font-normal / text-slate-400.
+        - Layout: Maintains wide-lens gap-28 symmetry.
+      */}
+
+      {/* MOBILE VIEW: Grid (No Lines) - Enhanced Visibility Typography & Spectral Icons */}
+      <div className="md:hidden grid grid-cols-3 w-full items-center px-2">
+        {/* Step 1: Share a moment */}
+        <div className="flex justify-start">
+          <div className="flex items-center gap-1.5">
+            <MicIcon className={`w-3.5 h-3.5 ${iconShineClass}`} />
+            <span className="text-[11px] text-slate-300 font-normal whitespace-nowrap">
+              Share a moment
             </span>
+          </div>
         </div>
 
-        {/* Divider */}
-        <div className="w-px h-5 bg-white/10 mx-1 md:mx-2"></div>
-
-        {/* Step 2: AI */}
-        <div className="flex items-center gap-2 md:gap-3 flex-1 justify-center">
-            <div className="p-1.5 rounded-full bg-cyan-500/20 text-cyan-400 flex-shrink-0">
-                <SparklesIcon className="w-4 h-4 md:w-5 md:h-5" />
-            </div>
-            <span className="text-xs md:text-sm font-medium text-slate-200 whitespace-nowrap">
-                <span className="md:hidden">AI Mood</span>
-                <span className="hidden md:inline">Mood & Energy AI</span>
+        {/* Step 2: Set the Vibe */}
+        <div className="flex justify-center">
+          <div className="flex items-center gap-1.5">
+            <SparkIcon className={`w-3.5 h-3.5 ${iconShineClass}`} />
+            <span className="text-[11px] text-slate-300 font-normal whitespace-nowrap">
+              Set the Vibe
             </span>
+          </div>
         </div>
 
-        {/* Divider */}
-        <div className="w-px h-5 bg-white/10 mx-1 md:mx-2"></div>
-
-        {/* Step 3: Spotify */}
-        <div className="flex items-center gap-2 md:gap-3 flex-1 justify-center md:justify-end">
-             <div className="p-1.5 rounded-full bg-[#1DB954]/20 text-[#1DB954] flex-shrink-0">
-                <SpotifyIcon className="w-4 h-4 md:w-5 md:h-5" />
-            </div>
-            <span className="text-xs md:text-sm font-medium text-slate-200 whitespace-nowrap">
-                <span className="md:hidden">Spotify</span>
-                <span className="hidden md:inline">Works with Spotify</span>
+        {/* Step 3: Get your list */}
+        <div className="flex justify-end">
+          <div className="flex items-center gap-1.5">
+            <MusicNoteIcon className={`w-3.5 h-3.5 ${iconShineClass}`} />
+            <span className="text-[11px] text-slate-300 font-normal whitespace-nowrap">
+              Get your list
             </span>
+          </div>
+        </div>
+      </div>
+
+      {/* DESKTOP VIEW: Wide-Lens Symmetry - Sub-Header Matched Typography & Spectral Icons */}
+      <div className="hidden md:flex items-center justify-center w-full gap-8">
+        {/* Extended Left Symmetry Line */}
+        <div className="w-28 h-px bg-slate-600/30"></div>
+
+        {/* Centered Instruction Set - wider spacing (gap-28) */}
+        <div className="flex items-center gap-28">
+          {/* Step 1 */}
+          <div className="flex items-center gap-3">
+            <MicIcon className={`w-6 h-6 ${iconShineClass}`} />
+            <span className="text-lg text-slate-400 font-normal whitespace-nowrap">
+              Share a moment
+            </span>
+          </div>
+
+          {/* Step 2 */}
+          <div className="flex items-center gap-3">
+            <SparkIcon className={`w-6 h-6 ${iconShineClass}`} />
+            <span className="text-lg text-slate-400 font-normal whitespace-nowrap">
+              Set the Vibe
+            </span>
+          </div>
+
+          {/* Step 3 */}
+          <div className="flex items-center gap-3">
+            <MusicNoteIcon className={`w-6 h-6 ${iconShineClass}`} />
+            <span className="text-lg text-slate-400 font-normal whitespace-nowrap">
+              Get your list
+            </span>
+          </div>
         </div>
 
+        {/* Extended Right Symmetry Line */}
+        <div className="w-28 h-px bg-slate-600/30"></div>
       </div>
     </div>
   );
