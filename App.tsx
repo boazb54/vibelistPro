@@ -578,7 +578,7 @@ const App: React.FC = () => {
           />
         )}
       </main>
-a
+
       {/* PLAYER - Fixed */}
       <PlayerControls 
         currentSong={currentSong}
