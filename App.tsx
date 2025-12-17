@@ -1,8 +1,8 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
+import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks } from './services/geminiService';
@@ -36,6 +36,7 @@ const App: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // FIX: Race condition lock for strict mode / fast mobile browsers
   const authProcessed = useRef(false);
@@ -183,16 +184,21 @@ const App: React.FC = () => {
 
   const handleSettings = () => {
     if (spotifyToken) {
-        if (confirm("Logout of Spotify?")) {
-            setSpotifyToken(null);
-            setUserProfile(null);
-            setUserTaste(null); // Clear RAM taste data
-            localStorage.removeItem('spotify_token');
-            localStorage.removeItem('spotify_refresh_token');
-        }
+        setShowSettings(true);
     } else {
-        alert("Settings: Please login first to manage your account.");
+        alert("Please login first to manage your settings.");
+        handleLogin();
     }
+  };
+
+  const handleSignOut = () => {
+    setSpotifyToken(null);
+    setUserProfile(null);
+    setUserTaste(null);
+    localStorage.removeItem('spotify_token');
+    localStorage.removeItem('spotify_refresh_token');
+    setShowSettings(false);
+    handleReset(); // Reset the UI/Player state
   };
 
   // --- SAFE MODE LOGIC: SEQUENTIAL & STRICT ---
@@ -467,7 +473,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white flex flex-col relative overflow-hidden">
+    <div className="h-[100dvh] bg-[#0f172a] text-white flex flex-col relative overflow-hidden">
       {/* BACKGROUND ELEMENTS */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
         <div className="absolute -top-20 -left-20 w-96 h-96 bg-purple-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
@@ -475,8 +481,8 @@ const App: React.FC = () => {
         <div className="absolute -bottom-20 left-1/2 w-96 h-96 bg-pink-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
       </div>
 
-      {/* HEADER */}
-      <header className="relative z-10 w-full p-6 flex justify-between items-center glass-panel border-b border-white/5">
+      {/* HEADER - Fixed */}
+      <header className="relative z-10 w-full p-4 md:p-6 px-6 flex justify-between items-center glass-panel border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
            <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 to-cyan-400 rounded-lg flex items-center justify-center">
              <span className="font-bold text-white">V+</span>
@@ -494,7 +500,7 @@ const App: React.FC = () => {
 
            <button 
              onClick={() => setShowDebug(!showDebug)} 
-             className="text-xs text-slate-700 hover:text-slate-500 font-mono"
+             className="text-xs text-slate-700 hover:text-slate-500 font-mono px-3"
              title="Debug"
            >
                π
@@ -537,10 +543,10 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* MAIN CONTENT */}
-      <main className="relative z-10 flex-grow flex flex-col items-center justify-center p-4">
+      {/* MAIN CONTENT - FLEX GROW / OVERFLOW HIDDEN */}
+      <main className="relative z-10 flex-grow flex flex-col w-full overflow-hidden">
         {isLoading ? (
-          <div className="text-center animate-fade-in">
+          <div className="flex-grow flex flex-col items-center justify-center text-center animate-fade-in p-4">
             <div className="relative w-24 h-24 mx-auto mb-8">
                <div className="absolute inset-0 border-4 border-slate-700 rounded-full"></div>
                <div className="absolute inset-0 border-4 border-purple-500 rounded-full border-t-transparent animate-spin"></div>
@@ -573,7 +579,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* PLAYER */}
+      {/* PLAYER - Fixed */}
       <PlayerControls 
         currentSong={currentSong}
         playerState={playerState}
@@ -582,6 +588,14 @@ const App: React.FC = () => {
         onPrev={handlePrev}
         onClose={handleClosePlayer} 
         playlistTitle={playlist?.title}
+      />
+      
+      {/* SETTINGS OVERLAY */}
+      <SettingsOverlay 
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        userProfile={userProfile}
+        onSignOut={handleSignOut}
       />
     </div>
   );
