@@ -190,49 +190,6 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
                             {isLoading ? 'Creating...' : (isProcessingAudio ? 'Thinking...' : 'Generate')}
                         </button>
                     </div>
-      {/* HERO INPUT SECTION - Updated to max-w-4xl and py-12 as requested */}
-      <form onSubmit={handleCustomSubmit} className="relative max-w-4xl mx-auto mb-12">
-        <div className="relative group">
-            <div className={`absolute -inset-0.5 bg-gradient-to-r from-purple-600 to-blue-600 rounded-3xl opacity-60 group-focus-within:opacity-100 transition duration-500 blur ${isRecording ? 'animate-pulse opacity-100 duration-1000' : ''}`}></div>
-            <div className="relative bg-slate-900 rounded-3xl p-1.5">
-                <div className="relative">
-                    <textarea
-                      value={customMood}
-                      onChange={handleChange}
-                      onKeyDown={handleKeyDown}
-                      placeholder={isRecording ? "Listening... (Tap mic to stop)" : (isProcessingAudio ? "AI is processing your voice..." : "E.g., 'I just finished a marathon' or 'Driving at 2AM'...")}
-                      disabled={isLoading || isProcessingAudio}
-                      rows={3}
-                      className={`w-full bg-slate-800/80 text-white placeholder-slate-400 rounded-2xl py-12 pl-5 pr-12 focus:outline-none resize-none align-top text-lg leading-relaxed transition-colors ${isRecording ? 'placeholder-red-400/70 text-red-200' : ''}`}
-                    />
-                    {/* Voice Input Button */}
-                    <button 
-                        type="button"
-                        onClick={handleVoiceToggle}
-                        disabled={isLoading || isProcessingAudio}
-                        className={`absolute top-3 right-3 p-2 rounded-full transition-all 
-                            ${isRecording 
-                                ? 'bg-red-500 text-white animate-pulse scale-110 shadow-[0_0_15px_rgba(239,68,68,0.7)]' 
-                                : (isProcessingAudio 
-                                    ? 'bg-purple-500/50 text-white animate-bounce' 
-                                    : 'text-slate-400 hover:text-white hover:bg-slate-700')}`}
-                        title={isRecording ? "Stop Recording" : "Use Voice Input"}
-                    >
-                        <MicIcon className="w-6 h-6" />
-                    </button>
-                </div>
-                
-                <div className="flex justify-between items-center px-3 py-2">
-                    <span className={`text-xs ${customMood.length > 400 ? 'text-yellow-400' : 'text-slate-500'}`}>
-                        {customMood.length}/{CHAR_LIMIT}
-                    </span>
-                    <button
-                      type="submit"
-                      disabled={!customMood.trim() || isLoading || isRecording || isProcessingAudio}
-                      className="bg-white text-black hover:bg-gray-200 font-bold rounded-xl px-8 py-3 text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-white/20 transform hover:-translate-y-0.5 active:translate-y-0"
-                    >
-                      {isLoading ? 'Creating...' : (isProcessingAudio ? 'Thinking...' : 'Generate Vibe')}
-                    </button>
                 </div>
             </div>
             </form>
@@ -248,14 +205,6 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
             <span className="text-slate-400 text-xs md:text-sm uppercase tracking-widest font-medium">Or choose a quick vibe</span>
             <div className="h-px bg-slate-600 w-16 md:w-24"></div>
         </div>
-      {/* PROCESS BRIDGE - V.1.1.3 Placement */}
-      <HowItWorks />
-
-      {/* DIVIDER */}
-      <div className="flex items-center justify-center gap-4 mb-8 opacity-50">
-          <div className="h-px bg-slate-600 w-24"></div>
-          <span className="text-slate-400 text-sm uppercase tracking-widest font-medium">Or choose a quick vibe</span>
-          <div className="h-px bg-slate-600 w-24"></div>
       </div>
 
       {/* SCROLLABLE BOTTOM SECTION: Quick Vibe Grid */}
