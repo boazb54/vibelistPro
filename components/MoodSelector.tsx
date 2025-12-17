@@ -143,11 +143,11 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
             </p>
         </div>
 
-        {/* UNIFIED CONTAINER: Input and Ribbon */}
-        <div className="flex flex-col gap-y-2 md:gap-y-4 mb-2 md:mb-8">
+        {/* UNIFIED MASTER ANCHOR: Input and Ribbon bound by shared width */}
+        <div className="flex flex-col gap-y-2 md:gap-y-4 mb-2 md:mb-8 max-w-4xl mx-auto w-full">
             
             {/* HERO INPUT SECTION */}
-            <form onSubmit={handleCustomSubmit} className="relative max-w-4xl w-full mx-auto">
+            <form onSubmit={handleCustomSubmit} className="relative w-full">
             <div className="relative group">
                 <div className={`absolute -inset-0.5 bg-gradient-to-r from-purple-600 to-blue-600 rounded-3xl opacity-60 group-focus-within:opacity-100 transition duration-500 blur ${isRecording ? 'animate-pulse opacity-100 duration-1000' : ''}`}></div>
                 <div className="relative bg-slate-900 rounded-3xl p-1.5">
@@ -194,7 +194,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
             </div>
             </form>
 
-            {/* PROCESS BRIDGE */}
+            {/* PROCESS BRIDGE - Now shares the parent's max-w-4xl constraints */}
             <HowItWorks />
             
         </div>
