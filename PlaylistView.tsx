@@ -41,17 +41,11 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
     : `${minutes} min`;
 
   // Dynamic RTL Detection for Playlist Meta
-  // Calculate duration
-  const totalDurationMs = playlist.songs.reduce((acc, song) => acc + (song.durationMs || 0), 0);
-  const totalMinutes = Math.floor(totalDurationMs / 60000);
-
-  // Dynamic RTL Detection
   const isRightToLeft = isRtl(playlist.title) || isRtl(playlist.description);
   
   // Logic: 
   // 1. Meta Container uses Flex-Align (End vs Start)
   // 2. Text Content uses Dir attribute (RTL vs LTR)
-  // 3. Stats Line uses Hybrid (Align Right + Dir LTR)
   const containerAlign = isRightToLeft ? 'items-end' : 'items-start';
   const textAlign = isRightToLeft ? 'text-right' : 'text-left';
   const contentDir = isRightToLeft ? 'rtl' : 'ltr';
@@ -106,92 +100,6 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
                 
                 {/* Secondary Actions Grid */}
                 <div className="grid grid-cols-4 gap-2 w-full md:w-auto md:flex md:gap-3">
-    <div className="w-full max-w-4xl mx-auto p-4 pb-32 animate-fade-in">
-      <div className="glass-panel rounded-3xl p-6 md:p-10 mb-6 relative overflow-hidden">
-        {/* Background Ambient Glow */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-purple-600 rounded-full filter blur-[120px] opacity-20 -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
-
-        <div className="relative z-10 flex flex-col">
-          
-          {/* LAYER 1: META (Hybrid Alignment) */}
-          <div className={`flex flex-col gap-2 mb-4 ${containerAlign}`}>
-             <div className="flex items-center gap-2 text-purple-300 uppercase tracking-wider text-xs font-bold">
-                <SparklesIcon className="w-4 h-4" />
-                <span>AI Generated Vibe</span>
-              </div>
-              
-              <h1 className={`text-3xl md:text-5xl font-bold text-white leading-tight ${textAlign} ${fontClass}`} dir={contentDir}>
-                {playlist.title}
-              </h1>
-              
-              {/* Hybrid Meta Line: Flex-End (Layout) + Dir LTR (Text Integrity) */}
-              <div className={`w-full flex ${isRightToLeft ? 'justify-end' : 'justify-start'}`}>
-                <div className={`text-sm text-slate-400 font-medium ${fontClass}`} dir="ltr">
-                  {playlist.songs.length} Songs • {totalMinutes} min duration
-                </div>
-              </div>
-          </div>
-
-          {/* LAYER 2: CONTENT (Description - Mirrored) */}
-          <div className={`mb-8 w-full ${textAlign}`} dir={contentDir}>
-              <p className={`text-slate-300 text-base md:text-lg leading-relaxed max-w-3xl ${isRightToLeft ? 'ml-auto' : ''} ${fontClass}`}>
-                {playlist.description}
-              </p>
-          </div>
-            
-          {/* LAYER 3: ACTION LAYER (Always LTR, Right Anchored) */}
-          <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-4 md:gap-6 w-full border-t border-white/10 pt-6" dir="ltr">
-               
-               {/* Secondary Actions Grid */}
-               <div className="grid grid-cols-4 gap-2 w-full md:w-auto md:flex md:gap-3">
-                   
-                   <button onClick={onReset} title="New Vibe" className={secondaryBtnClass}>
-                     <SparklesIcon className={iconClass} />
-                     <span className="text-[10px] md:text-sm font-medium">New</span>
-                   </button>
-
-                   <button onClick={handleSaveVibe} title="Save Vibe" className={secondaryBtnClass}>
-                     <BookmarkIcon className={iconClass} />
-                     <span className="text-[10px] md:text-sm font-medium">Save</span>
-                   </button>
-
-                   <button onClick={onRemix} title="Remix Vibe" className={secondaryBtnClass}>
-                     <RefreshIcon className={iconClass} />
-                     <span className="text-[10px] md:text-sm font-medium">Remix</span>
-                   </button>
-                   
-                   <button onClick={onShare} title="Share Vibe" className={secondaryBtnClass}>
-                     <ShareIcon className={iconClass} />
-                     <span className="text-[10px] md:text-sm font-medium">Share</span>
-                   </button>
-
-               </div>
-
-               {/* Primary Action */}
-               <button onClick={onExport} disabled={exporting} className={primaryBtnClass}>
-                 <SpotifyIcon className={iconClass} />
-                 <span>{exporting ? 'Saving...' : 'Save to Spotify'}</span>
-               </button>
-
-            </div>
-          </div>
-
-          {/* Track List */}
-          <div className="mt-8 space-y-3">
-            {playlist.songs.map((song) => {
-              const isPlaying = currentSong?.id === song.id && playerState === PlayerState.PLAYING;
-              const isCurrent = currentSong?.id === song.id;
-              const hasPreview = !!song.previewUrl;
-
-              const spotifyLink = song.spotifyUri 
-                ? `https://open.spotify.com/track/${song.id}` 
-                : `https://open.spotify.com/search/${encodeURIComponent(song.title + " " + song.artist)}`;
-
-              return (
-                <div key={song.id} className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-200 ${isCurrent ? 'bg-white/10 border-l-4 border-purple-500' : 'hover:bg-white/5 border-l-4 border-transparent'}`}>
-                  {/* Artwork & Play Button (Always Left) */}
-                  <div className="relative flex-shrink-0 w-12 h-12 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-800 shadow-lg">
-                    {song.artworkUrl ? <img src={song.artworkUrl} alt={song.album} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-600 bg-slate-900"><span className="text-xs">No Art</span></div>}
                     
                     <button onClick={onReset} title="New Vibe" className={secondaryBtnClass}>
                       <SparklesIcon className={iconClass} />
@@ -289,39 +197,6 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
               })}
             </div>
         </div>
-                    )}
-
-                    {isPlaying && (
-                       <div className="absolute bottom-0 left-0 right-0 h-4 flex items-end justify-center gap-0.5 pb-1 pointer-events-none">
-                         <div className="w-1 bg-green-400 audio-wave-bar" style={{animationDelay: '0s'}}></div>
-                         <div className="w-1 bg-green-400 audio-wave-bar" style={{animationDelay: '0.1s'}}></div>
-                         <div className="w-1 bg-green-400 audio-wave-bar" style={{animationDelay: '0.2s'}}></div>
-                       </div>
-                    )}
-                  </div>
-                  
-                  {/* Track Info (Sandwich Middle: Mirrored if RTL) */}
-                  <div className={`flex-grow min-w-0 ${textAlign}`} dir={contentDir}>
-                    <h3 className={`font-semibold truncate ${isCurrent ? 'text-purple-300' : 'text-white'} ${fontClass}`}>{song.title}</h3>
-                    <p className={`text-sm text-slate-400 truncate ${fontClass}`}>{song.artist} • {song.album}</p>
-                  </div>
-                  
-                  {/* Spotify Link (Always Right) */}
-                  <div className="flex-shrink-0 flex gap-2">
-                     <a 
-                       href={spotifyLink} 
-                       target="_blank" 
-                       rel="noreferrer" 
-                       className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors border bg-[#1DB954]/10 text-[#1DB954] border-[#1DB954]/30 hover:bg-[#1DB954] hover:text-black"
-                     >
-                       <SpotifyIcon className="w-3.5 h-3.5" />
-                       <span className="font-medium hidden md:inline">Play on Spotify</span>
-                     </a>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
       </div>
     </div>
   );
