@@ -36,6 +36,19 @@ export interface SessionSemanticProfile {
   artist_examples: string[]; // Top 5 weighted artists
 }
 
+// NEW: Playlist Intelligence for Debugger/Context
+export interface PlaylistIntelligence {
+  name: string;
+  tracks: string[]; // "Track - Artist"
+  top_genres: string[];
+  audio_averages: {
+    energy: number;
+    tempo: number;
+    texture: number;
+  };
+  archetype: string;
+}
+
 // NEW: Context Object for Intent Parsing
 export interface ContextualSignals {
   local_time: string;
@@ -142,6 +155,7 @@ export interface UserTasteProfile {
   topGenres: string[];
   topTracks: string[]; // RESTORED: For Gemini Analysis
   session_analysis?: SessionSemanticProfile; // NEW: Processed "Vibe Fingerprint"
+  playlist_intelligence?: PlaylistIntelligence[]; // NEW: Intelligence derived from playlists
 }
 
 export interface VibeGenerationStats {
