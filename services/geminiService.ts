@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
-import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, PlaylistIntelligence, PlaylistData } from "../types";
+import type { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, PlaylistIntelligence, PlaylistData } from "../types";
 
 export const generatePlaylistFromMood = async (
   mood: string, 
@@ -157,8 +157,7 @@ export const analyzePlaylistIntelligence = async (playlists: PlaylistData[]): Pr
                                 energy: { type: Type.NUMBER },
                                 tempo: { type: Type.NUMBER },
                                 texture: { type: Type.NUMBER }
-                            },
-                            required: ["energy", "tempo", "texture"]
+                            }
                         },
                         archetype: { type: Type.STRING }
                     },
