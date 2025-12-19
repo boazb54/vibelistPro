@@ -1,3 +1,4 @@
+
 export const MOODS = [
   { id: 'chill', label: 'Chill', emoji: '☕', color: 'from-blue-500 to-cyan-400' },
   { id: 'workout', label: 'Workout', emoji: '💪', color: 'from-red-500 to-orange-400' },
@@ -13,6 +14,8 @@ export const SPOTIFY_AUTH_ENDPOINT = "https://accounts.spotify.com/authorize";
 export const SPOTIFY_SCOPES = [
   "playlist-modify-public",
   "playlist-modify-private",
+  "playlist-read-private",
+  "playlist-read-collaborative",
   "user-read-private",
   "user-read-email",
   "user-top-read"
