@@ -1,39 +1,44 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
-import type { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, PlaylistIntelligence, PlaylistData } from './types';
+import type { 
+  Playlist, 
+  Song, 
+  SpotifyUserProfile, 
+  UserTasteProfile, 
+  VibeGenerationStats, 
+  ContextualSignals, 
+  PlaylistIntelligence, 
+  PlaylistData 
+} from './types';
+import { PlayerState as PlayerStateEnum } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks, analyzePlaylistIntelligence } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
-  getLoginUrl, 
   getPkceLoginUrl,
   exchangeCodeForToken,
-  refreshSpotifyToken,
   getTokenFromHash, 
   createSpotifyPlaylist, 
   getUserProfile, 
-  fetchSpotifyMetadata,
   fetchUserTasteProfile,
   fetchUserPlaylists,
   fetchPlaylistTracks
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
 import { saveVibe, markVibeAsExported, saveUserProfile } from './services/historyService';
-
-// Enums must be imported as values
-import { PlayerState as PlayerStateEnum } from './types';
+import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
 
 const App: React.FC = () => {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('Curating vibes...');
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
-  const [playerState, setPlayerState] = useState<PlayerState>(PlayerStateEnum.STOPPED);
+  const [playerState, setPlayerState] = useState<PlayerStateEnum>(PlayerStateEnum.STOPPED);
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<SpotifyUserProfile | null>(null);
   const [userTaste, setUserTaste] = useState<UserTasteProfile | null>(null);
@@ -45,10 +50,7 @@ const App: React.FC = () => {
   const authProcessed = useRef(false);
   const generationSessionId = useRef(0);
 
-  const spotifyClientId = localStorage.getItem('spotify_client_id') || "b292c19608a44142990530a7e9595b8a";
-  const DEFAULT_REDIRECT_URI = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
-    ? `${window.location.origin}/` 
-    : "https://example.com/";
+  const spotifyClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
 
   const addLog = (msg: string) => {
     setDebugLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`]);
@@ -130,13 +132,13 @@ const App: React.FC = () => {
                   addLog("Sending Top Tracks to Gemini for Feature Analysis...");
                   analyzeUserTopTracks(taste.topTracks)
                       .then((analysis) => {
-                          if ('error' in analysis) {
+                          if (analysis && 'error' in analysis) {
                               addLog(`Gemini Analysis Error: ${analysis.error}`);
                               setUserTaste(taste);
                               return;
                           }
                           addLog("--- GEMINI AUDIO ANALYSIS & GENRE (RAW) ---");
-                          const sessionProfile = aggregateSessionData(analysis);
+                          const sessionProfile = aggregateSessionData(analysis as any);
                           addLog(JSON.stringify(sessionProfile, null, 2));
                           
                           const enhancedTaste: UserTasteProfile = {
@@ -213,16 +215,11 @@ const App: React.FC = () => {
 
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
     const currentSessionId = ++generationSessionId.current;
-    
     const localTime = new Date().toLocaleTimeString();
     const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     const browserLanguage = navigator.language;
     const deviceType = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
-    
-    const ipPromise = fetch('https://api.ipify.org?format=json')
-        .then(res => res.json())
-        .then(data => data.ip)
-        .catch(() => 'unknown');
+    const ipPromise = fetch('https://api.ipify.org?format=json').then(res => res.json()).then(data => data.ip).catch(() => 'unknown');
 
     const t0_start = performance.now();
     let t1_gemini_end = 0;
@@ -235,13 +232,10 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
-    
     const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
-    
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerStateEnum.STOPPED);
-    
     addLog(`Generating vibe for: "${mood}" (${modality})...`);
 
     const t_context_start = performance.now();
@@ -265,7 +259,6 @@ const App: React.FC = () => {
         addLog(generatedData.promptText);
 
         if (currentSessionId !== generationSessionId.current) return;
-
         addLog("AI generation complete. Fetching metadata...");
         t2_itunes_start = performance.now();
 
@@ -289,7 +282,6 @@ const App: React.FC = () => {
         }
 
         t3_itunes_end = performance.now();
-
         if (currentSessionId !== generationSessionId.current) return;
 
         const finalPlaylist: Playlist = {
