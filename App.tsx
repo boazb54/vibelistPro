@@ -5,7 +5,7 @@ import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, PlaylistIntelligence } from './types';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, PlaylistIntelligence, PlaylistData } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks, analyzePlaylistIntelligence } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
@@ -117,13 +117,11 @@ const App: React.FC = () => {
 
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
-          // 1. FETCH TASTE
           const taste = await fetchUserTasteProfile(token);
           if (taste) {
               addLog("--- TOP 50 ARTISTS ---");
               addLog(JSON.stringify(taste.topArtists.slice(0, 10), null, 2) + ` ...and ${Math.max(0, taste.topArtists.length - 10)} more`);
 
-              // 2. TRIGGER GEMINI ANALYSIS (TOP TRACKS)
               if (taste.topTracks.length > 0) {
                   addLog("Sending Top Tracks to Gemini for Feature Analysis...");
                   analyzeUserTopTracks(taste.topTracks)
@@ -146,11 +144,10 @@ const App: React.FC = () => {
                       });
               }
 
-              // 3. FETCH PLAYLISTS (NEW SCOPE)
               addLog("Fetching User Playlists for Intelligence Analysis...");
               const playlists = await fetchUserPlaylists(token, 10);
               if (playlists.length > 0) {
-                  const playlistData = await Promise.all(playlists.map(async (p: any) => ({
+                  const playlistData: PlaylistData[] = await Promise.all(playlists.map(async (p: any) => ({
                       name: p.name,
                       tracks: await fetchPlaylistTracks(token, p.id, 20)
                   })));
@@ -160,12 +157,12 @@ const App: React.FC = () => {
                     .then((intelligence) => {
                         addLog("--- SPOTIFY PLAYLIST INTELLIGENCE ---");
                         intelligence.forEach(intel => {
-                            // MANDATORY LOGGING ORDER
-                            addLog(`\n[PLAYLIST NAME]: ${intel.name}`);
-                            addLog(`[TRACKS]: ${intel.tracks.join(', ')}`);
-                            addLog(`[TOP 3 GENRES]: ${intel.top_genres.join(', ')}`);
-                            addLog(`[AUDIO AVERAGES]: Energy: ${intel.audio_averages.energy}, Tempo: ${intel.audio_averages.tempo}, Texture: ${intel.audio_averages.texture}`);
-                            addLog(`[GEMINI ARCHETYPE]: ${intel.archetype}`);
+                            // FACTUAL MANDATORY LOGGING ORDER PER V.1.1.0
+                            addLog(`\n1) PLAYLIST NAME: ${intel.name}`);
+                            addLog(`2) TRACKS NAME + ARTIST NAME: ${intel.tracks.join(', ')}`);
+                            addLog(`3) LIST OF GENRE (TOP 3 GENRES): ${intel.top_genres.join(', ')}`);
+                            addLog(`4) AVERAGE (THE AVERAGE RATE OF THE AUDIO FEATURE): Energy: ${intel.audio_averages.energy}, Tempo: ${intel.audio_averages.tempo}, Texture: ${intel.audio_averages.texture}`);
+                            addLog(`5) GEMINI INTERPRETATIONS OF THE "Organizational Archetypes": ${intel.archetype}`);
                         });
 
                         setUserTaste(prev => prev ? {
@@ -266,7 +263,7 @@ const App: React.FC = () => {
 
         if (currentSessionId !== generationSessionId.current) return;
 
-        addLog("AI generation complete. Fetching metadata (Safe Mode)...");
+        addLog("AI generation complete. Fetching metadata...");
         t2_itunes_start = performance.now();
 
         const validSongs: Song[] = [];
