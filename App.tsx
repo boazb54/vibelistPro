@@ -140,8 +140,7 @@ const App: React.FC = () => {
 
                           addLog("--- GEMINI AUDIO ANALYSIS & GENRE (RAW) ---");
                           addLog(`Analyzed ${analysis.length} tracks.`);
-                          // addLog(JSON.stringify(analysis[0], null, 2)); // Log first one as example
-
+                          
                           // 3. AGGREGATE SESSION DATA (DETERMINISTIC MATH)
                           addLog("--- AGGREGATING SESSION PROFILE (TYPESCRIPT) ---");
                           const sessionProfile = aggregateSessionData(analysis);
@@ -201,11 +200,9 @@ const App: React.FC = () => {
     handleReset(); // Reset the UI/Player state
   };
 
-  // --- SAFE MODE LOGIC: SEQUENTIAL & STRICT ---
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
     const currentSessionId = ++generationSessionId.current;
     
-    // --- 1. CAPTURE CONTEXTUAL DATA ---
     const localTime = new Date().toLocaleTimeString();
     const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     const browserLanguage = navigator.language;
@@ -234,13 +231,10 @@ const App: React.FC = () => {
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
     
-    // NOTE: Removed setDebugLogs([]) to preserve the Taste Profile logs in the debugger
-
     addLog(`Generating vibe for: "${mood}" (${modality})...`);
 
     const t_context_start = performance.now();
 
-    // NEW: Pack contextual signals strictly
     const contextSignals: ContextualSignals = {
         local_time: localTime,
         day_of_week: dayOfWeek,
@@ -255,8 +249,6 @@ const App: React.FC = () => {
     capturedContextTime = contextTimeMs;
 
     try {
-        // 1. CALL GEMINI (STEPS C & D)
-        // Pass contextSignals directly instead of loose parameters
         const generatedData = await generatePlaylistFromMood(
             mood, 
             contextSignals, 
@@ -267,17 +259,14 @@ const App: React.FC = () => {
         capturedPromptText = generatedData.promptText;
         t1_gemini_end = performance.now(); 
 
-        // --- ADDED FOR QA: Log full prompt context ---
         addLog("--- CONTEXTUAL PROMPT PAYLOAD ---");
         addLog(generatedData.promptText);
-        // ---------------------------------------------
 
         if (currentSessionId !== generationSessionId.current) return;
 
         addLog("AI generation complete. Fetching metadata (Safe Mode)...");
         t2_itunes_start = performance.now();
 
-        // 2. BATCH FETCH (Sequential Chunks)
         const validSongs: Song[] = [];
         const BATCH_SIZE = 5; 
         const allSongsRaw = generatedData.songs;
@@ -310,7 +299,6 @@ const App: React.FC = () => {
 
         if (currentSessionId !== generationSessionId.current) return;
 
-        // 3. FINAL UPDATE
         const finalPlaylist: Playlist = {
             title: generatedData.playlist_title,
             mood: generatedData.mood,
@@ -322,7 +310,6 @@ const App: React.FC = () => {
         setIsLoading(false);
         addLog(`Complete. Found ${validSongs.length}/${allSongsRaw.length} songs with previews.`);
 
-        // 4. SAVE (With Granular Metrics + Context)
         const t4_total_end = performance.now();
         const ipAddress = await ipPromise; 
         
@@ -390,8 +377,6 @@ const App: React.FC = () => {
         setTimeout(() => setIsLoading(false), 2000);
     }
   };
-
-  // --- ACTIONS ---
 
   const handleReset = () => {
     setPlaylist(null);
@@ -473,16 +458,16 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="h-[100dvh] bg-[#0f172a] text-white flex flex-col relative overflow-hidden">
-      {/* BACKGROUND ELEMENTS */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+    <div className="min-h-screen bg-[#0f172a] text-white flex flex-col relative font-inter">
+      {/* V.2.0.3: Reverted to ABSOLUTE for "App Shell" feel */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
         <div className="absolute -top-20 -left-20 w-96 h-96 bg-purple-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
         <div className="absolute top-40 right-10 w-96 h-96 bg-cyan-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
         <div className="absolute -bottom-20 left-1/2 w-96 h-96 bg-pink-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
       </div>
 
-      {/* HEADER - Fixed */}
-      <header className="relative z-10 w-full p-4 md:p-6 px-6 flex justify-between items-center glass-panel border-b border-white/5 flex-shrink-0">
+      {/* HEADER - Fixed via flex parent */}
+      <header className="relative z-20 w-full p-4 md:p-6 px-6 flex justify-between items-center glass-panel border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
            <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 to-cyan-400 rounded-lg flex items-center justify-center">
              <span className="font-bold text-white">V+</span>
@@ -493,7 +478,6 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-4">
-           {/* Settings Button */}
            <button onClick={handleSettings} className="text-slate-400 hover:text-white transition-colors" title="Settings">
                <CogIcon className="w-6 h-6" />
            </button>
@@ -532,7 +516,7 @@ const App: React.FC = () => {
 
       {/* DEBUG CONSOLE */}
       {showDebug && (
-          <div className="fixed bottom-20 right-4 w-80 h-96 bg-black/95 text-green-400 font-mono text-xs p-4 overflow-y-auto z-[60] border border-green-800 rounded-lg shadow-2xl">
+          <div className="fixed bottom-24 right-4 w-80 h-96 bg-black/95 text-green-400 font-mono text-xs p-4 overflow-y-auto z-[60] border border-green-800 rounded-lg shadow-2xl">
               <div className="flex justify-between border-b border-green-900 pb-1 mb-2">
                   <span>DEBUG LOGS</span>
                   <button onClick={() => setDebugLogs([])}>Clear</button>
@@ -543,10 +527,10 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* MAIN CONTENT - FLEX GROW / OVERFLOW HIDDEN */}
-      <main className="relative z-10 flex-grow flex flex-col w-full overflow-hidden">
+      {/* MAIN CONTENT - V.2.0.9: Transitioned to document-native scrolling */}
+      <main className="relative z-10 flex-grow w-full">
         {isLoading ? (
-          <div className="flex-grow flex flex-col items-center justify-center text-center animate-fade-in p-4">
+          <div className="min-h-[60vh] flex flex-col items-center justify-center text-center animate-fade-in p-4">
             <div className="relative w-24 h-24 mx-auto mb-8">
                <div className="absolute inset-0 border-4 border-slate-700 rounded-full"></div>
                <div className="absolute inset-0 border-4 border-purple-500 rounded-full border-t-transparent animate-spin"></div>
@@ -579,7 +563,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* PLAYER - Fixed */}
+      {/* PLAYER - Anchored Bottom */}
       <PlayerControls 
         currentSong={currentSong}
         playerState={playerState}
