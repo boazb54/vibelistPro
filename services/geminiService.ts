@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile } from "../types";
+import { GEMINI_MODEL } from "../constants";
 
 export const generatePlaylistFromMood = async (
   mood: string, 
@@ -9,19 +10,14 @@ export const generatePlaylistFromMood = async (
   excludeSongs?: string[]
 ): Promise<GeminiResponseWithMetrics> => {
   
-  // 1. Explicit Check: Ensure the key exists before crashing the SDK
   if (!process.env.API_KEY) {
     throw new Error("API Key not found. Please add 'API_KEY' to your Vercel Environment Variables.");
   }
 
-  // Lazy initialization inside the function to prevent top-level crashes
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const model = "gemini-2.5-flash";
   
-  // MEASURE STEP C: Prompt Building
   const t_prompt_start = performance.now();
 
-  // STRATEGY: AUDIO PHYSICS & CONTEXT-AWARE INTENT PARSING
   const systemInstruction = `You are a professional music curator/DJ with deep knowledge of audio engineering and music theory.
   Your goal is to create a playlist that matches the **physical audio requirements** of the user's intent, prioritizing physics over genre labels.
 
@@ -115,8 +111,6 @@ export const generatePlaylistFromMood = async (
   4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel.
   `;
 
-  // NEW: STRUCTURED PROMPT PAYLOAD
-  // We package everything into a JSON object so the model understands the relationships.
   const promptPayload = {
       user_target: {
           query: mood,
@@ -133,7 +127,6 @@ export const generatePlaylistFromMood = async (
           type: tasteProfile.session_analysis?.taste_profile_type || 'unknown',
           top_artists: tasteProfile.topArtists.slice(0, 20),
           top_genres: tasteProfile.topGenres.slice(0, 10),
-          // We provide the semantic profile if available for deeper alignment
           vibe_fingerprint: tasteProfile.session_analysis 
             ? { 
                 energy: tasteProfile.session_analysis.energy_bias, 
@@ -149,11 +142,10 @@ export const generatePlaylistFromMood = async (
   const t_prompt_end = performance.now();
   const promptBuildTimeMs = Math.round(t_prompt_end - t_prompt_start);
 
-  // MEASURE STEP D: API Call
   const t_api_start = performance.now();
 
   const response = await ai.models.generateContent({
-    model,
+    model: GEMINI_MODEL,
     contents: prompt,
     config: {
       systemInstruction,
@@ -184,12 +176,11 @@ export const generatePlaylistFromMood = async (
   const geminiApiTimeMs = Math.round(t_api_end - t_api_start);
 
   if (response.text) {
-      // CLEANUP: Remove potential markdown wrapping before parsing
       const cleanText = response.text.replace(/```json|```/g, '').trim();
       const rawData = JSON.parse(cleanText) as GeneratedPlaylistRaw;
       return {
           ...rawData,
-          promptText: prompt, // We save the JSON string as the prompt text for debugging
+          promptText: prompt,
           metrics: {
               promptBuildTimeMs,
               geminiApiTimeMs
@@ -206,10 +197,9 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = "gemini-2.5-flash";
 
     const response = await ai.models.generateContent({
-        model,
+        model: GEMINI_MODEL,
         contents: [
             {
                 inlineData: {
@@ -226,17 +216,14 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
     return response.text || "";
 };
 
-// --- NEW: ANALYZE USER TASTE (DEBUGGER FEATURE) ---
 export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTrack[] | { error: string }> => {
     if (!process.env.API_KEY) throw new Error("API Key missing");
     if (!tracks || tracks.length === 0) return { error: "No tracks to analyze" };
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = "gemini-2.5-flash";
 
     const trackList = tracks.join('\n');
     
-    // UPDATED SCHEMA INSTRUCTION BASED ON USER SPECIFICATION
     const systemInstruction = `You are a music analysis engine. 
     Analyze the provided list of songs.
     
@@ -267,7 +254,7 @@ export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTr
     const prompt = `Here are the songs to analyze:\n${trackList}`;
 
     const response = await ai.models.generateContent({
-        model,
+        model: GEMINI_MODEL,
         contents: prompt,
         config: {
             systemInstruction,
