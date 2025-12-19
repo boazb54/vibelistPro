@@ -1,6 +1,6 @@
 
 import { SPOTIFY_AUTH_ENDPOINT, SPOTIFY_SCOPES } from "../constants";
-import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, SpotifyTrack, UserTasteProfile } from "../types";
+import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, UserTasteProfile } from "../types";
 import { fetchSongMetadata } from "./itunesService";
 
 export const getDefaultRedirectUri = (): string => {
@@ -14,14 +14,10 @@ export const getLoginUrl = (clientId: string, redirectUri: string, showDialog: b
   return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=token${showDialog ? '&show_dialog=true' : ''}`;
 };
 
-// --- PKCE ADDITIONS ---
-
 export const getPkceLoginUrl = (clientId: string, redirectUri: string, codeChallenge: string, showDialog: boolean = false): string => {
   const scopes = SPOTIFY_SCOPES.join("%20");
   const cleanId = clientId.replace(/[^a-zA-Z0-9]/g, '');
   const cleanUri = redirectUri.trim();
-  
-  // Note: response_type is 'code' for PKCE
   return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}${showDialog ? '&show_dialog=true' : ''}`;
 };
 
@@ -72,17 +68,13 @@ export const refreshSpotifyToken = async (clientId: string, refreshToken: string
   return response.json();
 };
 
-// ---------------------
-
 export const getTokenFromHash = (): string | null => {
   if (typeof window === 'undefined') return null;
   const hashMatch = window.location.href.match(/[#?&]access_token=([^&]*)/);
   if (hashMatch) return hashMatch[1];
-  
   return null;
 };
 
-// Search Spotify for Metadata (Hybrid Fallback)
 export const fetchSpotifyMetadata = async (token: string, generatedSong: GeneratedSongRaw, country?: string): Promise<Song> => {
     try {
         const q = encodeURIComponent(`track:${generatedSong.title} artist:${generatedSong.artist}`);
@@ -96,7 +88,6 @@ export const fetchSpotifyMetadata = async (token: string, generatedSong: Generat
                 const track = data.tracks.items[0];
                 let previewUrl = track.preview_url;
 
-                // HYBRID FALLBACK: If Spotify preview is null, try iTunes
                 if (!previewUrl) {
                     try {
                         const itunesSong = await fetchSongMetadata(generatedSong);
@@ -118,7 +109,7 @@ export const fetchSpotifyMetadata = async (token: string, generatedSong: Generat
                     spotifyUri: track.uri,
                     durationMs: track.duration_ms,
                     searchQuery: `${generatedSong.title} ${generatedSong.artist}`,
-                    estimatedVibe: generatedSong.estimated_vibe // Pass through Gemini's qualitative data
+                    estimatedVibe: generatedSong.estimated_vibe
                 };
             }
         }
@@ -134,9 +125,7 @@ export const fetchSpotifyMetadata = async (token: string, generatedSong: Generat
 };
 
 export const createSpotifyPlaylist = async (token: string, playlist: Playlist, userId: string) => {
-  if (!userId) {
-      throw new Error("User ID is required to create a playlist");
-  }
+  if (!userId) throw new Error("User ID is required to create a playlist");
 
   const createRes = await fetch(`https://api.spotify.com/v1/users/${userId}/playlists`, {
     method: "POST",
@@ -158,7 +147,6 @@ export const createSpotifyPlaylist = async (token: string, playlist: Playlist, u
   
   const playlistData = await createRes.json();
   const playlistId = playlistData.id;
-
   const trackUris: string[] = [];
   
   for (const song of playlist.songs) {
@@ -186,9 +174,7 @@ export const createSpotifyPlaylist = async (token: string, playlist: Playlist, u
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        uris: trackUris,
-      }),
+      body: JSON.stringify({ uris: trackUris }),
     });
   }
   
@@ -196,40 +182,27 @@ export const createSpotifyPlaylist = async (token: string, playlist: Playlist, u
 };
 
 export const getUserProfile = async (token: string) => {
-  if (!token) throw new Error("No token provided");
   const res = await fetch("https://api.spotify.com/v1/me", {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) {
-    throw new Error("Failed to fetch profile");
-  }
+  if (!res.ok) throw new Error("Failed to fetch profile");
   return res.json();
 };
 
-/**
- * Fetches user taste profile (Top 50 Artists & Top 50 Tracks)
- */
 export const fetchUserTasteProfile = async (token: string): Promise<UserTasteProfile | null> => {
   try {
-    // 1. Fetch Top 50 Artists (Long Term)
     const artistsPromise = fetch('https://api.spotify.com/v1/me/top/artists?limit=50&time_range=long_term', {
       headers: { Authorization: `Bearer ${token}` },
     }).then(res => res.ok ? res.json() : { items: [] });
 
-    // 2. Fetch Top 50 Tracks (Long Term - for Gemini Analysis)
     const tracksPromise = fetch('https://api.spotify.com/v1/me/top/tracks?limit=50&time_range=long_term', {
         headers: { Authorization: `Bearer ${token}` },
     }).then(res => res.ok ? res.json() : { items: [] });
     
     const [artistsData, tracksData] = await Promise.all([artistsPromise, tracksPromise]);
-
     const topArtists = (artistsData.items || []).map((a: SpotifyArtist) => a.name);
-    
-    // Extract genres from artists
     const allGenres = (artistsData.items || []).flatMap((a: SpotifyArtist) => a.genres);
     const topGenres = [...new Set(allGenres)].slice(0, 20) as string[];
-
-    // Map Tracks for Gemini
     const topTracks = (tracksData.items || []).map((t: any) => 
         `${t.name} by ${t.artists.map((a:any) => a.name).join(', ')}`
     );
@@ -240,5 +213,26 @@ export const fetchUserTasteProfile = async (token: string): Promise<UserTastePro
     return null;
   }
 };
-// Backward compatibility export if needed
-export const fetchUserTopArtists = fetchUserTasteProfile;
+
+export const fetchUserPlaylists = async (token: string, limit: number = 20) => {
+  const res = await fetch(`https://api.spotify.com/v1/me/playlists?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.items || [];
+};
+
+export const fetchPlaylistTracks = async (token: string, playlistId: string, limit: number = 50) => {
+  const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.items || [])
+    .filter((item: any) => item.track && item.track.type === 'track')
+    .map((item: any) => ({
+      name: item.track.name,
+      artist: item.track.artists.map((a: any) => a.name).join(', ')
+    }));
+};
