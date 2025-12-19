@@ -5,7 +5,7 @@ import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, PlaylistIntelligence, PlaylistData } from './types';
+import type { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, PlaylistIntelligence, PlaylistData } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks, analyzePlaylistIntelligence } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
@@ -23,16 +23,17 @@ import {
   fetchPlaylistTracks
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
-import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure } from './services/historyService';
-import { supabase } from './services/supabaseClient';
-import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
+import { saveVibe, markVibeAsExported, saveUserProfile } from './services/historyService';
+
+// Enums must be imported as values
+import { PlayerState as PlayerStateEnum } from './types';
 
 const App: React.FC = () => {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('Curating vibes...');
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
-  const [playerState, setPlayerState] = useState<PlayerState>(PlayerState.STOPPED);
+  const [playerState, setPlayerState] = useState<PlayerState>(PlayerStateEnum.STOPPED);
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<SpotifyUserProfile | null>(null);
   const [userTaste, setUserTaste] = useState<UserTasteProfile | null>(null);
@@ -44,7 +45,10 @@ const App: React.FC = () => {
   const authProcessed = useRef(false);
   const generationSessionId = useRef(0);
 
-  const spotifyClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
+  const spotifyClientId = localStorage.getItem('spotify_client_id') || "b292c19608a44142990530a7e9595b8a";
+  const DEFAULT_REDIRECT_URI = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+    ? `${window.location.origin}/` 
+    : "https://example.com/";
 
   const addLog = (msg: string) => {
     setDebugLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`]);
@@ -157,7 +161,6 @@ const App: React.FC = () => {
                     .then((intelligence) => {
                         addLog("--- SPOTIFY PLAYLIST INTELLIGENCE ---");
                         intelligence.forEach(intel => {
-                            // FACTUAL MANDATORY LOGGING ORDER PER V.1.1.0
                             addLog(`\n1) PLAYLIST NAME: ${intel.name}`);
                             addLog(`2) TRACKS NAME + ARTIST NAME: ${intel.tracks.join(', ')}`);
                             addLog(`3) LIST OF GENRE (TOP 3 GENRES): ${intel.top_genres.join(', ')}`);
@@ -237,7 +240,7 @@ const App: React.FC = () => {
     
     setPlaylist(null);
     setCurrentSong(null);
-    setPlayerState(PlayerState.STOPPED);
+    setPlayerState(PlayerStateEnum.STOPPED);
     
     addLog(`Generating vibe for: "${mood}" (${modality})...`);
 
@@ -322,7 +325,7 @@ const App: React.FC = () => {
             ipAddress
         };
 
-        const { data: savedVibe, error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null, stats);
+        const { data: savedVibe } = await saveVibe(mood, finalPlaylist, userProfile?.id || null, stats);
         if (savedVibe) {
             setPlaylist(prev => prev ? { ...prev, id: savedVibe.id } : null);
         }
@@ -336,7 +339,7 @@ const App: React.FC = () => {
   const handleReset = () => {
     setPlaylist(null);
     setCurrentSong(null);
-    setPlayerState(PlayerState.STOPPED);
+    setPlayerState(PlayerStateEnum.STOPPED);
   };
 
   const handleRemix = () => {
@@ -351,20 +354,20 @@ const App: React.FC = () => {
 
   const handlePlaySong = (song: Song) => {
     if (currentSong?.id === song.id) {
-      setPlayerState(prev => prev === PlayerState.PLAYING ? PlayerState.PAUSED : PlayerState.PLAYING);
+      setPlayerState(prev => prev === PlayerStateEnum.PLAYING ? PlayerStateEnum.PAUSED : PlayerStateEnum.PLAYING);
     } else {
       setCurrentSong(song);
-      setPlayerState(PlayerState.PLAYING);
+      setPlayerState(PlayerStateEnum.PLAYING);
     }
   };
 
-  const handlePause = () => setPlayerState(PlayerState.PAUSED);
+  const handlePause = () => setPlayerState(PlayerStateEnum.PAUSED);
 
   const handleNext = () => {
     if (!playlist || !currentSong) return;
     const idx = playlist.songs.findIndex(s => s.id === currentSong.id);
     if (idx < playlist.songs.length - 1) handlePlaySong(playlist.songs[idx + 1]);
-    else setPlayerState(PlayerState.STOPPED);
+    else setPlayerState(PlayerStateEnum.STOPPED);
   };
 
   const handlePrev = () => {
@@ -391,7 +394,7 @@ const App: React.FC = () => {
   };
 
   const handleClosePlayer = () => {
-      setPlayerState(PlayerState.STOPPED);
+      setPlayerState(PlayerStateEnum.STOPPED);
       setCurrentSong(null); 
   };
 
@@ -470,7 +473,7 @@ const App: React.FC = () => {
       <PlayerControls 
         currentSong={currentSong}
         playerState={playerState}
-        onTogglePlay={() => playerState === PlayerState.PLAYING ? handlePause() : currentSong && handlePlaySong(currentSong)}
+        onTogglePlay={() => playerState === PlayerStateEnum.PLAYING ? handlePause() : currentSong && handlePlaySong(currentSong)}
         onNext={handleNext}
         onPrev={handlePrev}
         onClose={handleClosePlayer} 
