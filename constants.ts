@@ -1,4 +1,3 @@
-
 export const MOODS = [
   { id: 'chill', label: 'Chill', emoji: '☕', color: 'from-blue-500 to-cyan-400' },
   { id: 'workout', label: 'Workout', emoji: '💪', color: 'from-red-500 to-orange-400' },
@@ -14,8 +13,6 @@ export const SPOTIFY_AUTH_ENDPOINT = "https://accounts.spotify.com/authorize";
 export const SPOTIFY_SCOPES = [
   "playlist-modify-public",
   "playlist-modify-private",
-  "playlist-read-private",
-  "playlist-read-collaborative",
   "user-read-private",
   "user-read-email",
   "user-top-read"
@@ -25,6 +22,8 @@ export const SPOTIFY_SCOPES = [
 export const DEFAULT_SPOTIFY_CLIENT_ID = "b292c19608a44142990530a7e9595b8a";
 
 // Smart Redirect URI:
+// If running on localhost (dev), use example.com trick.
+// If running on Vercel (production), use the real current URL.
 export const DEFAULT_REDIRECT_URI = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
   ? `${window.location.origin}/` 
   : "https://example.com/";
