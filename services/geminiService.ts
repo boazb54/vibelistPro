@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
-import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, PlaylistIntelligence } from "../types";
+import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, PlaylistIntelligence, PlaylistData } from "../types";
 
 export const generatePlaylistFromMood = async (
   mood: string, 
@@ -121,14 +121,6 @@ export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTr
     return { error: "Failed to analyze" };
 };
 
-/**
- * NEW: Analyze Spotify Playlists for Intelligence & Archetypes
- */
-export interface PlaylistData {
-    name: string;
-    tracks: { name: string, artist: string }[];
-}
-
 export const analyzePlaylistIntelligence = async (playlists: PlaylistData[]): Promise<PlaylistIntelligence[]> => {
     if (!process.env.API_KEY) throw new Error("API Key missing");
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -141,7 +133,7 @@ export const analyzePlaylistIntelligence = async (playlists: PlaylistData[]): Pr
     2. audio_averages: Estimated Energy, Tempo, and Texture as numbers 0.0 to 1.0.
     3. archetype: A professional curator's interpretation of the "Organizational Archetype" (e.g., "The user has a 'Focus' playlist, so they prefer Lofi over Classical for concentration"). 
     
-    CRITICAL: Avoid "Lazy AI" assumptions. Judge based on the actual tracks provided.
+    CRITICAL: Avoid "Lazy AI" assumptions. Focus on how the user organizes their music mentally.
     
     Return result as a JSON array corresponding to the input order.`;
 
