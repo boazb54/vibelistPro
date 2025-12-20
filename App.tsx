@@ -4,8 +4,8 @@ import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals } from './types';
-import { generatePlaylistFromMood, analyzeUserTopTracks } from './services/geminiService';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, SpotifyPlaylist } from './types';
+import { generatePlaylistFromMood, analyzeUserTopTracks, analyzePlaylistMood } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
@@ -17,7 +17,9 @@ import {
   createSpotifyPlaylist, 
   getUserProfile, 
   fetchSpotifyMetadata,
-  fetchUserTasteProfile
+  fetchUserTasteProfile,
+  fetchUserPlaylists, // NEW
+  fetchPlaylistTracks // NEW
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
 import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure } from './services/historyService';
@@ -118,26 +120,25 @@ const App: React.FC = () => {
 
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
-          // 1. FETCH TASTE
+          let currentTaste: UserTasteProfile | null = null;
+          // 1. FETCH TASTE (Top Artists & Tracks)
+          addLog("Fetching user's top artists and tracks...");
           const taste = await fetchUserTasteProfile(token);
           if (taste) {
-              // 1.5 LOG TOP ARTISTS
+              currentTaste = taste;
               addLog("--- TOP 50 ARTISTS ---");
               addLog(JSON.stringify(taste.topArtists.slice(0, 10), null, 2) + ` ...and ${Math.max(0, taste.topArtists.length - 10)} more`);
 
-              // 2. TRIGGER GEMINI ANALYSIS
+              // 2. TRIGGER GEMINI ANALYSIS FOR TOP TRACKS
               if (taste.topTracks.length > 0) {
                   addLog("Sending Top Tracks to Gemini for Feature Analysis (Energy, Mood, Genre)...");
                   
                   // Run in background so we don't block the UI, but update taste state when done
-                  analyzeUserTopTracks(taste.topTracks)
-                      .then((analysis) => {
-                          if ('error' in analysis) {
-                              addLog(`Gemini Analysis Error: ${analysis.error}`);
-                              setUserTaste(taste); // Set basics even if AI fails
-                              return;
-                          }
-
+                  try {
+                      const analysis = await analyzeUserTopTracks(taste.topTracks);
+                      if ('error' in analysis) {
+                          addLog(`Gemini Analysis Error (Top Tracks): ${analysis.error}`);
+                      } else {
                           addLog("--- GEMINI AUDIO ANALYSIS & GENRE (RAW) ---");
                           addLog(`Analyzed ${analysis.length} tracks.`);
                           
@@ -148,27 +149,63 @@ const App: React.FC = () => {
                           addLog(JSON.stringify(sessionProfile, null, 2));
                           
                           // Update taste with the AI enhanced profile
-                          const enhancedTaste: UserTasteProfile = {
-                              ...taste,
+                          currentTaste = {
+                              ...currentTaste,
                               session_analysis: sessionProfile
                           };
-                          
-                          setUserTaste(enhancedTaste);
-                          saveUserProfile(profile, enhancedTaste);
-                      })
-                      .catch(err => {
-                          addLog(`Gemini Analysis Failed: ${err.message}`);
-                          setUserTaste(taste);
-                      });
-              } else {
-                  setUserTaste(taste);
-                  saveUserProfile(profile, taste);
+                      }
+                  } catch (err: any) {
+                      addLog(`Gemini Analysis Failed (Top Tracks): ${err.message}`);
+                  }
               }
-          } else {
-              saveUserProfile(profile, null);
+
+              // NEW: 4. FETCH USER PLAYLISTS AND ANALYZE ONE
+              addLog("Fetching user public playlists...");
+              const userPlaylists = await fetchUserPlaylists(token, profile.id);
+              if (userPlaylists.length > 0) {
+                  // Select the most recently updated or created public playlist owned by the user
+                  // For simplicity, we'll pick the first suitable one returned by Spotify
+                  const selectedPlaylist: SpotifyPlaylist | undefined = userPlaylists.find(pl => 
+                    pl.owner.id === profile.id && pl.public
+                  );
+
+                  if (selectedPlaylist) {
+                      addLog(`Selected playlist for analysis: "${selectedPlaylist.name}" (ID: ${selectedPlaylist.id})`);
+                      addLog(`Fetching up to 50 tracks for playlist "${selectedPlaylist.name}"...`);
+                      const playlistTracks = await fetchPlaylistTracks(token, selectedPlaylist.id);
+
+                      if (playlistTracks.length > 0) {
+                          addLog(`Analyzing playlist "${selectedPlaylist.name}" with ${playlistTracks.length} tracks using Gemini...`);
+                          try {
+                              const playlistMoodAnalysis = await analyzePlaylistMood(playlistTracks);
+                              addLog("Gemini Playlist Mood Analysis:");
+                              addLog(`  Mood: "${playlistMoodAnalysis.playlist_mood_category}"`);
+                              addLog(`  Confidence: ${playlistMoodAnalysis.playlist_mood_confidence.toFixed(2)}`);
+
+                              currentTaste = {
+                                  ...currentTaste,
+                                  playlist_mood_category: playlistMoodAnalysis.playlist_mood_category,
+                                  playlist_mood_confidence: playlistMoodAnalysis.playlist_mood_confidence,
+                              };
+                          } catch (err: any) {
+                              addLog(`Gemini Analysis Failed (Playlist Mood): ${err.message}`);
+                          }
+                      } else {
+                          addLog(`No tracks found for playlist "${selectedPlaylist.name}". Skipping mood analysis.`);
+                      }
+                  } else {
+                      addLog("No suitable public, owned playlist found for analysis.");
+                  }
+              } else {
+                  addLog("No public playlists found for the user.");
+              }
           }
+
+          setUserTaste(currentTaste);
+          saveUserProfile(profile, currentTaste);
+
       } catch (e) {
-          console.warn("Could not load taste profile", e);
+          console.warn("Could not load taste profile or analyze playlists", e);
           saveUserProfile(profile, null);
       }
   };
@@ -225,13 +262,13 @@ const App: React.FC = () => {
     setIsLoading(true);
     setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
     
-    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
-    
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
     
     addLog(`Generating vibe for: "${mood}" (${modality})...`);
+
+    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
 
     const t_context_start = performance.now();
 
