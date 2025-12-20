@@ -160,13 +160,12 @@ const App: React.FC = () => {
               }
 
               // NEW: 4. FETCH USER PLAYLISTS AND ANALYZE ONE
-              addLog("Fetching user public playlists...");
+              addLog("Fetching user playlists...");
               const userPlaylists = await fetchUserPlaylists(token, profile.id);
               if (userPlaylists.length > 0) {
-                  // Select the most recently updated or created public playlist owned by the user
-                  // For simplicity, we'll pick the first suitable one returned by Spotify
+                  // Select the first suitable playlist with tracks for analysis
                   const selectedPlaylist: SpotifyPlaylist | undefined = userPlaylists.find(pl => 
-                    pl.owner.id === profile.id && pl.public
+                    pl.tracks.total > 0
                   );
 
                   if (selectedPlaylist) {
@@ -194,10 +193,10 @@ const App: React.FC = () => {
                           addLog(`No tracks found for playlist "${selectedPlaylist.name}". Skipping mood analysis.`);
                       }
                   } else {
-                      addLog("No suitable public, owned playlist found for analysis.");
+                      addLog("No suitable playlist with tracks found for analysis.");
                   }
               } else {
-                  addLog("No public playlists found for the user.");
+                  addLog("No playlists found for the user.");
               }
           }
 
