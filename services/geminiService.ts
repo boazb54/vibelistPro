@@ -1,5 +1,6 @@
 
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
+
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
 import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile } from "../types";
 import { GEMINI_MODEL } from "../constants";
 
@@ -111,7 +112,7 @@ export const generatePlaylistFromMood = async (
   4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel.
   `;
 
-  const promptPayload = {
+  const promptPayload: any = { // Use 'any' for dynamic additions
       user_target: {
           query: mood,
           modality: contextSignals.input_modality
@@ -136,6 +137,17 @@ export const generatePlaylistFromMood = async (
       } : null,
       exclusions: excludeSongs || []
   };
+
+  // NEW: Add playlist mood to prompt payload if available
+  if (tasteProfile?.playlist_mood_category && tasteProfile?.playlist_mood_confidence !== undefined) {
+      if (!promptPayload.taste_bias) {
+          promptPayload.taste_bias = {};
+      }
+      promptPayload.taste_bias.playlist_vibe = {
+          category: tasteProfile.playlist_mood_category,
+          confidence: tasteProfile.playlist_mood_confidence,
+      };
+  }
 
   const prompt = JSON.stringify(promptPayload, null, 2);
 
@@ -267,4 +279,57 @@ export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTr
         return JSON.parse(response.text.replace(/```json|```/g, '').trim());
     }
     return { error: "Failed to analyze" };
+};
+
+// NEW: Analyze a playlist's overall mood and confidence
+export const analyzePlaylistMood = async (trackStrings: string[]): Promise<{ playlist_mood_category: string, playlist_mood_confidence: number }> => {
+    if (!process.env.API_KEY) throw new Error("API Key missing");
+    if (!trackStrings || trackStrings.length === 0) return { playlist_mood_category: "Unknown", playlist_mood_confidence: 0 };
+
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    const trackList = trackStrings.join('\n');
+
+    const systemInstruction = `You are a sophisticated music analysis AI.
+    Your task is to analyze a list of song titles and artists, and determine the *overall dominant mood category* of the playlist these songs belong to.
+    You must also provide a confidence score for your assessment.
+
+    **RULES:**
+    1.  Analyze the collective vibe, tempo, lyrical themes (inferred from titles), and typical genres suggested by the provided tracks.
+    2.  Provide a concise 'playlist_mood_category' (e.g., "Energetic Dance," "Relaxed Ambient," "Reflective Acoustic," "Driving Electronic"). This should be an intuitive, human-readable description of the general feel.
+    3.  Provide 'playlist_mood_confidence' as a float between 0.0 (very uncertain) and 1.0 (very certain). This score reflects how clear and consistent the mood signals are across the tracks.
+
+    **OUTPUT FORMAT:**
+    Return the result as raw, valid JSON only. Do not use Markdown formatting.
+    
+    Use this exact JSON structure for your output:
+    {
+      "playlist_mood_category": "Dominant Mood Category",
+      "playlist_mood_confidence": 0.0-1.0
+    }`;
+
+    const prompt = `Analyze the mood of this playlist based on the following tracks:\n${trackList}`;
+
+    const response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: {
+            systemInstruction,
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingBudget: 0 }
+        }
+    });
+
+    if (response.text) {
+        const cleanText = response.text.replace(/```json|```/g, '').trim();
+        const rawData = JSON.parse(cleanText);
+        // Ensure confidence is a number and within range
+        const confidence = parseFloat(rawData.playlist_mood_confidence);
+        return {
+            playlist_mood_category: rawData.playlist_mood_category,
+            playlist_mood_confidence: isNaN(confidence) ? 0 : Math.min(1.0, Math.max(0.0, confidence)),
+        };
+    }
+    
+    throw new Error("Failed to analyze playlist mood.");
 };

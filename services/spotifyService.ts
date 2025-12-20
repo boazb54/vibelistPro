@@ -1,6 +1,7 @@
 
+
 import { SPOTIFY_AUTH_ENDPOINT, SPOTIFY_SCOPES } from "../constants";
-import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, SpotifyTrack, UserTasteProfile } from "../types";
+import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, SpotifyTrack, UserTasteProfile, SpotifyPlaylist, SpotifyPlaylistTrack } from "../types";
 import { fetchSongMetadata } from "./itunesService";
 
 export const getDefaultRedirectUri = (): string => {
@@ -240,5 +241,60 @@ export const fetchUserTasteProfile = async (token: string): Promise<UserTastePro
     return null;
   }
 };
+
+/**
+ * Fetches public playlists owned by the current user.
+ * Limited to playlists where owner.id matches userId and playlist is public.
+ * @param token Spotify access token
+ * @param userId The current user's Spotify ID
+ * @returns An array of SpotifyPlaylist objects
+ */
+export const fetchUserPlaylists = async (token: string, userId: string): Promise<SpotifyPlaylist[]> => {
+    try {
+        const response = await fetch(`https://api.spotify.com/v1/me/playlists?limit=50`, { // Fetch up to 50 playlists
+            headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to fetch user playlists: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        // Filter for playlists owned by the user and are public
+        return data.items.filter((pl: SpotifyPlaylist) => pl.owner.id === userId && pl.public);
+    } catch (e) {
+        console.error("Error fetching user playlists:", e);
+        return [];
+    }
+};
+
+/**
+ * Fetches the first 50 tracks from a given playlist.
+ * @param token Spotify access token
+ * @param playlistId The ID of the playlist
+ * @returns An array of strings formatted as "Song Name by Artist Name"
+ */
+export const fetchPlaylistTracks = async (token: string, playlistId: string): Promise<string[]> => {
+    try {
+        const response = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to fetch playlist tracks: ${errorText}`);
+        }
+
+        const data = await response.json();
+        return data.items
+            .filter((item: SpotifyPlaylistTrack) => item.track && item.track.name && item.track.artists.length > 0)
+            .map((item: SpotifyPlaylistTrack) => `${item.track.name} by ${item.track.artists.map(a => a.name).join(', ')}`);
+    } catch (e) {
+        console.error(`Error fetching tracks for playlist ${playlistId}:`, e);
+        return [];
+    }
+};
+
 // Backward compatibility export if needed
 export const fetchUserTopArtists = fetchUserTasteProfile;
