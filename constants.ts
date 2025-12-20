@@ -1,5 +1,4 @@
 
-
 export const MOODS = [
   { id: 'chill', label: 'Chill', emoji: '☕', color: 'from-blue-500 to-cyan-400' },
   { id: 'workout', label: 'Workout', emoji: '💪', color: 'from-red-500 to-orange-400' },
@@ -13,12 +12,11 @@ export const MOODS = [
 
 export const SPOTIFY_AUTH_ENDPOINT = "https://accounts.spotify.com/authorize";
 export const SPOTIFY_SCOPES = [
+  "playlist-modify-public",
+  "playlist-modify-private",
   "user-read-private",
   "user-read-email",
-  "user-top-read",
-  "playlist-read-public", // NEW: For reading user's public playlists
-  "playlist-modify-public", // Keep for creating new playlists
-  "playlist-modify-private" // Keep for creating new playlists
+  "user-top-read"
 ];
 
 // Pre-configured Developer Credentials
