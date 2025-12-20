@@ -1,4 +1,5 @@
 
+
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -137,11 +138,44 @@ export interface SpotifyTrack {
   artists: { name: string }[];
 }
 
+// NEW: Interfaces for Spotify Playlists
+export interface SpotifyPlaylistOwner {
+  display_name: string;
+  id: string;
+  uri: string;
+}
+
+export interface SpotifyPlaylistExternalUrls {
+  spotify: string;
+}
+
+export interface SpotifyPlaylist {
+  description: string;
+  external_urls: SpotifyPlaylistExternalUrls;
+  id: string;
+  name: string;
+  owner: SpotifyPlaylistOwner;
+  public: boolean;
+  uri: string;
+  tracks: {
+    total: number;
+  }
+}
+
+export interface SpotifyPlaylistTrack {
+  track: {
+    name: string;
+    artists: { name: string }[];
+  }
+}
+
 export interface UserTasteProfile {
   topArtists: string[];
   topGenres: string[];
   topTracks: string[]; // RESTORED: For Gemini Analysis
   session_analysis?: SessionSemanticProfile; // NEW: Processed "Vibe Fingerprint"
+  playlist_mood_category?: string; // NEW: Gemini's mood category for a user playlist
+  playlist_mood_confidence?: number; // NEW: Gemini's confidence score for playlist mood (0-1)
 }
 
 export interface VibeGenerationStats {
