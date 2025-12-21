@@ -1,7 +1,7 @@
 
 
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
-import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis } from "../types";
+import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis, AggregatedPlaylist } from "../types";
 import { GEMINI_MODEL } from "../constants";
 
 // NEW: Analyze User Playlists for overall mood
