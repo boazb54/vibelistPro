@@ -1,7 +1,72 @@
 
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile } from "../types";
+
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
+import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis } from "../types";
 import { GEMINI_MODEL } from "../constants";
+
+// NEW: Analyze User Playlists for overall mood
+export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Promise<UserPlaylistMoodAnalysis | null> => {
+    if (!process.env.API_KEY) throw new Error("API Key missing");
+    if (!playlistTracks || playlistTracks.length === 0) return null;
+
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    const systemInstruction = `You are an expert music psychologist and mood categorizer.
+    Your task is to analyze a list of song titles and artists, representing a user's collection of personal playlists.
+    Based on this combined list, infer the overarching, most dominant "mood category" that these playlists collectively represent.
+    Also, provide a confidence score for your categorization.
+
+    RULES:
+    1. The 'playlist_mood_category' should be a concise, descriptive phrase (e.g., "High-Energy Workout Mix", "Relaxed Indie Vibes", "Chill Study Focus").
+    2. The 'confidence_score' must be a floating-point number between 0.0 (very uncertain) and 1.0 (very certain).
+    3. Return only raw, valid JSON matching the specified schema.
+
+    OUTPUT FORMAT:
+    {
+      "playlist_mood_category": "string",
+      "confidence_score": "number"
+    }
+    `;
+
+    const prompt = `Analyze the collective mood represented by these songs from a user's playlists:\n${playlistTracks.join('\n')}`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: GEMINI_MODEL,
+            contents: prompt,
+            config: {
+                systemInstruction,
+                responseMimeType: "application/json",
+                responseSchema: { // Define response schema for structured output
+                    type: Type.OBJECT,
+                    properties: {
+                        playlist_mood_category: {
+                            type: Type.STRING,
+                            description: "A descriptive phrase for the overall mood of the user's combined playlists."
+                        },
+                        confidence_score: {
+                            type: Type.NUMBER,
+                            description: "A confidence score (0.0 to 1.0) for the mood categorization."
+                        }
+                    },
+                    required: ["playlist_mood_category", "confidence_score"],
+                    propertyOrdering: ["playlist_mood_category", "confidence_score"],
+                },
+                thinkingConfig: { thinkingBudget: 0 }
+            }
+        });
+
+        if (response.text) {
+            const cleanText = response.text.replace(/```json|```/g, '').trim();
+            return JSON.parse(cleanText) as UserPlaylistMoodAnalysis;
+        }
+        return null;
+    } catch (error) {
+        console.error("Error analyzing user playlist mood:", error);
+        throw error; // Re-throw to be caught in App.tsx for logging/handling
+    }
+};
+
 
 export const generatePlaylistFromMood = async (
   mood: string, 
@@ -33,6 +98,7 @@ export const generatePlaylistFromMood = async (
   
   3. **TASTE (STYLISTIC COMPASS):** Only use the user's favorite artists/genres if they fit the **Physical Constraints** of Step 1.
      - **CRITICAL:** If the user loves "Techno" but asks for "Sleep", **DO NOT** play "Chill Techno" (it still has kicks). Play an "Ambient" or "Beatless" track by a Techno artist, or ignore the genre entirely.
+     - **NEW: DEEPER TASTE UNDERSTANDING:** If provided, leverage the 'user_playlist_mood' as a strong signal for the user's overall, inherent musical taste. This is *beyond* just top artists/genres and represents a more holistic "vibe fingerprint" for the user. Use it to fine-tune song selection, especially when there are multiple songs that fit the physical constraints.
 
   ### 2. TEMPORAL + LINGUISTIC POLARITY & INTENT DECODING (CRITICAL LOGIC)
   Determine whether the user describes a **PROBLEM** (needs fixing) or a **GOAL** (needs matching).
@@ -117,7 +183,7 @@ export const generatePlaylistFromMood = async (
           modality: contextSignals.input_modality
       },
       environmental_context: {
-          local_time: contextSignals.local_time,
+          local_time: contextSignals.local_time, // Corrected from contextTime
           day_of_week: contextSignals.day_of_week,
           device_type: contextSignals.device_type,
           browser_language: contextSignals.browser_language,
@@ -132,7 +198,8 @@ export const generatePlaylistFromMood = async (
                 energy: tasteProfile.session_analysis.energy_bias, 
                 favored_genres: tasteProfile.session_analysis.dominant_genres 
               } 
-            : null
+            : null,
+          user_playlist_mood: tasteProfile.playlistMoodAnalysis // NEW: Added for enhanced taste
       } : null,
       exclusions: excludeSongs || []
   };
