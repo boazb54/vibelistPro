@@ -138,11 +138,18 @@ export interface SpotifyTrack {
   artists: { name: string }[];
 }
 
+// NEW: User Playlist Mood Analysis
+export interface UserPlaylistMoodAnalysis {
+  playlist_mood_category: string;
+  confidence_score: number; // 0.0 to 1.0
+}
+
 export interface UserTasteProfile {
   topArtists: string[];
   topGenres: string[];
   topTracks: string[]; // RESTORED: For Gemini Analysis
   session_analysis?: SessionSemanticProfile; // NEW: Processed "Vibe Fingerprint"
+  playlistMoodAnalysis?: UserPlaylistMoodAnalysis; // NEW: Added for overall playlist mood
 }
 
 export interface VibeGenerationStats {
