@@ -1,4 +1,5 @@
 
+
 import { SPOTIFY_AUTH_ENDPOINT, SPOTIFY_SCOPES } from "../constants";
 import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, SpotifyTrack, UserTasteProfile } from "../types";
 import { fetchSongMetadata } from "./itunesService";
@@ -240,5 +241,54 @@ export const fetchUserTasteProfile = async (token: string): Promise<UserTastePro
     return null;
   }
 };
+
+// NEW: Fetches user's playlists and their tracks, aggregating them into a single list of "Song by Artist" strings.
+export const fetchUserPlaylistsAndTracks = async (token: string): Promise<string[]> => {
+  const aggregatedTracks: string[] = [];
+  try {
+    // 1. Fetch user playlists (limit 50)
+    const playlistsRes = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!playlistsRes.ok) {
+      const errorText = await playlistsRes.text();
+      throw new Error(`Failed to fetch user playlists: ${errorText}`);
+    }
+    const playlistsData = await playlistsRes.json();
+    const userPlaylists = playlistsData.items || [];
+
+    let playlistsProcessed = 0;
+    for (const playlist of userPlaylists) {
+      if (playlistsProcessed >= 5) break; // Limit to first 5 non-empty playlists
+
+      // Check if playlist is not empty before fetching tracks
+      if (playlist.tracks.total > 0) {
+        // 2. Fetch tracks for each playlist (limit 20 per playlist as per scope)
+        const tracksRes = await fetch(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks?limit=20`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!tracksRes.ok) {
+          const errorText = await tracksRes.text();
+          console.warn(`Failed to fetch tracks for playlist ${playlist.name} (ID: ${playlist.id}): ${errorText}`);
+          continue; // Skip to next playlist if this one fails
+        }
+        const tracksData = await tracksRes.json();
+        const playlistTracks = tracksData.items || [];
+
+        playlistTracks.forEach((item: any) => {
+          if (item.track && item.track.name && item.track.artists && item.track.artists.length > 0) {
+            aggregatedTracks.push(`${item.track.name} by ${item.track.artists.map((a: any) => a.name).join(', ')}`);
+          }
+        });
+        playlistsProcessed++;
+      }
+    }
+  } catch (e: any) {
+    console.error("Critical error during Spotify playlist/track fetching:", e.message);
+    throw e; // Re-throw to be handled by App.tsx
+  }
+  return aggregatedTracks;
+};
+
 // Backward compatibility export if needed
 export const fetchUserTopArtists = fetchUserTasteProfile;
