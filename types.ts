@@ -171,3 +171,18 @@ export interface VibeGenerationStats {
   deviceType?: string;
   ipAddress?: string;
 }
+
+// NEW: Interface for structured aggregated playlist data
+export interface AggregatedPlaylist {
+  playlistName: string;
+  tracks: string[]; // Array of "Song by Artist" strings
+}
+
+// NEW: Props for AdminDataInspector component
+export interface AdminDataInspectorProps {
+  isOpen: boolean;
+  onClose: () => void;
+  userTaste: UserTasteProfile | null;
+  aggregatedPlaylists: AggregatedPlaylist[];
+  debugLogs: string[];
+}

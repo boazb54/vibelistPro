@@ -4,7 +4,8 @@ import PlaylistView from './components/PlaylistView';
 import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals } from './types';
+import AdminDataInspector from './components/AdminDataInspector';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks, analyzeUserPlaylistsForMood } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
@@ -38,6 +39,8 @@ const App: React.FC = () => {
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdminDataInspector, setShowAdminDataInspector] = useState(false); // NEW: State for AdminDataInspector
+  const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]); // NEW: State to store aggregated playlists
 
   // FIX: Race condition lock for strict mode / fast mobile browsers
   const authProcessed = useRef(false);
@@ -130,19 +133,25 @@ const App: React.FC = () => {
 
           // --- NEW: Fetch and Analyze User Playlists for overall mood ---
           addLog("Fetching user playlists and tracks for deeper mood analysis...");
-          let aggregatedPlaylistTracks: string[] = [];
+          let fetchedAggregatedPlaylists: AggregatedPlaylist[] = []; // Use new type
+          let rawAggregatedPlaylistTracks: string[] = []; // For Gemini Mood Analysis
           try {
-            aggregatedPlaylistTracks = await fetchUserPlaylistsAndTracks(token);
+            fetchedAggregatedPlaylists = await fetchUserPlaylistsAndTracks(token); // Update call
+            setUserAggregatedPlaylists(fetchedAggregatedPlaylists); // Store in state for AdminDataInspector
+
+            // Flatten for Gemini Mood Analysis
+            rawAggregatedPlaylistTracks = fetchedAggregatedPlaylists.flatMap(p => p.tracks);
+
           } catch (e: any) {
             addLog(`Error fetching user playlists: ${e.message}`);
             console.error("Error fetching user playlists:", e);
             // Continue execution, as this is not a critical blocking failure
           }
 
-          if (aggregatedPlaylistTracks.length > 0) {
-              addLog(`Found ${aggregatedPlaylistTracks.length} tracks from user playlists. Sending to Gemini for overall mood analysis...`);
+          if (rawAggregatedPlaylistTracks.length > 0) { // Check flattened array length
+              addLog(`Found ${rawAggregatedPlaylistTracks.length} tracks from user playlists. Sending to Gemini for overall mood analysis...`);
               try {
-                  const playlistMoodAnalysis = await analyzeUserPlaylistsForMood(aggregatedPlaylistTracks);
+                  const playlistMoodAnalysis = await analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks); // Use flattened array
                   if (playlistMoodAnalysis) {
                       addLog("--- GEMINI PLAYLIST MOOD ANALYSIS ---");
                       addLog(`Category: "${playlistMoodAnalysis.playlist_mood_category}", Confidence: ${playlistMoodAnalysis.confidence_score.toFixed(2)}`);
@@ -521,7 +530,13 @@ const App: React.FC = () => {
            </button>
 
            <button 
-             onClick={() => setShowDebug(!showDebug)} 
+             onClick={(e) => {
+               if (e.ctrlKey) { // Activate AdminDataInspector with CTRL + click
+                 setShowAdminDataInspector(prev => !prev);
+               } else { // Regular click toggles debug logs
+                 setShowDebug(prev => !prev);
+               }
+             }} 
              className="text-xs text-slate-700 hover:text-slate-500 font-mono px-3"
              title="Debug"
            >
@@ -563,6 +578,17 @@ const App: React.FC = () => {
                   <div key={i} className="mb-1 break-words whitespace-pre-wrap">{log}</div>
               ))}
           </div>
+      )}
+
+      {/* ADMIN DATA INSPECTOR */}
+      {showAdminDataInspector && (
+          <AdminDataInspector
+              isOpen={showAdminDataInspector}
+              onClose={() => setShowAdminDataInspector(false)}
+              userTaste={userTaste}
+              aggregatedPlaylists={userAggregatedPlaylists}
+              debugLogs={debugLogs}
+          />
       )}
 
       {/* MAIN CONTENT - V.2.0.9: Transitioned to document-native scrolling */}
