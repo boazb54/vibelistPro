@@ -24,14 +24,17 @@ async function callGeminiProxy<T>(payload: any, expectsJson: boolean = false, is
     return response.body as T;
   }
 
-  // For non-streaming requests, read the response body once
+  // For non-streaming requests, read the response body as text ONCE
+  const rawText = await response.text(); 
+
   let responseData: any;
   try {
-    responseData = await response.json();
+    // Attempt to parse as JSON
+    responseData = JSON.parse(rawText); 
   } catch (e) {
-    // If response is not valid JSON, read as text and wrap it
-    const textData = await response.text();
-    responseData = { text: textData, error: 'Non-JSON response received from proxy' };
+    // If parsing fails, it's not JSON. Treat the rawText as the response.
+    // The proxy is expected to return JSON, so this is an unexpected format.
+    responseData = { text: rawText, error: `Proxy returned malformed JSON or unexpected text: ${rawText}` };
   }
 
   if (!response.ok) {
@@ -40,8 +43,10 @@ async function callGeminiProxy<T>(payload: any, expectsJson: boolean = false, is
       errorDetail = responseData.error;
     } else if (responseData && typeof responseData.text === 'string') {
       errorDetail = responseData.text; // Fallback to text field if available
+    } else if (typeof rawText === 'string' && rawText.length > 0) {
+      errorDetail = `Raw response: ${rawText}`; // Use raw text if no structured error
     }
-    console.error(`Gemini proxy responded with status ${response.status}:`, responseData);
+    console.error(`Gemini proxy responded with status ${response.status}:`, responseData, `Raw text:`, rawText);
     throw new Error(`Gemini proxy failed (${response.status}): ${errorDetail}`);
   }
 
@@ -57,7 +62,9 @@ async function callGeminiProxy<T>(payload: any, expectsJson: boolean = false, is
       }
     } else {
       // If expectsJson is true but there's no parsable text field, return raw responseData
-      return responseData as T;
+      // This case might indicate an issue with proxy's success response format
+      console.warn("Proxy response expected JSON in 'text' field but received:", responseData);
+      return responseData as T; // Assuming T might be a raw JSON object
     }
   }
   // Default: return the entire parsed JSON response from the proxy
