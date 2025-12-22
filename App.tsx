@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
@@ -5,7 +6,7 @@ import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
 import AdminDataInspector from './components/AdminDataInspector';
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist } from './types';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, AnalyzedTrack } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks, analyzeUserPlaylistsForMood } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
@@ -19,7 +20,7 @@ import {
   getUserProfile, 
   fetchSpotifyMetadata,
   fetchUserTasteProfile,
-  fetchUserPlaylistsAndTracks // NEW: Import
+  fetchUserPlaylistsAndTracks 
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
 import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure } from './services/historyService';
@@ -39,12 +40,10 @@ const App: React.FC = () => {
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showAdminDataInspector, setShowAdminDataInspector] = useState(false); // NEW: State for AdminDataInspector
-  const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]); // NEW: State to store aggregated playlists
+  const [showAdminDataInspector, setShowAdminDataInspector] = useState(false); 
+  const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]); 
 
-  // FIX: Race condition lock for strict mode / fast mobile browsers
   const authProcessed = useRef(false);
-  // FIX: Track generation sessions
   const generationSessionId = useRef(0);
 
   const spotifyClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
@@ -62,7 +61,6 @@ const App: React.FC = () => {
     
     handleSpotifyAuth();
 
-    // Check for shared vibe in URL
     const params = new URLSearchParams(window.location.search);
     const sharedMood = params.get('mood');
     if (sharedMood) {
@@ -111,7 +109,6 @@ const App: React.FC = () => {
     try {
       const profile = await getUserProfile(token);
       setUserProfile(profile);
-      // Pass profile down so we can save it immediately
       refreshProfileAndTaste(token, profile);
     } catch (e) {
       console.error("Failed to fetch profile", e);
@@ -122,101 +119,85 @@ const App: React.FC = () => {
 
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
-          addLog("Fetching Spotify User Taste Profile (Top Artists, Top Tracks)...");
+          addLog("Fetching Spotify User Taste Profile...");
           const taste = await fetchUserTasteProfile(token);
           if (!taste) {
               saveUserProfile(profile, null);
               return;
           }
 
-          let enhancedTaste: UserTasteProfile = { ...taste }; // Initialize with base taste
+          let enhancedTaste: UserTasteProfile = { ...taste }; 
 
-          // --- NEW: Fetch and Analyze User Playlists for overall mood ---
-          addLog("Fetching user playlists and tracks for deeper mood analysis...");
-          let fetchedAggregatedPlaylists: AggregatedPlaylist[] = []; // Use new type
-          let rawAggregatedPlaylistTracks: string[] = []; // For Gemini Mood Analysis
+          addLog("Fetching user playlists and tracks...");
+          let fetchedAggregatedPlaylists: AggregatedPlaylist[] = []; 
+          let rawAggregatedPlaylistTracks: string[] = []; 
           try {
-            fetchedAggregatedPlaylists = await fetchUserPlaylistsAndTracks(token); // Update call
-            setUserAggregatedPlaylists(fetchedAggregatedPlaylists); // Store in state for AdminDataInspector
+            fetchedAggregatedPlaylists = await fetchUserPlaylistsAndTracks(token); 
+            setUserAggregatedPlaylists(fetchedAggregatedPlaylists); 
 
-            // Flatten for Gemini Mood Analysis
-            rawAggregatedPlaylistTracks = fetchedAggregatedPlaylists.flatMap(p => p.tracks);
+            rawAggregatedPlaylistTracks = fetchedAggregatedPlaylists.flatMap(p => p.tracks || []);
 
           } catch (e: any) {
             addLog(`Error fetching user playlists: ${e.message}`);
-            console.error("Error fetching user playlists:", e);
-            // Continue execution, as this is not a critical blocking failure
           }
 
-          if (rawAggregatedPlaylistTracks.length > 0) { // Check flattened array length
-              addLog(`Found ${rawAggregatedPlaylistTracks.length} tracks from user playlists. Sending to Gemini for overall mood analysis...`);
+          if (rawAggregatedPlaylistTracks.length > 0) {
+              addLog(`Found ${rawAggregatedPlaylistTracks.length} tracks. Sending to Gemini for mood analysis...`);
               try {
-                  const playlistMoodAnalysis = await analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks); // Use flattened array
+                  const playlistMoodAnalysis = await analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks); 
                   if (playlistMoodAnalysis) {
-                      addLog("--- GEMINI PLAYLIST MOOD ANALYSIS ---");
-                      addLog(`Category: "${playlistMoodAnalysis.playlist_mood_category}", Confidence: ${playlistMoodAnalysis.confidence_score.toFixed(2)}`);
-                      enhancedTaste.playlistMoodAnalysis = playlistMoodAnalysis; // Add to enhancedTaste
-                  } else {
-                      addLog("Gemini Playlist Mood Analysis returned empty or null.");
+                      addLog(`Gemini Mood: "${playlistMoodAnalysis.playlist_mood_category}" (${(playlistMoodAnalysis.confidence_score * 100).toFixed(0)}%)`);
+                      enhancedTaste.playlistMoodAnalysis = playlistMoodAnalysis; 
                   }
               } catch (error: any) {
-                  addLog(`Gemini Playlist Mood Analysis Failed: ${error.message}`);
-                  console.error("Gemini Playlist Mood Analysis Error:", error);
-                  // Continue execution, as this is not a critical blocking failure
+                  addLog(`Playlist Analysis Failed: ${error.message}`);
               }
-          } else {
-              addLog("No user playlist tracks found for deeper mood analysis.");
           }
-          // --- END NEW: Fetch and Analyze User Playlists ---
 
-          // --- Existing: Trigger Gemini Analysis for Top Tracks (now using enhancedTaste as base) ---
-          if (enhancedTaste.topTracks.length > 0) {
-              addLog("Sending Top Tracks to Gemini for Feature Analysis (Energy, Mood, Genre)...");
+          if (enhancedTaste.topTracks && enhancedTaste.topTracks.length > 0) {
+              addLog("Sending Top Tracks to Gemini for Feature Analysis...");
               
-              analyzeUserTopTracks(enhancedTaste.topTracks) // Use enhancedTaste.topTracks
+              analyzeUserTopTracks(enhancedTaste.topTracks) 
                   .then((analysis) => {
+                      if (!analysis) return;
+                      
                       if ('error' in analysis) {
-                          addLog(`Gemini Top Tracks Analysis Error: ${analysis.error}`);
-                          // If top tracks analysis fails, still save profile with whatever we have (including new playlist analysis)
+                          addLog(`Gemini Analysis Error: ${analysis.error}`);
                           setUserTaste(enhancedTaste); 
                           saveUserProfile(profile, enhancedTaste);
                           return;
                       }
 
-                      addLog("--- GEMINI AUDIO ANALYSIS & GENRE (RAW) ---");
-                      addLog(`Analyzed ${analysis.length} tracks.`);
-                      
-                      addLog("--- AGGREGATING SESSION PROFILE (TYPESCRIPT) ---");
-                      const sessionProfile = aggregateSessionData(analysis);
-                      
-                      addLog(JSON.stringify(sessionProfile, null, 2));
-                      
-                      // Update enhancedTaste with the AI enhanced profile from top tracks
-                      enhancedTaste = {
-                          ...enhancedTaste, // Keep previous updates like playlistMoodAnalysis
-                          session_analysis: sessionProfile
-                      };
+                      if (Array.isArray(analysis)) {
+                          addLog(`Analyzed ${analysis.length} tracks.`);
+                          
+                          const sessionProfile = aggregateSessionData(analysis as AnalyzedTrack[]);
+                          addLog("Session Profile aggregated.");
+                          
+                          enhancedTaste = {
+                              ...enhancedTaste,
+                              session_analysis: sessionProfile
+                          };
+                      } else {
+                          addLog("Unexpected analysis response format (not an array).");
+                      }
                       
                       setUserTaste(enhancedTaste);
                       saveUserProfile(profile, enhancedTaste);
                   })
                   .catch(err => {
-                      addLog(`Gemini Top Tracks Analysis Failed: ${err.message}`);
-                      console.error("Gemini Top Tracks Analysis Error:", err);
-                      // If top tracks analysis fails, still save profile with whatever we have
+                      addLog(`Gemini Processing Failed: ${err.message}`);
                       setUserTaste(enhancedTaste);
                       saveUserProfile(profile, enhancedTaste);
                   });
           } else {
-              addLog("No top tracks available for Gemini analysis.");
-              // If no top tracks, just set the taste with playlist analysis (if any) and save
+              addLog("No top tracks available for analysis.");
               setUserTaste(enhancedTaste);
               saveUserProfile(profile, enhancedTaste);
           }
       } catch (e: any) {
-          console.warn("Could not load taste profile or perform initial Spotify/Gemini analysis", e);
-          addLog(`Critical error during profile and taste refresh: ${e.message}`);
-          saveUserProfile(profile, null); // In case of a critical failure before any taste is set
+          addLog(`Critical refresh error: ${e.message}`);
+          saveUserProfile(profile, null); 
       }
   };
 
@@ -244,7 +225,7 @@ const App: React.FC = () => {
     localStorage.removeItem('spotify_token');
     localStorage.removeItem('spotify_refresh_token');
     setShowSettings(false);
-    handleReset(); // Reset the UI/Player state
+    handleReset(); 
   };
 
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
@@ -278,7 +259,7 @@ const App: React.FC = () => {
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
     
-    addLog(`Generating vibe for: "${mood}" (${modality})...`);
+    addLog(`Generating vibe for: "${mood}"...`);
 
     const t_context_start = performance.now();
 
@@ -306,12 +287,9 @@ const App: React.FC = () => {
         capturedPromptText = generatedData.promptText;
         t1_gemini_end = performance.now(); 
 
-        addLog("--- CONTEXTUAL PROMPT PAYLOAD ---");
-        addLog(generatedData.promptText);
-
         if (currentSessionId !== generationSessionId.current) return;
 
-        addLog("AI generation complete. Fetching metadata (Safe Mode)...");
+        addLog("AI generation complete. Fetching metadata...");
         t2_itunes_start = performance.now();
 
         const validSongs: Song[] = [];
@@ -355,7 +333,7 @@ const App: React.FC = () => {
         
         setPlaylist(finalPlaylist);
         setIsLoading(false);
-        addLog(`Complete. Found ${validSongs.length}/${allSongsRaw.length} songs with previews.`);
+        addLog(`Found ${validSongs.length}/${allSongsRaw.length} tracks.`);
 
         const t4_total_end = performance.now();
         const ipAddress = await ipPromise; 
@@ -390,7 +368,7 @@ const App: React.FC = () => {
                 setShowDebug(true); 
             } else if (savedVibe) {
                 setPlaylist(prev => prev ? { ...prev, id: savedVibe.id } : null);
-                addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
+                addLog(`Vibe saved (ID: ${savedVibe.id})`);
             }
         } catch (dbErr) {
             console.error(dbErr);
@@ -506,14 +484,12 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white flex flex-col relative font-inter">
-      {/* V.2.0.3: Reverted to ABSOLUTE for "App Shell" feel */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
         <div className="absolute -top-20 -left-20 w-96 h-96 bg-purple-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
         <div className="absolute top-40 right-10 w-96 h-96 bg-cyan-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
         <div className="absolute -bottom-20 left-1/2 w-96 h-96 bg-pink-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
       </div>
 
-      {/* HEADER - Fixed via flex parent */}
       <header className="relative z-20 w-full p-4 md:p-6 px-6 flex justify-between items-center glass-panel border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
            <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 to-cyan-400 rounded-lg flex items-center justify-center">
@@ -531,9 +507,9 @@ const App: React.FC = () => {
 
            <button 
              onClick={(e) => {
-               if (e.ctrlKey) { // Activate AdminDataInspector with CTRL + click
+               if (e.ctrlKey) { 
                  setShowAdminDataInspector(prev => !prev);
-               } else { // Regular click toggles debug logs
+               } else { 
                  setShowDebug(prev => !prev);
                }
              }} 
@@ -567,7 +543,6 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* DEBUG CONSOLE */}
       {showDebug && (
           <div className="fixed bottom-24 right-4 w-80 h-96 bg-black/95 text-green-400 font-mono text-xs p-4 overflow-y-auto z-[60] border border-green-800 rounded-lg shadow-2xl">
               <div className="flex justify-between border-b border-green-900 pb-1 mb-2">
@@ -580,7 +555,6 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* ADMIN DATA INSPECTOR */}
       {showAdminDataInspector && (
           <AdminDataInspector
               isOpen={showAdminDataInspector}
@@ -591,7 +565,6 @@ const App: React.FC = () => {
           />
       )}
 
-      {/* MAIN CONTENT - V.2.0.9: Transitioned to document-native scrolling */}
       <main className="relative z-10 flex-grow w-full">
         {isLoading ? (
           <div className="min-h-[60vh] flex flex-col items-center justify-center text-center animate-fade-in p-4">
@@ -627,7 +600,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* PLAYER - Anchored Bottom */}
       <PlayerControls 
         currentSong={currentSong}
         playerState={playerState}
@@ -638,7 +610,6 @@ const App: React.FC = () => {
         playlistTitle={playlist?.title}
       />
       
-      {/* SETTINGS OVERLAY */}
       <SettingsOverlay 
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
