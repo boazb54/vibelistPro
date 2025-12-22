@@ -1,15 +1,50 @@
 
-
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
-import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis, AggregatedPlaylist } from "../types";
+import { HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
+import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis } from "../types";
 import { GEMINI_MODEL } from "../constants";
+
+// Helper for making API calls to the proxy
+async function callGeminiProxy<T>(payload: any, expectsJson: boolean = false, isStreaming: boolean = false): Promise<T> {
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (isStreaming) {
+    headers['X-Gemini-Stream'] = 'true';
+  }
+
+  const response = await fetch('/api/gemini', {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let errorDetail = 'Unknown error';
+    try {
+      const errorJson = await response.json();
+      errorDetail = errorJson.error || errorDetail;
+    } catch (e) {
+      errorDetail = await response.text();
+    }
+    throw new Error(`Gemini proxy failed (${response.status}): ${errorDetail}`);
+  }
+
+  if (isStreaming) {
+    // For streaming, the proxy directly writes to the response stream
+    // The client-side function must handle the ReadableStream directly
+    return response.body as T;
+  }
+
+  const jsonResponse = await response.json();
+  if (expectsJson) {
+    // For responses that are expected to be JSON, the proxy returns text which we then parse.
+    // The proxy might return raw JSON string in 'text' field, or a parsed object.
+    return JSON.parse(jsonResponse.text) as T;
+  }
+  return jsonResponse as T;
+}
 
 // NEW: Analyze User Playlists for overall mood
 export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Promise<UserPlaylistMoodAnalysis | null> => {
-    if (!process.env.API_KEY) throw new Error("API Key missing");
     if (!playlistTracks || playlistTracks.length === 0) return null;
-
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const systemInstruction = `You are an expert music psychologist and mood categorizer.
     Your task is to analyze a list of song titles and artists, representing a user's collection of personal playlists.
@@ -31,7 +66,8 @@ export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Pro
     const prompt = `Analyze the collective mood represented by these songs from a user's playlists:\n${playlistTracks.join('\n')}`;
 
     try {
-        const response = await ai.models.generateContent({
+        const payload = {
+            type: 'analyzeUserPlaylistsForMood',
             model: GEMINI_MODEL,
             contents: prompt,
             config: {
@@ -54,13 +90,9 @@ export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Pro
                 },
                 thinkingConfig: { thinkingBudget: 0 }
             }
-        });
+        };
 
-        if (response.text) {
-            const cleanText = response.text.replace(/```json|```/g, '').trim();
-            return JSON.parse(cleanText) as UserPlaylistMoodAnalysis;
-        }
-        return null;
+        return await callGeminiProxy<UserPlaylistMoodAnalysis>(payload, true);
     } catch (error) {
         console.error("Error analyzing user playlist mood:", error);
         throw error; // Re-throw to be caught in App.tsx for logging/handling
@@ -74,12 +106,6 @@ export const generatePlaylistFromMood = async (
   tasteProfile?: UserTasteProfile,
   excludeSongs?: string[]
 ): Promise<GeminiResponseWithMetrics> => {
-  
-  if (!process.env.API_KEY) {
-    throw new Error("API Key not found. Please add 'API_KEY' to your Vercel Environment Variables.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const t_prompt_start = performance.now();
 
@@ -183,7 +209,7 @@ export const generatePlaylistFromMood = async (
           modality: contextSignals.input_modality
       },
       environmental_context: {
-          local_time: contextSignals.local_time, // Corrected from contextTime
+          local_time: contextSignals.local_time, 
           day_of_week: contextSignals.day_of_week,
           device_type: contextSignals.device_type,
           browser_language: contextSignals.browser_language,
@@ -199,95 +225,86 @@ export const generatePlaylistFromMood = async (
                 favored_genres: tasteProfile.session_analysis.dominant_genres 
               } 
             : null,
-          user_playlist_mood: tasteProfile.playlistMoodAnalysis // NEW: Added for enhanced taste
+          user_playlist_mood: tasteProfile.playlistMoodAnalysis 
       } : null,
       exclusions: excludeSongs || []
   };
 
-  const prompt = JSON.stringify(promptPayload, null, 2);
+  const promptText = JSON.stringify(promptPayload, null, 2);
 
   const t_prompt_end = performance.now();
   const promptBuildTimeMs = Math.round(t_prompt_end - t_prompt_start);
 
-  const t_api_start = performance.now();
-
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: {
-      systemInstruction,
-      responseMimeType: "application/json",
-      thinkingConfig: { thinkingBudget: 0 },
-      safetySettings: [
-        {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        },
-      ],
-    }
-  });
-
-  const t_api_end = performance.now();
-  const geminiApiTimeMs = Math.round(t_api_end - t_api_start);
-
-  if (response.text) {
-      const cleanText = response.text.replace(/```json|```/g, '').trim();
-      const rawData = JSON.parse(cleanText) as GeneratedPlaylistRaw;
-      return {
-          ...rawData,
-          promptText: prompt,
-          metrics: {
-              promptBuildTimeMs,
-              geminiApiTimeMs
+  try {
+      const payload = {
+          type: 'generateContent',
+          model: GEMINI_MODEL,
+          contents: promptText, // Send the full prompt as contents
+          config: {
+              systemInstruction,
+              responseMimeType: "application/json",
+              thinkingConfig: { thinkingBudget: 0 },
+              safetySettings: [
+                  {
+                      category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+                      threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+                  {
+                      category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                      threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+                  {
+                      category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                      threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+                  {
+                      category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                      threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                  },
+              ],
           }
       };
+      
+      const proxyResponse = await callGeminiProxy<{text: string, geminiApiTimeMs: number}>(payload);
+      
+      if (proxyResponse.text) {
+          const cleanText = proxyResponse.text.replace(/```json|```/g, '').trim();
+          const rawData = JSON.parse(cleanText) as GeneratedPlaylistRaw;
+          return {
+              ...rawData,
+              promptText: promptText, // Use the locally built prompt text
+              metrics: {
+                  promptBuildTimeMs,
+                  geminiApiTimeMs: proxyResponse.geminiApiTimeMs // Use the time from the proxy
+              }
+          };
+      }
+      
+      throw new Error("Failed to generate playlist content from proxy");
+
+  } catch (error) {
+      console.error("Error generating playlist via proxy:", error);
+      throw error;
   }
-  
-  throw new Error("Failed to generate playlist content");
 };
 
 export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<string> => {
-    if (!process.env.API_KEY) {
-        throw new Error("API Key missing");
+    try {
+        const payload = {
+            type: 'transcribeAudio',
+            model: GEMINI_MODEL,
+            contents: { base64Audio, mimeType }, // Contents will be handled by proxy
+        };
+        const proxyResponse = await callGeminiProxy<{text: string}>(payload);
+        return proxyResponse.text || "";
+    } catch (error) {
+        console.error("Error transcribing audio via proxy:", error);
+        throw error;
     }
-
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-    const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [
-            {
-                inlineData: {
-                    mimeType: mimeType,
-                    data: base64Audio
-                }
-            },
-            {
-                text: "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble."
-            }
-        ]
-    });
-
-    return response.text || "";
 };
 
 export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTrack[] | { error: string }> => {
-    if (!process.env.API_KEY) throw new Error("API Key missing");
     if (!tracks || tracks.length === 0) return { error: "No tracks to analyze" };
-
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const trackList = tracks.join('\n');
     
@@ -320,18 +337,21 @@ export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTr
 
     const prompt = `Here are the songs to analyze:\n${trackList}`;
 
-    const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt,
-        config: {
-            systemInstruction,
-            responseMimeType: "application/json",
-            thinkingConfig: { thinkingBudget: 0 }
-        }
-    });
+    try {
+        const payload = {
+            type: 'analyzeUserTopTracks',
+            model: GEMINI_MODEL,
+            contents: prompt,
+            config: {
+                systemInstruction,
+                responseMimeType: "application/json",
+                thinkingConfig: { thinkingBudget: 0 }
+            }
+        };
 
-    if (response.text) {
-        return JSON.parse(response.text.replace(/```json|```/g, '').trim());
+        return await callGeminiProxy<AnalyzedTrack[]>(payload, true);
+    } catch (error) {
+        console.error("Error analyzing top tracks via proxy:", error);
+        throw error;
     }
-    return { error: "Failed to analyze" };
 };
