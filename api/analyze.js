@@ -14,21 +14,8 @@ export default async function handler(req, res) {
   try {
     if (type === 'playlists') {
       const systemInstruction = `You are an expert music psychologist and mood categorizer.
-      Your task is to analyze a list of song titles and artists, representing a user's collection of personal playlists.
-      Based on this combined list, infer the overarching, most dominant "mood category" that these playlists collectively represent.
-      Also, provide a confidence score for your categorization.
-
-      RULES:
-      1. The 'playlist_mood_category' should be a concise, descriptive phrase (e.g., "High-Energy Workout Mix", "Relaxed Indie Vibes", "Chill Study Focus").
-      2. The 'confidence_score' must be a floating-point number between 0.0 (very uncertain) and 1.0 (very certain).
-      3. Return only raw, valid JSON matching the specified schema.
-
-      OUTPUT FORMAT:
-      {
-        "playlist_mood_category": "string",
-        "confidence_score": "number"
-      }
-      `;
+      Analyze the list of songs and infer the overarching mood category.
+      Return only valid JSON.`;
 
       const prompt = `Analyze the collective mood represented by these songs from a user's playlists:\n${playlistTracks.join('\n')}`;
 
@@ -49,18 +36,52 @@ export default async function handler(req, res) {
         }
       });
 
-      const cleanText = response.text.replace(/```json|```/g, '').trim();
+      const text = response.text;
+      if (!text) throw new Error("Empty AI response during playlist analysis");
+      const cleanText = text.replace(/```json|```/g, '').trim();
       return res.status(200).json(JSON.parse(cleanText));
     } 
     
     if (type === 'tracks') {
-      const systemInstruction = `Analyze music track list. Return JSON array of AnalyzedTrack objects with semantic_tags (energy, mood, genre, tempo, vocals, texture).`;
+      const systemInstruction = `Analyze music track list. Provide deep semantic tagging for each track.`;
+      
       const response = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: tracks.join('\n'),
-        config: { systemInstruction, responseMimeType: "application/json" }
+        config: { 
+          systemInstruction, 
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                song_name: { type: Type.STRING },
+                artist_name: { type: Type.STRING },
+                confidence: { type: Type.STRING },
+                semantic_tags: {
+                  type: Type.OBJECT,
+                  properties: {
+                    primary_genre: { type: Type.STRING },
+                    secondary_genres: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    energy: { type: Type.STRING },
+                    mood: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    tempo: { type: Type.STRING },
+                    vocals: { type: Type.STRING },
+                    texture: { type: Type.STRING }
+                  },
+                  required: ["primary_genre", "energy", "mood", "tempo", "vocals", "texture"]
+                }
+              },
+              required: ["song_name", "artist_name", "semantic_tags", "confidence"]
+            }
+          }
+        }
       });
-      const cleanText = response.text.replace(/```json|```/g, '').trim();
+
+      const text = response.text;
+      if (!text) throw new Error("Empty AI response during track analysis");
+      const cleanText = text.replace(/```json|```/g, '').trim();
       return res.status(200).json(JSON.parse(cleanText));
     }
 
