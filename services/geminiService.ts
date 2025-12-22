@@ -16,32 +16,52 @@ async function callGeminiProxy<T>(payload: any, expectsJson: boolean = false, is
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
-    let errorDetail = 'Unknown error';
-    try {
-      const errorJson = await response.json();
-      errorDetail = errorJson.error || errorDetail;
-    } catch (e) {
-      errorDetail = await response.text();
-    }
-    // CRITICAL: Log detailed proxy error to console for debugging
-    console.error(`Gemini proxy responded with status ${response.status}:`, errorDetail);
-    throw new Error(`Gemini proxy failed (${response.status}): ${errorDetail}`);
-  }
-
+  // If streaming, return the raw ReadableStream for direct consumption
   if (isStreaming) {
-    // For streaming, the proxy directly writes to the response stream
-    // The client-side function must handle the ReadableStream directly
+    if (!response.body) {
+      throw new Error("Streaming response body is null.");
+    }
     return response.body as T;
   }
 
-  const jsonResponse = await response.json();
-  if (expectsJson) {
-    // For responses that are expected to be JSON, the proxy returns text which we then parse.
-    // The proxy might return raw JSON string in 'text' field, or a parsed object.
-    return JSON.parse(jsonResponse.text) as T;
+  // For non-streaming requests, read the response body once
+  let responseData: any;
+  try {
+    responseData = await response.json();
+  } catch (e) {
+    // If response is not valid JSON, read as text and wrap it
+    const textData = await response.text();
+    responseData = { text: textData, error: 'Non-JSON response received from proxy' };
   }
-  return jsonResponse as T;
+
+  if (!response.ok) {
+    let errorDetail = 'Unknown error from Gemini proxy.';
+    if (responseData && responseData.error) {
+      errorDetail = responseData.error;
+    } else if (responseData && typeof responseData.text === 'string') {
+      errorDetail = responseData.text; // Fallback to text field if available
+    }
+    console.error(`Gemini proxy responded with status ${response.status}:`, responseData);
+    throw new Error(`Gemini proxy failed (${response.status}): ${errorDetail}`);
+  }
+
+  // Handle successful response
+  if (expectsJson) {
+    // If the proxy's 'text' field is expected to be a JSON string, parse it
+    if (responseData && typeof responseData.text === 'string') {
+      try {
+        return JSON.parse(responseData.text) as T;
+      } catch (e) {
+        console.error("Failed to parse JSON from proxy's text field:", responseData.text, e);
+        throw new Error("Invalid JSON format from proxy response.");
+      }
+    } else {
+      // If expectsJson is true but there's no parsable text field, return raw responseData
+      return responseData as T;
+    }
+  }
+  // Default: return the entire parsed JSON response from the proxy
+  return responseData as T;
 }
 
 // NEW: Analyze User Playlists for overall mood
