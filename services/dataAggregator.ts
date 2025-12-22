@@ -53,7 +53,7 @@ export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticPr
     const w = getWeight(track.confidence);
     const tags = track.semantic_tags;
 
-    const pGenre = tags.primary_genre?.toLowerCase()?.trim();
+    const pGenre = tags.primary_genre?.toLowerCase().trim();
     if (pGenre) {
       genreScores[pGenre] = (genreScores[pGenre] || 0) + (1.0 * w);
       totalGenreWeight += (1.0 * w);
@@ -62,11 +62,9 @@ export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticPr
     if (tags.secondary_genres && Array.isArray(tags.secondary_genres)) {
       tags.secondary_genres.forEach(g => {
         if (!g) return;
-        const sGenre = g.toLowerCase()?.trim();
-        if (sGenre) {
-          genreScores[sGenre] = (genreScores[sGenre] || 0) + (0.5 * w);
-          totalGenreWeight += (0.5 * w);
-        }
+        const sGenre = g.toLowerCase().trim();
+        genreScores[sGenre] = (genreScores[sGenre] || 0) + (0.5 * w);
+        totalGenreWeight += (0.5 * w);
       });
     }
   });
@@ -139,10 +137,8 @@ export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticPr
     const w = getWeight(track.confidence);
     track.semantic_tags.mood.forEach(m => {
         if (!m) return;
-        const mood = m.toLowerCase()?.trim();
-        if (mood) {
-          moodScores[mood] = (moodScores[mood] || 0) + w;
-        }
+        const mood = m.toLowerCase().trim();
+        moodScores[mood] = (moodScores[mood] || 0) + w;
     });
   });
 
