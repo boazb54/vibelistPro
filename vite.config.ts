@@ -8,9 +8,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      // Critical fix: Check process.env.API_KEY (System/Vercel) first, then fallback to env file.
-      // This ensures the key is passed to the browser build.
-      'process.env.API_KEY': JSON.stringify(process.env.API_KEY || env.API_KEY),
+      // API Key is now handled server-side via proxy, no longer needed client-side in build.
+      // Keeping this define block minimal or removing it entirely if no other client-side env vars are needed.
     },
   };
 })
