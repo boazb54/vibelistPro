@@ -24,6 +24,8 @@ async function callGeminiProxy<T>(payload: any, expectsJson: boolean = false, is
     } catch (e) {
       errorDetail = await response.text();
     }
+    // CRITICAL: Log detailed proxy error to console for debugging
+    console.error(`Gemini proxy responded with status ${response.status}:`, errorDetail);
     throw new Error(`Gemini proxy failed (${response.status}): ${errorDetail}`);
   }
 
