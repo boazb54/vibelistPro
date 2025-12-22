@@ -83,7 +83,7 @@ export const generatePlaylistFromMood = async (
   
   const t_prompt_start = performance.now();
 
-  const systemInstruction = `You are a professional music curator/Mood-driven playlists with deep knowledge of audio engineering and music theory.
+  const systemInstruction = `You are a professional music curator/DJ with deep knowledge of audio engineering and music theory.
   Your goal is to create a playlist that matches the **physical audio requirements** of the user's intent, prioritizing physics over genre labels.
 
   ### 1. THE "AUDIO PHYSICS" HIERARCHY (ABSOLUTE RULES)
