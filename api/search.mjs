@@ -24,6 +24,7 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
     return res.status(200).json(data);
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to fetch data from iTunes' });
+    console.error("[API/SEARCH] Error fetching data from iTunes:", error);
+    return res.status(500).json({ error: 'Failed to fetch data from iTunes', details: (error).message });
   }
 }
