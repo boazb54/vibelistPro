@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -14,9 +13,6 @@ export default async function handler(req, res) {
   }
 
   // --- API KEY VALIDATION ---
-  // Removed verbose debug console.log statements that access process.env.API_KEY
-  // to resolve SyntaxError during Vercel serverless function compilation.
-  
   const API_KEY = process.env.API_KEY; // Capture it here
   if (!API_KEY) { // Use the captured value
     console.error("[API/ANALYZE] API_KEY environment variable is not set or is empty.");
@@ -71,7 +67,7 @@ export default async function handler(req, res) {
               },
               required: ["playlist_mood_category", "confidence_score"],
             },
-            thinkingConfig: { thinkingBudget: 0 } // ADDED: Consistent thinking budget
+            thinkingConfig: { thinkingBudget: 0 }
           }
         });
         geminiResponseText = response.text;
@@ -133,7 +129,7 @@ export default async function handler(req, res) {
     3. Use arrays for attributes that can be multiple (mood, secondary_genres).
     4. Interpret attributes as soft signals, not absolute facts.
     
-    Return the result as a raw JSON array.`; // UPDATED: Detailed system instruction from client-side
+    Return the result as a raw JSON array.`;
       
       const prompt = tracks.join('\n');
       console.log("[API/ANALYZE] Track Analysis Prompt (first 500 chars):", prompt.substring(0, 500));
@@ -146,7 +142,7 @@ export default async function handler(req, res) {
           config: { 
             systemInstruction, 
             responseMimeType: "application/json",
-            thinkingConfig: { thinkingBudget: 0 } // ADDED: Consistent thinking budget
+            thinkingConfig: { thinkingBudget: 0 }
           }
         });
         geminiResponseText = response.text;
@@ -194,7 +190,6 @@ export default async function handler(req, res) {
 
     const t_handler_end = Date.now();
     console.log(`[API/ANALYZE] Handler finished with uncaught error in ${t_handler_end - t_handler_start}ms.`);
-    // Return specific error message if available
     return res.status(500).json({ error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' });
   }
 }
