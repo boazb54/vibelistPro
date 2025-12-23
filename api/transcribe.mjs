@@ -16,9 +16,11 @@ export default async function handler(req, res) {
   // --- API KEY VALIDATION ---
   console.log(`[API/TRANSCRIBE] DEBUG: Checking process.env.API_KEY. Is it truthy? ${!!process.env.API_KEY}`);
   console.log(`[API/TRANSCRIBE] DEBUG: API_KEY value (first 5 chars): ${process.env.API_KEY ? String(process.env.API_KEY).substring(0, 5) + '...' : 'undefined'}`);
-  if (!process.env.API_KEY) {
-    console.error("[API/TRANSCRIBE] API_KEY environment variable is not set.");
-    return res.status(401).json({ error: 'API_KEY not detected by the serverless function. Even if configured in Vercel, it might not be accessible in this runtime environment. Please check AI Studio\'s environment settings or how Vercel environment variables are proxied.' });
+  
+  const API_KEY = process.env.API_KEY; // Capture it here
+  if (!API_KEY) { // Use the captured value
+    console.error("[API/TRANSCRIBE] API_KEY environment variable is not set or is empty.");
+    return res.status(401).json({ error: 'API_KEY environment variable is missing from serverless function. Please ensure it is correctly configured in your deployment environment (e.g., Vercel environment variables or AI Studio settings).' });
   }
   // --- END API KEY VALIDATION ---
 
@@ -34,7 +36,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: API_KEY }); // Use the validated API_KEY
     console.log("[API/TRANSCRIBE] DEBUG: GoogleGenAI client initialized.");
     const promptText = "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble.";
     console.log("[API/TRANSCRIBE] Transcription Prompt:", promptText);

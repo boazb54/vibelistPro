@@ -1,6 +1,16 @@
 
+import { GoogleGenAI } from "@google/genai"; // Keep import even if not directly used, for consistency/future
+
 export default async function handler(req, res) {
   const { term } = req.query;
+
+  // --- API KEY VALIDATION ---
+  const API_KEY = process.env.API_KEY;
+  if (!API_KEY) {
+    console.error("[API/SEARCH] API_KEY environment variable is not set or is empty.");
+    return res.status(401).json({ error: 'API_KEY environment variable is missing from serverless function. Please ensure it is correctly configured in your deployment environment (e.g., Vercel environment variables or AI Studio settings).' });
+  }
+  // --- END API KEY VALIDATION ---
 
   if (!term) {
     return res.status(400).json({ error: 'Missing search term' });
