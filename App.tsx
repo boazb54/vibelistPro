@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
@@ -563,9 +564,12 @@ const App: React.FC = () => {
 
            <button 
              onClick={(e) => {
+               addLog(`'π' button clicked. Ctrl key pressed: ${e.ctrlKey}. Current Admin Inspector state: ${showAdminDataInspector}.`);
                if (e.ctrlKey) { // Activate AdminDataInspector with CTRL + click
+                 addLog(`Ctrl+Click detected for 'π'. Toggling AdminDataInspector to ${!showAdminDataInspector}.`);
                  setShowAdminDataInspector(prev => !prev);
                } else { // Regular click toggles debug logs
+                 addLog(`Regular click detected for 'π'. Toggling debug logs to ${!showDebug}.`);
                  setShowDebug(prev => !prev);
                }
              }} 
