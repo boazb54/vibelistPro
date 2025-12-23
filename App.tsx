@@ -283,11 +283,11 @@ const App: React.FC = () => {
     setIsLoading(true);
     setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
     
-    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
-    
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
+
+    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
     
     addLog(`Generating vibe for: "${mood}" (${modality})...`);
 
@@ -411,6 +411,14 @@ const App: React.FC = () => {
     } catch (error: any) {
         console.error("Playlist generation failed:", error); // Keep for dev console
         addLog(`Playlist generation failed. Error Name: ${error.name || 'UnknownError'}, Message: ${error.message || 'No message provided.'}`);
+        
+        if (error.name === 'ApiKeyRequiredError') { // Handle specific API key error
+            alert(error.message); // Show user-friendly message
+            setLoadingMessage(error.message);
+        } else {
+            setLoadingMessage("Error generating playlist. Please check debug logs for details.");
+        }
+
         if ((error as any).details) { // Check for custom 'details' property
             addLog(`Server Details: ${JSON.stringify((error as any).details, null, 2)}`);
         }
@@ -439,7 +447,6 @@ const App: React.FC = () => {
             }
         );
 
-        setLoadingMessage("Error generating playlist. Please check debug logs for details.");
         setShowDebug(true); // Automatically show debug logs on error
         setTimeout(() => setIsLoading(false), 3000); // Give user time to read error message
     }
