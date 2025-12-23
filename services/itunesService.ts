@@ -38,7 +38,7 @@ const searchItunes = async (query: string): Promise<ItunesResult | null> => {
     // A. Try Proxy (Production)
     if (isProduction) {
         try {
-            const proxyUrl = `/api/search?term=${encodeURIComponent(query)}`;
+            const proxyUrl = `/api/search.mjs?term=${encodeURIComponent(query)}`;
             const response = await fetch(proxyUrl);
             if (response.ok) {
                 const data = await response.json();
