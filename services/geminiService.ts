@@ -16,9 +16,9 @@ export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Pro
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
 
-    addLog(`Calling /api/analyze (playlists) with ${playlistTracks.length} tracks... (Timeout: ${API_REQUEST_TIMEOUT_MS / 1000}s)`);
+    addLog(`Calling /api/analyze.mjs (playlists) with ${playlistTracks.length} tracks... (Timeout: ${API_REQUEST_TIMEOUT_MS / 1000}s)`);
     try {
-        const response = await fetch('/api/analyze', {
+        const response = await fetch('/api/analyze.mjs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: 'playlists', playlistTracks }),
@@ -29,7 +29,7 @@ export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Pro
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({})); // Attempt to parse error even if not JSON
             const errorMessage = errorData.error || response.statusText || JSON.stringify(errorData); // Capture more details
-            addLog(`Error from /api/analyze (playlists): Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
+            addLog(`Error from /api/analyze.mjs (playlists): Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
             const serverError = new Error(`Server error: ${errorMessage}`);
             serverError.name = errorData.serverErrorName || 'ServerError'; // Use server's error name if available
             (serverError as any).details = errorData; // Attach original error data for client-side debugging
@@ -107,9 +107,9 @@ export const generatePlaylistFromMood = async (
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
 
-  addLog(`Calling /api/vibe with mood "${mood}" and context... (Timeout: ${API_REQUEST_TIMEOUT_MS / 1000}s)`);
+  addLog(`Calling /api/vibe.mjs with mood "${mood}" and context... (Timeout: ${API_REQUEST_TIMEOUT_MS / 1000}s)`);
   try {
-      const response = await fetch('/api/vibe', {
+      const response = await fetch('/api/vibe.mjs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mood, contextSignals, tasteProfile, excludeSongs, promptText }), // Pass promptText to API for logging/metrics
@@ -120,7 +120,7 @@ export const generatePlaylistFromMood = async (
       if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
           const errorMessage = errorData.error || response.statusText || JSON.stringify(errorData); // Capture more details
-          addLog(`Error from /api/vibe: Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
+          addLog(`Error from /api/vibe.mjs: Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
           const serverError = new Error(`Server error: ${errorMessage}`);
           serverError.name = errorData.serverErrorName || 'ServerError'; // Use server's error name if available
           (serverError as any).details = errorData; // Attach original error data
@@ -169,9 +169,9 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
 
-    addLog(`Calling /api/transcribe with audio (length: ${base64Audio.length}, type: ${mimeType})... (Timeout: ${API_REQUEST_TIMEOUT_MS / 1000}s)`);
+    addLog(`Calling /api/transcribe.mjs with audio (length: ${base64Audio.length}, type: ${mimeType})... (Timeout: ${API_REQUEST_TIMEOUT_MS / 1000}s)`);
     try {
-        const response = await fetch('/api/transcribe', {
+        const response = await fetch('/api/transcribe.mjs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ base64Audio, mimeType }),
@@ -182,7 +182,7 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || response.statusText || JSON.stringify(errorData); // Capture more details
-            addLog(`Error from /api/transcribe: Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
+            addLog(`Error from /api/transcribe.mjs: Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
             const serverError = new Error(`Server error: ${errorMessage}`);
             serverError.name = errorData.serverErrorName || 'ServerError'; // Use server's error name if available
             (serverError as any).details = errorData; // Attach original error data
@@ -224,9 +224,9 @@ export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTr
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
 
-    addLog(`Calling /api/analyze (tracks) with ${tracks.length} tracks... (Timeout: ${API_REQUEST_TIMEOUT_MS / 1000}s)`);
+    addLog(`Calling /api/analyze.mjs (tracks) with ${tracks.length} tracks... (Timeout: ${API_REQUEST_TIMEOUT_MS / 1000}s)`);
     try {
-        const response = await fetch('/api/analyze', {
+        const response = await fetch('/api/analyze.mjs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: 'tracks', tracks }),
@@ -237,7 +237,7 @@ export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTr
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || response.statusText || JSON.stringify(errorData); // Capture more details
-            addLog(`Error from /api/analyze (tracks): Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
+            addLog(`Error from /api/analyze.mjs (tracks): Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
             const serverError = new Error(`Server error: ${errorMessage}`);
             serverError.name = errorData.serverErrorName || 'ServerError'; // Use server's error name if available
             (serverError as any).details = errorData; // Attach original error data
