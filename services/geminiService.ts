@@ -5,6 +5,24 @@ import { GEMINI_MODEL } from "../constants"; // GEMINI_MODEL is passed to the AP
 declare const addLog: (message: string) => void;
 
 const API_REQUEST_TIMEOUT_MS = 60 * 1000; // Reverted to 60 seconds
+const BILLING_DOCS_URL = "ai.google.dev/gemini-api/docs/billing";
+
+// Helper to handle API key selection if needed
+async function handleApiKeyMissingError(responseStatus: number, errorData: any) {
+  if (responseStatus === 401 && errorData?.error?.includes('API_KEY environment variable is missing')) {
+    addLog("API Key Missing (401). Attempting to prompt user for key selection.");
+    if (typeof window !== 'undefined' && (window as any).aistudio && (window as any).aistudio.openSelectKey) {
+      await (window as any).aistudio.openSelectKey();
+      const userError = new Error(`Authentication Error: Gemini API key is missing or invalid. Please retry after selecting a valid API key from a paid GCP project. See billing info at ${BILLING_DOCS_URL}`);
+      userError.name = 'ApiKeyRequiredError';
+      throw userError;
+    } else {
+      const userError = new Error(`Authentication Error: Gemini API key is missing or invalid. Please ensure it's configured in your environment variables. See billing info at ${BILLING_DOCS_URL}`);
+      userError.name = 'ApiKeyRequiredError';
+      throw userError;
+    }
+  }
+}
 
 // NEW: Analyze User Playlists for overall mood
 export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Promise<UserPlaylistMoodAnalysis | null> => {
@@ -30,6 +48,9 @@ export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Pro
             const errorData = await response.json().catch(() => ({})); // Attempt to parse error even if not JSON
             const errorMessage = errorData.error || response.statusText || JSON.stringify(errorData); // Capture more details
             addLog(`Error from /api/analyze.mjs (playlists): Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
+            
+            await handleApiKeyMissingError(response.status, errorData); // Check for API key issue
+
             const serverError = new Error(`Server error: ${errorMessage}`);
             serverError.name = errorData.serverErrorName || 'ServerError'; // Use server's error name if available
             (serverError as any).details = errorData; // Attach original error data for client-side debugging
@@ -121,6 +142,9 @@ export const generatePlaylistFromMood = async (
           const errorData = await response.json().catch(() => ({}));
           const errorMessage = errorData.error || response.statusText || JSON.stringify(errorData); // Capture more details
           addLog(`Error from /api/vibe.mjs: Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
+          
+          await handleApiKeyMissingError(response.status, errorData); // Check for API key issue
+
           const serverError = new Error(`Server error: ${errorMessage}`);
           serverError.name = errorData.serverErrorName || 'ServerError'; // Use server's error name if available
           (serverError as any).details = errorData; // Attach original error data
@@ -183,6 +207,9 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || response.statusText || JSON.stringify(errorData); // Capture more details
             addLog(`Error from /api/transcribe.mjs: Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
+            
+            await handleApiKeyMissingError(response.status, errorData); // Check for API key issue
+
             const serverError = new Error(`Server error: ${errorMessage}`);
             serverError.name = errorData.serverErrorName || 'ServerError'; // Use server's error name if available
             (serverError as any).details = errorData; // Attach original error data
@@ -238,6 +265,9 @@ export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTr
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || response.statusText || JSON.stringify(errorData); // Capture more details
             addLog(`Error from /api/analyze.mjs (tracks): Status ${response.status} - ${response.statusText}, Data: ${JSON.stringify(errorData)}`);
+            
+            await handleApiKeyMissingError(response.status, errorData); // Check for API key issue
+
             const serverError = new Error(`Server error: ${errorMessage}`);
             serverError.name = errorData.serverErrorName || 'ServerError'; // Use server's error name if available
             (serverError as any).details = errorData; // Attach original error data
