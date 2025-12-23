@@ -1,4 +1,5 @@
 
+
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -137,11 +138,18 @@ export interface SpotifyTrack {
   artists: { name: string }[];
 }
 
+// NEW: User Playlist Mood Analysis
+export interface UserPlaylistMoodAnalysis {
+  playlist_mood_category: string;
+  confidence_score: number; // 0.0 to 1.0
+}
+
 export interface UserTasteProfile {
   topArtists: string[];
   topGenres: string[];
   topTracks: string[]; // RESTORED: For Gemini Analysis
   session_analysis?: SessionSemanticProfile; // NEW: Processed "Vibe Fingerprint"
+  playlistMoodAnalysis?: UserPlaylistMoodAnalysis; // NEW: Added for overall playlist mood
 }
 
 export interface VibeGenerationStats {
@@ -162,4 +170,19 @@ export interface VibeGenerationStats {
   inputModality?: 'text' | 'voice';
   deviceType?: string;
   ipAddress?: string;
+}
+
+// NEW: Interface for structured aggregated playlist data
+export interface AggregatedPlaylist {
+  playlistName: string;
+  tracks: string[]; // Array of "Song by Artist" strings
+}
+
+// NEW: Props for AdminDataInspector component
+export interface AdminDataInspectorProps {
+  isOpen: boolean;
+  onClose: () => void;
+  userTaste: UserTasteProfile | null;
+  aggregatedPlaylists: AggregatedPlaylist[];
+  debugLogs: string[];
 }

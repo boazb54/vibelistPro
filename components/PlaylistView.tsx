@@ -69,13 +69,14 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
 
           <div className="relative z-10 flex flex-col">
             
-            {/* LAYER 1: META (Hybrid Alignment) */}
-            <div className={`flex flex-col gap-2 mb-4 ${containerAlign}`}>
-              <div className="flex items-center gap-2 text-purple-300 uppercase tracking-wider text-xs font-bold">
-                  <SparklesIcon className="w-4 h-4" />
-                  <span>AI Generated Vibe</span>
-                </div>
-                
+            {/* NEW: Fixed Left-aligned Label */}
+            <div className="flex items-center gap-2 text-purple-300 uppercase tracking-wider text-xs font-bold mb-4">
+                <SparklesIcon className="w-4 h-4" />
+                <span>Mood-driven playlists</span>
+            </div>
+
+            {/* LAYER 1: META (Hybrid Alignment) - Now only contains title and duration */}
+            <div className={`flex flex-col gap-2 mb-4 ${containerAlign}`}> 
                 <h1 className={`text-3xl md:text-5xl font-bold text-white leading-tight ${textAlign} ${fontClass}`} dir={contentDir}>
                   {playlist.title}
                 </h1>
