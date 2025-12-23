@@ -50,14 +50,14 @@ export default async function handler(req, res) {
         }
       });
       geminiResponseText = response.text;
-    } catch (geminiError: any) {
+    } catch (geminiError) {
       console.error("[API/TRANSCRIBE] Error calling Gemini API for transcription:", geminiError);
-      console.error(`[API/TRANSCRIBE] Gemini Error Details: Name=${geminiError.name}, Message=${geminiError.message}`);
+      console.error(`[API/TRANSCRIBE] Gemini Error Details: Name=${(geminiError).name}, Message=${(geminiError).message}`);
       console.error("[API/TRANSCRIBE] Gemini Error Object:", JSON.stringify(geminiError, null, 2));
-      if (geminiError.stack) {
-        console.error("[API/TRANSCRIBE] Gemini Error Stack (transcription):", geminiError.stack);
+      if ((geminiError).stack) {
+        console.error("[API/TRANSCRIBE] Gemini Error Stack (transcription):", (geminiError).stack);
       }
-      throw new Error(`Gemini API Error (transcription): ${geminiError.message || 'Unknown Gemini error'}`);
+      throw new Error(`Gemini API Error (transcription): ${(geminiError).message || 'Unknown Gemini error'}`);
     }
 
     console.log("[API/TRANSCRIBE] Raw Gemini Response Text (Transcription - first 500 chars):", geminiResponseText ? geminiResponseText.substring(0, 500) : "No text received.");
@@ -65,16 +65,16 @@ export default async function handler(req, res) {
     const t_handler_end = Date.now();
     console.log(`[API/TRANSCRIBE] Handler finished successfully in ${t_handler_end - t_handler_start}ms.`);
     return res.status(200).json({ text: geminiResponseText || "" });
-  } catch (error: any) {
+  } catch (error) {
     console.error("[API/TRANSCRIBE] Transcribe API Handler - Uncaught Error:", error);
-    console.error(`[API/TRANSCRIBE] Uncaught Error Details: Name=${error.name}, Message=${error.message}`);
+    console.error(`[API/TRANSCRIBE] Uncaught Error Details: Name=${(error).name}, Message=${(error).message}`);
     console.error("[API/TRANSCRIBE] Uncaught Error Object:", JSON.stringify(error, null, 2));
-    if (error.stack) {
-      console.error("[API/TRANSCRIBE] Uncaught Error Stack:", error.stack);
+    if ((error).stack) {
+      console.error("[API/TRANSCRIBE] Uncaught Error Stack:", (error).stack);
     }
     
     const t_handler_end = Date.now();
     console.log(`[API/TRANSCRIBE] Handler finished with uncaught error in ${t_handler_end - t_handler_start}ms.`);
-    return res.status(500).json({ error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' });
+    return res.status(500).json({ error: (error).message || 'Internal Server Error', serverErrorName: (error).name || 'UnknownServerError' });
   }
 }
