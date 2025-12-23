@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
@@ -49,11 +50,17 @@ const App: React.FC = () => {
 
   const spotifyClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
 
-  const addLog = (msg: string) => {
+  // Make addLog globally available to services
+  const addLog = useCallback((msg: string) => {
     setDebugLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`]);
-  };
+  }, []);
 
   useEffect(() => {
+    // Expose addLog to the global scope or a more accessible context if needed by non-React parts
+    // For now, it's passed as a prop or imported where needed, but for deeper debugging in services
+    // without prop drilling, a global declaration is common.
+    (window as any).addLog = addLog;
+
     const storedToken = localStorage.getItem('spotify_token');
     if (storedToken) {
       setSpotifyToken(storedToken);
@@ -71,7 +78,7 @@ const App: React.FC = () => {
          if (!playlist) handleMoodSelect(sharedMood, 'text');
        }, 500);
     }
-  }, []);
+  }, [addLog]); // Add addLog to dependency array
 
   const handleSpotifyAuth = async () => {
     if (authProcessed.current) return;
@@ -88,6 +95,7 @@ const App: React.FC = () => {
           const data = await exchangeCodeForToken(spotifyClientId, DEFAULT_REDIRECT_URI, code, verifier);
           handleSuccessFullAuth(data.access_token, data.refresh_token);
         } catch (e) {
+          addLog(`PKCE Exchange failed: ${e instanceof Error ? e.message : String(e)}`);
           console.error("PKCE Exchange failed", e);
         }
       }
@@ -114,6 +122,7 @@ const App: React.FC = () => {
       // Pass profile down so we can save it immediately
       refreshProfileAndTaste(token, profile);
     } catch (e) {
+      addLog(`Failed to fetch Spotify profile: ${e instanceof Error ? e.message : String(e)}`);
       console.error("Failed to fetch profile", e);
       localStorage.removeItem('spotify_token');
       setSpotifyToken(null);
@@ -126,6 +135,7 @@ const App: React.FC = () => {
           const taste = await fetchUserTasteProfile(token);
           if (!taste) {
               saveUserProfile(profile, null);
+              addLog("No taste profile returned from Spotify. Saving user profile without taste data.");
               return;
           }
 
@@ -160,7 +170,7 @@ const App: React.FC = () => {
                       addLog("Gemini Playlist Mood Analysis returned empty or null.");
                   }
               } catch (error: any) {
-                  addLog(`Gemini Playlist Mood Analysis Failed: ${error.message}`);
+                  addLog(`Gemini Playlist Mood Analysis Failed: ${error.message || error}`);
                   console.error("Gemini Playlist Mood Analysis Error:", error);
                   // Continue execution, as this is not a critical blocking failure
               }
@@ -201,7 +211,7 @@ const App: React.FC = () => {
                       saveUserProfile(profile, enhancedTaste);
                   })
                   .catch(err => {
-                      addLog(`Gemini Top Tracks Analysis Failed: ${err.message}`);
+                      addLog(`Gemini Top Tracks Analysis Failed: ${err.message || err}`);
                       console.error("Gemini Top Tracks Analysis Error:", err);
                       // If top tracks analysis fails, still save profile with whatever we have
                       setUserTaste(enhancedTaste);
@@ -215,7 +225,7 @@ const App: React.FC = () => {
           }
       } catch (e: any) {
           console.warn("Could not load taste profile or perform initial Spotify/Gemini analysis", e);
-          addLog(`Critical error during profile and taste refresh: ${e.message}`);
+          addLog(`Critical error during profile and taste refresh: ${e.message || e}`);
           saveUserProfile(profile, null); // In case of a critical failure before any taste is set
       }
   };
@@ -245,6 +255,7 @@ const App: React.FC = () => {
     localStorage.removeItem('spotify_refresh_token');
     setShowSettings(false);
     handleReset(); // Reset the UI/Player state
+    addLog("User signed out.");
   };
 
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
@@ -272,11 +283,11 @@ const App: React.FC = () => {
     setIsLoading(true);
     setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
     
-    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
-    
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
+
+    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
     
     addLog(`Generating vibe for: "${mood}" (${modality})...`);
 
@@ -394,10 +405,26 @@ const App: React.FC = () => {
             }
         } catch (dbErr) {
             console.error(dbErr);
+            addLog(`Failed to save vibe to database: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
         }
 
     } catch (error: any) {
-        console.error("Generation failed", error);
+        console.error("Playlist generation failed:", error); // Keep for dev console
+        addLog(`Playlist generation failed. Error Name: ${error.name || 'UnknownError'}, Message: ${error.message || 'No message provided.'}`);
+        
+        if (error.name === 'ApiKeyRequiredError') { // Handle specific API key error
+            alert(error.message); // Show user-friendly message
+            setLoadingMessage(error.message);
+        } else {
+            setLoadingMessage("Error generating playlist. Please check debug logs for details.");
+        }
+
+        if ((error as any).details) { // Check for custom 'details' property
+            addLog(`Server Details: ${JSON.stringify((error as any).details, null, 2)}`);
+        }
+        if (error.stack) {
+            addLog(`Stack: ${error.stack}`);
+        }
         
         const t_fail = performance.now();
         const failDuration = Math.round(t_fail - t0_start);
@@ -420,8 +447,8 @@ const App: React.FC = () => {
             }
         );
 
-        setLoadingMessage("Error generating playlist. Please try again.");
-        setTimeout(() => setIsLoading(false), 2000);
+        setShowDebug(true); // Automatically show debug logs on error
+        setTimeout(() => setIsLoading(false), 3000); // Give user time to read error message
     }
   };
 
@@ -429,6 +456,7 @@ const App: React.FC = () => {
     setPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
+    addLog("App state reset.");
   };
 
   const handleRemix = () => {
@@ -442,6 +470,7 @@ const App: React.FC = () => {
       const url = `${window.location.origin}/?mood=${encodeURIComponent(playlist.mood)}`;
       navigator.clipboard.writeText(url).then(() => {
           alert(`Vibe link copied to clipboard!\n${url}`);
+          addLog(`Shared vibe link copied: ${url}`);
       });
   };
 
@@ -449,17 +478,21 @@ const App: React.FC = () => {
     if (currentSong?.id === song.id) {
       if (playerState === PlayerState.PLAYING) {
         setPlayerState(PlayerState.PAUSED);
+        addLog(`Paused song: ${song.title}`);
       } else {
         setPlayerState(PlayerState.PLAYING);
+        addLog(`Resumed song: ${song.title}`);
       }
     } else {
       setCurrentSong(song);
       setPlayerState(PlayerState.PLAYING);
+      addLog(`Playing new song: ${song.title} by ${song.artist}`);
     }
   };
 
   const handlePause = () => {
     setPlayerState(PlayerState.PAUSED);
+    addLog(`Playback paused.`);
   };
 
   const handleNext = () => {
@@ -467,8 +500,10 @@ const App: React.FC = () => {
     const idx = playlist.songs.findIndex(s => s.id === currentSong.id);
     if (idx < playlist.songs.length - 1) {
       handlePlaySong(playlist.songs[idx + 1]);
+      addLog(`Skipped to next song.`);
     } else {
       setPlayerState(PlayerState.STOPPED);
+      addLog(`Playlist ended.`);
     }
   };
 
@@ -477,6 +512,7 @@ const App: React.FC = () => {
     const idx = playlist.songs.findIndex(s => s.id === currentSong.id);
     if (idx > 0) {
       handlePlaySong(playlist.songs[idx - 1]);
+      addLog(`Skipped to previous song.`);
     }
   };
 
@@ -486,14 +522,17 @@ const App: React.FC = () => {
       return;
     }
     setExporting(true);
+    addLog(`Attempting to export playlist "${playlist.title}" to Spotify...`);
     try {
       const url = await createSpotifyPlaylist(spotifyToken, playlist, userProfile.id);
       if (playlist.id) {
           await markVibeAsExported(playlist.id);
       }
       window.open(url, '_blank');
+      addLog(`Playlist "${playlist.title}" successfully exported to Spotify: ${url}`);
     } catch (e: any) {
       alert(`Failed to export: ${e.message}`);
+      addLog(`Failed to export playlist to Spotify: ${e.message || e}`);
     } finally {
       setExporting(false);
     }
@@ -502,6 +541,7 @@ const App: React.FC = () => {
   const handleClosePlayer = () => {
       setPlayerState(PlayerState.STOPPED);
       setCurrentSong(null); 
+      addLog("Player closed.");
   };
 
   return (
@@ -531,9 +571,12 @@ const App: React.FC = () => {
 
            <button 
              onClick={(e) => {
+               addLog(`'π' button clicked. Ctrl key pressed: ${e.ctrlKey}. Current Admin Inspector state: ${showAdminDataInspector}.`);
                if (e.ctrlKey) { // Activate AdminDataInspector with CTRL + click
+                 addLog(`Ctrl+Click detected for 'π'. Toggling AdminDataInspector to ${!showAdminDataInspector}.`);
                  setShowAdminDataInspector(prev => !prev);
                } else { // Regular click toggles debug logs
+                 addLog(`Regular click detected for 'π'. Toggling debug logs to ${!showDebug}.`);
                  setShowDebug(prev => !prev);
                }
              }} 

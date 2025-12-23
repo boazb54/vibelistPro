@@ -2,6 +2,7 @@
   "name": "VibeListPro",
   "description": "Mood-driven playlists",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "geolocation"
   ]
 }
