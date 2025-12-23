@@ -1,6 +1,5 @@
 
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { AdminDataInspectorProps } from '../types';
 
@@ -23,6 +22,18 @@ const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode }>
 
 
 const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose, userTaste, aggregatedPlaylists, debugLogs }) => {
+  // Use a local addLog for internal component logging, assuming it's available globally or passed down
+  const localAddLog = (window as any).addLog || console.log;
+
+  useEffect(() => {
+    localAddLog(`AdminDataInspector: isOpen prop changed to ${isOpen}`);
+    if (isOpen) {
+      localAddLog("AdminDataInspector: Component is now open.");
+    } else {
+      localAddLog("AdminDataInspector: Component is now closed.");
+    }
+  }, [isOpen, localAddLog]); // Depend on isOpen and localAddLog
+
   if (!isOpen) return null;
 
   return ReactDOM.createPortal(
