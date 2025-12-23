@@ -212,6 +212,7 @@ export default async function handler(req, res) {
   } catch (error: any) {
     console.error("[API/VIBE] Vibe API Handler - Uncaught Error:", error);
     console.error(`[API/VIBE] Uncaught Error Details: Name=${error.name}, Message=${error.message}`);
+    // Log the full error object for more details
     console.error("[API/VIBE] Uncaught Error Object:", JSON.stringify(error, null, 2));
     if (error.stack) {
       console.error("[API/VIBE] Uncaught Error Stack:", error.stack);
