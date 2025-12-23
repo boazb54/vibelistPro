@@ -164,15 +164,15 @@ export default async function handler(req, res) {
         }
       });
       geminiResponseText = response.text; // Assign to outer variable
-    } catch (geminiError: any) {
+    } catch (geminiError) {
       console.error("[API/VIBE] Error calling Gemini API:", geminiError);
-      console.error(`[API/VIBE] Gemini Error Details: Name=${geminiError.name}, Message=${geminiError.message}`);
+      console.error(`[API/VIBE] Gemini Error Details: Name=${(geminiError).name}, Message=${(geminiError).message}`);
       // Log the full error object for more details
       console.error("[API/VIBE] Gemini Error Object:", JSON.stringify(geminiError, null, 2));
-      if (geminiError.stack) {
-        console.error("[API/VIBE] Gemini Error Stack:", geminiError.stack);
+      if ((geminiError).stack) {
+        console.error("[API/VIBE] Gemini Error Stack:", (geminiError).stack);
       }
-      throw new Error(`Gemini API Error: ${geminiError.message || 'Unknown Gemini error'}`);
+      throw new Error(`Gemini API Error: ${(geminiError).message || 'Unknown Gemini error'}`);
     }
 
     const t_api_end = Date.now();
@@ -194,14 +194,14 @@ export default async function handler(req, res) {
             geminiApiTimeMs: t_api_end - t_api_start
           }
         });
-      } catch (parseError: any) {
+      } catch (parseError) {
         console.error("[API/VIBE] Error parsing Gemini response JSON:", parseError);
-        console.error(`[API/VIBE] Parsing Error Details: Name=${parseError.name}, Message=${parseError.message}`);
+        console.error(`[API/VIBE] Parsing Error Details: Name=${(parseError).name}, Message=${(parseError).message}`);
         console.error("[API/VIBE] Malformed response text:", geminiResponseText);
         
         const t_handler_end = Date.now();
         console.log(`[API/VIBE] Handler finished with parsing error in ${t_handler_end - t_handler_start}ms.`);
-        return res.status(500).json({ error: `Failed to parse AI response: ${parseError.message}` });
+        return res.status(500).json({ error: `Failed to parse AI response: ${(parseError).message}` });
       }
     }
 
@@ -209,17 +209,17 @@ export default async function handler(req, res) {
     const t_handler_end = Date.now();
     console.log(`[API/VIBE] Handler finished with empty AI response in ${t_handler_end - t_handler_start}ms.`);
     throw new Error("Empty response from AI");
-  } catch (error: any) {
+  } catch (error) {
     console.error("[API/VIBE] Vibe API Handler - Uncaught Error:", error);
-    console.error(`[API/VIBE] Uncaught Error Details: Name=${error.name}, Message=${error.message}`);
+    console.error(`[API/VIBE] Uncaught Error Details: Name=${(error).name}, Message=${(error).message}`);
     // Log the full error object for more details
     console.error("[API/VIBE] Uncaught Error Object:", JSON.stringify(error, null, 2));
-    if (error.stack) {
-      console.error("[API/VIBE] Uncaught Error Stack:", error.stack);
+    if ((error).stack) {
+      console.error("[API/VIBE] Uncaught Error Stack:", (error).stack);
     }
     
     const t_handler_end = Date.now();
     console.log(`[API/VIBE] Handler finished with uncaught error in ${t_handler_end - t_handler_start}ms.`);
-    return res.status(500).json({ error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' });
+    return res.status(500).json({ error: (error).message || 'Internal Server Error', serverErrorName: (error).name || 'UnknownServerError' });
   }
 }
