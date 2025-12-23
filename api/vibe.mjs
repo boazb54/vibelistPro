@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -14,9 +13,6 @@ export default async function handler(req, res) {
   }
 
   // --- API KEY VALIDATION ---
-  // Removed verbose debug console.log statements that access process.env.API_KEY
-  // to resolve SyntaxError during Vercel serverless function compilation.
-  
   const API_KEY = process.env.API_KEY; // Capture it here
   if (!API_KEY) { // Use the captured value
     console.error("[API/VIBE] API_KEY environment variable is not set or is empty.");
@@ -146,8 +142,8 @@ export default async function handler(req, res) {
         config: {
           systemInstruction,
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 0 }, // ADDED: Consistent thinking budget
-          safetySettings: [ // UPDATED: More comprehensive safety settings
+          thinkingConfig: { thinkingBudget: 0 },
+          safetySettings: [
             {
               category: HarmCategory.HARM_CATEGORY_HARASSMENT,
               threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
@@ -194,7 +190,6 @@ export default async function handler(req, res) {
         
         return res.status(200).json({
           ...rawData,
-          // promptText: prompt, // No longer sent from server, client has it
           metrics: {
             geminiApiTimeMs: t_api_end - t_api_start
           }
@@ -217,7 +212,6 @@ export default async function handler(req, res) {
   } catch (error: any) {
     console.error("[API/VIBE] Vibe API Handler - Uncaught Error:", error);
     console.error(`[API/VIBE] Uncaught Error Details: Name=${error.name}, Message=${error.message}`);
-    // Log the full error object for more details
     console.error("[API/VIBE] Uncaught Error Object:", JSON.stringify(error, null, 2));
     if (error.stack) {
       console.error("[API/VIBE] Uncaught Error Stack:", error.stack);
@@ -225,7 +219,6 @@ export default async function handler(req, res) {
     
     const t_handler_end = Date.now();
     console.log(`[API/VIBE] Handler finished with uncaught error in ${t_handler_end - t_handler_start}ms.`);
-    // Return specific error message if available
     return res.status(500).json({ error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' });
   }
 }
