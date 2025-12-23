@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -71,14 +72,14 @@ export default async function handler(req, res) {
           }
         });
         geminiResponseText = response.text;
-      } catch (geminiError: any) {
+      } catch (geminiError) {
         console.error("[API/ANALYZE] Error calling Gemini API for playlists:", geminiError);
-        console.error(`[API/ANALYZE] Gemini Error Details (playlists): Name=${geminiError.name}, Message=${geminiError.message}`);
+        console.error(`[API/ANALYZE] Gemini Error Details (playlists): Name=${(geminiError).name}, Message=${(geminiError).message}`);
         console.error("[API/ANALYZE] Gemini Error Object (playlists):", JSON.stringify(geminiError, null, 2));
-        if (geminiError.stack) {
-          console.error("[API/ANALYZE] Gemini Error Stack (playlists):", geminiError.stack);
+        if ((geminiError).stack) {
+          console.error("[API/ANALYZE] Gemini Error Stack (playlists):", (geminiError).stack);
         }
-        throw new Error(`Gemini API Error (playlists): ${geminiError.message || 'Unknown Gemini error'}`);
+        throw new Error(`Gemini API Error (playlists): ${(geminiError).message || 'Unknown Gemini error'}`);
       }
 
       console.log("[API/ANALYZE] Raw Gemini Response Text (Playlist Mood - first 500 chars):", geminiResponseText ? geminiResponseText.substring(0, 500) : "No text received.");
@@ -90,14 +91,14 @@ export default async function handler(req, res) {
         const t_handler_end = Date.now();
         console.log(`[API/ANALYZE] Handler finished successfully in ${t_handler_end - t_handler_start}ms.`);
         return res.status(200).json(parsedData);
-      } catch (parseError: any) {
+      } catch (parseError) {
         console.error("[API/ANALYZE] Error parsing playlist mood JSON:", parseError);
-        console.error(`[API/ANALYZE] Parsing Error Details (playlists): Name=${parseError.name}, Message=${parseError.message}`);
+        console.error(`[API/ANALYZE] Parsing Error Details (playlists): Name=${(parseError).name}, Message=${(parseError).message}`);
         console.error("[API/ANALYZE] Malformed response text (playlist mood):", cleanText);
 
         const t_handler_end = Date.now();
         console.log(`[API/ANALYZE] Handler finished with parsing error in ${t_handler_end - t_handler_start}ms.`);
-        return res.status(500).json({ error: `Failed to parse AI response for playlist mood: ${parseError.message}` });
+        return res.status(500).json({ error: `Failed to parse AI response for playlist mood: ${(parseError).message}` });
       }
       
     } 
@@ -146,14 +147,14 @@ export default async function handler(req, res) {
           }
         });
         geminiResponseText = response.text;
-      } catch (geminiError: any) {
+      } catch (geminiError) {
         console.error("[API/ANALYZE] Error calling Gemini API for tracks:", geminiError);
-        console.error(`[API/ANALYZE] Gemini Error Details (tracks): Name=${geminiError.name}, Message=${geminiError.message}`);
+        console.error(`[API/ANALYZE] Gemini Error Details (tracks): Name=${(geminiError).name}, Message=${(geminiError).message}`);
         console.error("[API/ANALYZE] Gemini Error Object (tracks):", JSON.stringify(geminiError, null, 2));
-        if (geminiError.stack) {
-          console.error("[API/ANALYZE] Gemini Error Stack (tracks):", geminiError.stack);
+        if ((geminiError).stack) {
+          console.error("[API/ANALYZE] Gemini Error Stack (tracks):", (geminiError).stack);
         }
-        throw new Error(`Gemini API Error (tracks): ${geminiError.message || 'Unknown Gemini error'}`);
+        throw new Error(`Gemini API Error (tracks): ${(geminiError).message || 'Unknown Gemini error'}`);
       }
 
       console.log("[API/ANALYZE] Raw Gemini Response Text (Track Analysis - first 500 chars):", geminiResponseText ? geminiResponseText.substring(0, 500) : "No text received.");
@@ -165,14 +166,14 @@ export default async function handler(req, res) {
         const t_handler_end = Date.now();
         console.log(`[API/ANALYZE] Handler finished successfully in ${t_handler_end - t_handler_start}ms.`);
         return res.status(200).json(parsedData);
-      } catch (parseError: any) {
+      } catch (parseError) {
         console.error("[API/ANALYZE] Error parsing track analysis JSON:", parseError);
-        console.error(`[API/ANALYZE] Parsing Error Details (tracks): Name=${parseError.name}, Message=${parseError.message}`);
+        console.error(`[API/ANALYZE] Parsing Error Details (tracks): Name=${(parseError).name}, Message=${(parseError).message}`);
         console.error("[API/ANALYZE] Malformed response text (track analysis):", cleanText);
 
         const t_handler_end = Date.now();
         console.log(`[API/ANALYZE] Handler finished with parsing error in ${t_handler_end - t_handler_start}ms.`);
-        return res.status(500).json({ error: `Failed to parse AI response for track analysis: ${parseError.message}` });
+        return res.status(500).json({ error: `Failed to parse AI response for track analysis: ${(parseError).message}` });
       }
     }
 
@@ -180,16 +181,16 @@ export default async function handler(req, res) {
     const t_handler_end = Date.now();
     console.log(`[API/ANALYZE] Handler finished with invalid type error in ${t_handler_end - t_handler_start}ms.`);
     return res.status(400).json({ error: 'Invalid analysis type' });
-  } catch (error: any) {
+  } catch (error) {
     console.error("[API/ANALYZE] Analyze API Handler - Uncaught Error:", error);
-    console.error(`[API/ANALYZE] Uncaught Error Details: Name=${error.name}, Message=${error.message}`);
+    console.error(`[API/ANALYZE] Uncaught Error Details: Name=${(error).name}, Message=${(error).message}`);
     console.error("[API/ANALYZE] Uncaught Error Object:", JSON.stringify(error, null, 2));
-    if (error.stack) {
-      console.error("[API/ANALYZE] Uncaught Error Stack:", error.stack);
+    if ((error).stack) {
+      console.error("[API/ANALYZE] Uncaught Error Stack:", (error).stack);
     }
 
     const t_handler_end = Date.now();
     console.log(`[API/ANALYZE] Handler finished with uncaught error in ${t_handler_end - t_handler_start}ms.`);
-    return res.status(500).json({ error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' });
+    return res.status(500).json({ error: (error).message || 'Internal Server Error', serverErrorName: (error).name || 'UnknownServerError' });
   }
 }
