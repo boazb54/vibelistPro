@@ -14,8 +14,8 @@ export default async function handler(req, res) {
   }
 
   // --- API KEY VALIDATION ---
-  console.log(`[API/TRANSCRIBE] DEBUG: Checking process.env.API_KEY. Is it truthy? ${!!process.env.API_KEY}`);
-  console.log(`[API/TRANSCRIBE] DEBUG: API_KEY value (first 5 chars): ${process.env.API_KEY ? String(process.env.API_KEY).substring(0, 5) + '...' : 'undefined'}`);
+  // Removed verbose debug console.log statements that access process.env.API_KEY
+  // to resolve SyntaxError during Vercel serverless function compilation.
   
   const API_KEY = process.env.API_KEY; // Capture it here
   if (!API_KEY) { // Use the captured value
