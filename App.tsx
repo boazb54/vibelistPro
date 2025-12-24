@@ -8,8 +8,8 @@ import { CogIcon } from './components/Icons';
 import AdminDataInspector from './components/AdminDataInspector';
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks, analyzeUserPlaylistsForMood } from './services/geminiService';
-// Import calculateCulturalTasteInSongs from dataAggregator
-import { aggregateSessionData, calculateCulturalTasteInSongs } from './services/dataAggregator';
+// FIX: Corrected import path for calculateCulturalTasteInSongs
+import { calculateCulturalTasteInSongs, aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
   getLoginUrl, 
