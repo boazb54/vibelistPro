@@ -1,23 +1,17 @@
 
-// Vercel cache bust: Added comment to force re-evaluation.
-import { AnalyzedTrack, SessionSemanticProfile, CulturalTasteInSongs, InferredLyricalLanguageResult } from '../types';
-import { inferLyricalLanguageForTracks } from './geminiService'; // NEW: Import the Gemini service for lyrical inference
+import { AnalyzedTrack, SessionSemanticProfile } from '../types';
 
-// Removed: isRtl as it's no longer used for cultural bias detection.
-// The previous CONFIDENCE_WEIGHTS and getWeight function for semantic tags are now only used in aggregateSessionData
-// and not for cultural taste, as cultural taste relies purely on Gemini's inference confidence.
+const CONFIDENCE_WEIGHTS: Record<string, number> = {
+  'high': 1.0,
+  'medium': 0.6,
+  'low': 0.3
+};
 
 function getWeight(confidence: string): number {
-  const CONFIDENCE_WEIGHTS: Record<string, number> = {
-    'high': 1.0,
-    'medium': 0.6,
-    'low': 0.3
-  };
   return CONFIDENCE_WEIGHTS[confidence?.toLowerCase()] || 0.3;
 }
 
 export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticProfile => {
-  // REMOVED `userProfile: SpotifyUserProfile | null` from parameters
   
   // 1. ARTIST AGGREGATION (Weighted & Capped)
   const artistScores: Record<string, { score: number, count: number }> = {};
@@ -183,8 +177,6 @@ export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticPr
   const vocalsBias = calculateBias(t => t.semantic_tags.vocals);
   const textureBias = calculateBias(t => t.semantic_tags.texture);
 
-  // REMOVED: All cultural_bias detection logic from here, including languageScores, languageKeywordMap, detectTrackLanguage, isFromDominantLocaleWithContent.
-
   return {
       taste_profile_type: tasteProfileType,
       dominant_genres: dominantGenres,
@@ -194,73 +186,6 @@ export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticPr
       tempo_bias: tempoBias,
       vocals_bias: vocalsBias,
       texture_bias: textureBias,
-      artist_examples: topArtists,
-      // REMOVED: cultural_bias field from here
-  };
-};
-
-/**
- * NEW: Calculates cultural taste *exclusively* from Gemini's lyrical language inference.
- * This function completely replaces the previous metadata-based cultural bias calculation.
- * It takes a consolidated list of unique track strings and calls the Gemini service for inference.
- * The confidence score from Gemini's inference is used as the weight for each language.
- */
-export const calculateCulturalTasteInSongs = async (
-  allUniqueTracks: string[] // Consolidated list of "Song by Artist" strings
-): Promise<CulturalTasteInSongs> => {
-  const languageScores: Record<string, number> = {};
-  let totalLanguageWeight = 0;
-
-  if (allUniqueTracks.length === 0) {
-    // If no tracks to analyze, default to English with 100%
-    return { dominant_language: 'english', language_distribution: { 'english': 1.0 } };
-  }
-
-  // Step 1: Call the new service to get Gemini's lyrical language inference for all unique songs
-  let inferredLanguages: InferredLyricalLanguageResult[] = [];
-  try {
-    inferredLanguages = await inferLyricalLanguageForTracks(allUniqueTracks);
-  } catch (error) {
-    console.error("Error fetching lyrical language inference from Gemini:", error);
-    // Fallback: If inference fails, default to English
-    return { dominant_language: 'english', language_distribution: { 'english': 1.0 } };
-  }
-
-  // Step 2: Aggregate the results using Gemini's confidence as the weight
-  inferredLanguages.forEach(inference => {
-    const lang = inference.inferred_lyrical_language?.toLowerCase();
-    const confidence = inference.confidence_score;
-
-    // Only count languages we could confidently infer and are not 'unknown' or 'instrumental'
-    // Also, require a minimum confidence score (e.g., > 0) to avoid noisy data
-    if (lang && lang !== 'unknown' && lang !== 'instrumental' && confidence > 0) {
-      languageScores[lang] = (languageScores[lang] || 0) + confidence;
-      totalLanguageWeight += confidence;
-    }
-  });
-
-  // Step 3: Calculate percentage distribution and determine dominant language
-  const languageDistribution: Record<string, number> = {};
-  let dominantLanguage: string | undefined;
-  let maxScore = -1;
-
-  if (totalLanguageWeight === 0) {
-    // If no lyrical language was confidently inferred for any track, default to English.
-    return { dominant_language: 'english', language_distribution: { 'english': 1.0 } };
-  }
-
-  Object.entries(languageScores).forEach(([lang, score]) => {
-    const pct = score / totalLanguageWeight;
-    languageDistribution[lang] = Number(pct.toFixed(2)); // Round to 2 decimal places for consistency
-
-    if (score > maxScore) {
-      maxScore = score;
-      dominantLanguage = lang;
-    }
-  });
-
-  return {
-    dominant_language: dominantLanguage,
-    language_distribution: languageDistribution,
+      artist_examples: topArtists
   };
 };
