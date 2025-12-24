@@ -1,5 +1,4 @@
 
-// Vercel cache bust: Added comment to force re-evaluation.
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
@@ -9,8 +8,7 @@ import { CogIcon } from './components/Icons';
 import AdminDataInspector from './components/AdminDataInspector';
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist } from './types';
 import { generatePlaylistFromMood, analyzeUserTopTracks, analyzeUserPlaylistsForMood } from './services/geminiService';
-// FIX: Corrected import path for calculateCulturalTasteInSongs
-import { calculateCulturalTasteInSongs, aggregateSessionData } from './services/dataAggregator';
+import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
   getLoginUrl, 
@@ -122,7 +120,6 @@ const App: React.FC = () => {
       const profile = await getUserProfile(token);
       setUserProfile(profile);
       // Pass profile down so we can save it immediately
-      // The `profile` object is passed here, but `aggregateSessionData` will no longer use `profile.country` for cultural bias.
       refreshProfileAndTaste(token, profile);
     } catch (e) {
       addLog(`Failed to fetch Spotify profile: ${e instanceof Error ? e.message : String(e)}`);
@@ -134,115 +131,98 @@ const App: React.FC = () => {
 
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
-          addLog("Initiating parallel Spotify data fetches (Top Tracks/Artists & User Playlists)...");
-          
-          // PHASE 1: Concurrent Spotify Data Fetching
-          const [
-              tasteResult,
-              fetchedAggregatedPlaylists
-          ] = await Promise.all([
-              fetchUserTasteProfile(token),
-              fetchUserPlaylistsAndTracks(token).catch(e => {
-                  addLog(`Error fetching user playlists: ${e instanceof Error ? e.message : String(e)}`);
-                  console.error("Error fetching user playlists:", e);
-                  return []; // Return empty array on error to allow other promises to resolve
-              })
-          ]);
-
-          addLog("Spotify data fetches complete.");
-
-          if (!tasteResult) {
+          addLog("Fetching Spotify User Taste Profile (Top Artists, Top Tracks)...");
+          const taste = await fetchUserTasteProfile(token);
+          if (!taste) {
               saveUserProfile(profile, null);
               addLog("No taste profile returned from Spotify. Saving user profile without taste data.");
               return;
           }
 
-          let enhancedTaste: UserTasteProfile = { ...tasteResult };
-          setUserAggregatedPlaylists(fetchedAggregatedPlaylists); // Store in state for AdminDataInspector
+          let enhancedTaste: UserTasteProfile = { ...taste }; // Initialize with base taste
 
-          const rawAggregatedPlaylistTracks = fetchedAggregatedPlaylists.flatMap(p => p.tracks);
+          // --- NEW: Fetch and Analyze User Playlists for overall mood ---
+          addLog("Fetching user playlists and tracks for deeper mood analysis...");
+          let fetchedAggregatedPlaylists: AggregatedPlaylist[] = []; // Use new type
+          let rawAggregatedPlaylistTracks: string[] = []; // For Gemini Mood Analysis
+          try {
+            fetchedAggregatedPlaylists = await fetchUserPlaylistsAndTracks(token); // Update call
+            setUserAggregatedPlaylists(fetchedAggregatedPlaylists); // Store in state for AdminDataInspector
 
-          // Consolidate all unique tracks for lyrical language inference
-          const allUniqueTracksForInference = Array.from(new Set([
-              ...enhancedTaste.topTracks, // User's top 50 tracks
-              ...rawAggregatedPlaylistTracks // Tracks from user's playlists
-          ]));
+            // Flatten for Gemini Mood Analysis
+            rawAggregatedPlaylistTracks = fetchedAggregatedPlaylists.flatMap(p => p.tracks);
 
-          addLog("Initiating parallel Gemini AI analyses (Top Tracks, Playlist Mood, Cultural Taste)...");
-
-          // PHASE 2: Concurrent Gemini AI Analysis
-          const [
-              topTracksAnalysisResult,
-              playlistMoodAnalysisResult,
-              culturalTasteResult
-          ]
-          = await Promise.allSettled([ // Use Promise.allSettled to ensure all promises run to completion
-              enhancedTaste.topTracks.length > 0
-                  ? analyzeUserTopTracks(enhancedTaste.topTracks)
-                  : Promise.resolve(null), // Resolve immediately if no tracks
-              rawAggregatedPlaylistTracks.length > 0
-                  ? analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks)
-                  : Promise.resolve(null), // Resolve immediately if no playlist tracks
-              allUniqueTracksForInference.length > 0
-                  ? calculateCulturalTasteInSongs(allUniqueTracksForInference)
-                  : Promise.resolve(null) // Resolve immediately if no tracks for inference
-          ]);
-
-          addLog("Gemini AI analyses complete.");
-
-          // Process Top Tracks Analysis Result
-          if (topTracksAnalysisResult.status === 'fulfilled' && topTracksAnalysisResult.value) {
-              if (topTracksAnalysisResult.value === null || ('error' in topTracksAnalysisResult.value && topTracksAnalysisResult.value.error)) {
-                  addLog(`Gemini Top Tracks Analysis Error: ${'error' in topTracksAnalysisResult.value ? topTracksAnalysisResult.value.error : 'No analysis returned'}`);
-              } else {
-                  addLog("--- GEMINI AUDIO ANALYSIS & GENRE (RAW) ---");
-                  addLog(`Analyzed ${topTracksAnalysisResult.value.length} tracks.`);
-                  addLog("--- AGGREGATING SESSION PROFILE (TYPESCRIPT) ---");
-                  const sessionProfile = aggregateSessionData(topTracksAnalysisResult.value); 
-                  addLog(JSON.stringify(sessionProfile, null, 2));
-                  enhancedTaste.session_analysis = sessionProfile;
-              }
-          } else if (topTracksAnalysisResult.status === 'rejected') {
-              addLog(`Gemini Top Tracks Analysis Failed: ${topTracksAnalysisResult.reason instanceof Error ? topTracksAnalysisResult.reason.message : String(topTracksAnalysisResult.reason)}`);
-              console.error("Gemini Top Tracks Analysis Error:", topTracksAnalysisResult.reason);
+          } catch (e: any) {
+            addLog(`Error fetching user playlists: ${e.message}`);
+            console.error("Error fetching user playlists:", e);
+            // Continue execution, as this is not a critical blocking failure
           }
 
-
-          // Process Playlist Mood Analysis Result
-          if (playlistMoodAnalysisResult.status === 'fulfilled' && playlistMoodAnalysisResult.value) {
-              if (playlistMoodAnalysisResult.value === null) {
-                  addLog("Gemini Playlist Mood Analysis returned empty or null.");
-              } else {
-                  addLog("--- GEMINI PLAYLIST MOOD ANALYSIS ---");
-                  addLog(`Category: "${playlistMoodAnalysisResult.value.playlist_mood_category}", Confidence: ${playlistMoodAnalysisResult.value.confidence_score.toFixed(2)}`);
-                  enhancedTaste.playlistMoodAnalysis = playlistMoodAnalysisResult.value;
+          if (rawAggregatedPlaylistTracks.length > 0) { // Check flattened array length
+              addLog(`Found ${rawAggregatedPlaylistTracks.length} tracks from user playlists. Sending to Gemini for overall mood analysis...`);
+              try {
+                  const playlistMoodAnalysis = await analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks); // Use flattened array
+                  if (playlistMoodAnalysis) {
+                      addLog("--- GEMINI PLAYLIST MOOD ANALYSIS ---");
+                      addLog(`Category: "${playlistMoodAnalysis.playlist_mood_category}", Confidence: ${playlistMoodAnalysis.confidence_score.toFixed(2)}`);
+                      enhancedTaste.playlistMoodAnalysis = playlistMoodAnalysis; // Add to enhancedTaste
+                  } else {
+                      addLog("Gemini Playlist Mood Analysis returned empty or null.");
+                  }
+              } catch (error: any) {
+                  addLog(`Gemini Playlist Mood Analysis Failed: ${error.message || error}`);
+                  console.error("Gemini Playlist Mood Analysis Error:", error);
+                  // Continue execution, as this is not a critical blocking failure
               }
-          } else if (playlistMoodAnalysisResult.status === 'rejected') {
-              addLog(`Gemini Playlist Mood Analysis Failed: ${playlistMoodAnalysisResult.reason instanceof Error ? playlistMoodAnalysisResult.reason.message : String(playlistMoodAnalysisResult.reason)}`);
-              console.error("Gemini Playlist Mood Analysis Error:", playlistMoodAnalysisResult.reason);
+          } else {
+              addLog("No user playlist tracks found for deeper mood analysis.");
           }
+          // --- END NEW: Fetch and Analyze User Playlists ---
 
+          // --- Existing: Trigger Gemini Analysis for Top Tracks (now using enhancedTaste as base) ---
+          if (enhancedTaste.topTracks.length > 0) {
+              addLog("Sending Top Tracks to Gemini for Feature Analysis (Energy, Mood, Genre)...");
+              
+              analyzeUserTopTracks(enhancedTaste.topTracks) // Use enhancedTaste.topTracks
+                  .then((analysis) => {
+                      if ('error' in analysis) {
+                          addLog(`Gemini Top Tracks Analysis Error: ${analysis.error}`);
+                          // If top tracks analysis fails, still save profile with whatever we have (including new playlist analysis)
+                          setUserTaste(enhancedTaste); 
+                          saveUserProfile(profile, enhancedTaste);
+                          return;
+                      }
 
-          // Process Cultural Taste Result
-          if (culturalTasteResult.status === 'fulfilled' && culturalTasteResult.value) {
-              if (culturalTasteResult.value === null) { // Should not be null if tracks provided, but good for type safety
-                  addLog("Cultural Taste Inference returned empty or null.");
-              } else {
-                  addLog("--- CALCULATING CULTURAL TASTE IN SONGS ---");
-                  addLog(JSON.stringify(culturalTasteResult.value, null, 2));
-                  enhancedTaste.culturalTasteInSongs = culturalTasteResult.value;
-              }
-          } else if (culturalTasteResult.status === 'rejected') {
-              addLog(`Cultural Taste Inference Failed: ${culturalTasteResult.reason instanceof Error ? culturalTasteResult.reason.message : String(culturalTasteResult.reason)}`);
-              console.error("Cultural Taste Inference Error:", culturalTasteResult.reason);
+                      addLog("--- GEMINI AUDIO ANALYSIS & GENRE (RAW) ---");
+                      addLog(`Analyzed ${analysis.length} tracks.`);
+                      
+                      addLog("--- AGGREGATING SESSION PROFILE (TYPESCRIPT) ---");
+                      const sessionProfile = aggregateSessionData(analysis);
+                      
+                      addLog(JSON.stringify(sessionProfile, null, 2));
+                      
+                      // Update enhancedTaste with the AI enhanced profile from top tracks
+                      enhancedTaste = {
+                          ...enhancedTaste, // Keep previous updates like playlistMoodAnalysis
+                          session_analysis: sessionProfile
+                      };
+                      
+                      setUserTaste(enhancedTaste);
+                      saveUserProfile(profile, enhancedTaste);
+                  })
+                  .catch(err => {
+                      addLog(`Gemini Top Tracks Analysis Failed: ${err.message || err}`);
+                      console.error("Gemini Top Tracks Analysis Error:", err);
+                      // If top tracks analysis fails, still save profile with whatever we have
+                      setUserTaste(enhancedTaste);
+                      saveUserProfile(profile, enhancedTaste);
+                  });
+          } else {
+              addLog("No top tracks available for Gemini analysis.");
+              // If no top tracks, just set the taste with playlist analysis (if any) and save
+              setUserTaste(enhancedTaste);
+              saveUserProfile(profile, enhancedTaste);
           }
-
-
-          // --- FINAL UPDATE ---
-          setUserTaste(enhancedTaste);
-          saveUserProfile(profile, enhancedTaste);
-          addLog("User taste profile refreshed and saved.");
-
       } catch (e: any) {
           console.warn("Could not load taste profile or perform initial Spotify/Gemini analysis", e);
           addLog(`Critical error during profile and taste refresh: ${e.message || e}`);
