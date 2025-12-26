@@ -13,26 +13,14 @@ interface GeneratedTeaserRawWithMetrics extends GeneratedTeaserRaw {
   }
 }
 
-// --- START: PREVIEW MODE IMPLEMENTATION (v1.1.1 FIX) ---
-
-/**
- * Detects if the app is running inside the Google AI Studio Preview environment.
- * @returns {boolean} True if in preview mode, otherwise false.
- */
 export const isPreviewEnvironment = (): boolean => {
   try {
-    // Correctly detect the environment by checking for the host-injected 'aistudio' API object.
-    // The previous hostname check was incorrect due to iframe sandboxing.
     return typeof window !== 'undefined' && !!(window as any).aistudio;
   } catch (e) {
-    return false; // Fallback for non-browser environments
+    return false; 
   }
 };
 
-/**
- * Handles API key missing errors by prompting the user to select a key.
- * This is primarily for the preview environment where direct calls are made.
- */
 async function handleApiKeyMissingError(responseStatus: number, errorData: any) {
   if (responseStatus === 401 && errorData?.error?.includes('API_KEY environment variable is missing')) {
     addLog("API Key Missing (401). Attempting to prompt user for key selection.");
@@ -49,15 +37,36 @@ async function handleApiKeyMissingError(responseStatus: number, errorData: any) 
   }
 }
 
-// --- END: PREVIEW MODE IMPLEMENTATION ---
+/**
+ * [Release v1.4.2] - Native Audio Transcription Service
+ * Uses Gemini to transcribe raw audio chunks.
+ */
+export const transcribeAudio = async (base64Data: string, mimeType: string): Promise<string> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: {
+                parts: [
+                    { inlineData: { data: base64Data, mimeType: mimeType } },
+                    { text: "Transcribe the audio exactly. Return ONLY the transcription text. If the language is Hebrew, return Hebrew characters. If English, return English. Do not add any conversational filler." }
+                ]
+            }
+        });
+        return response.text || "";
+    } catch (error: any) {
+        console.error("Transcription service failed:", error);
+        throw error;
+    }
+};
 
 export const validateVibe = async (mood: string): Promise<VibeValidationResponse> => {
     const systemInstruction = `You are an AI gatekeeper for a music playlist generator. Your task is to validate a user's input based on whether it's a plausible request for a music vibe.
 
 You must classify the input into one of three categories:
-1.  'VIBE_VALID': The input describes a mood, activity, memory, or scenario suitable for music (e.g., "rainy day", "post-breakup", "coding at 2am", "שמח"). This is the most common case.
-2.  'VIBE_INVALID_GIBBERISH': The input is nonsensical, random characters, or keyboard mashing (e.g., "asdfasdf", "jhgjhgj").
-3.  'VIBE_INVALID_OFF_TOPIC': The input is a coherent question or statement but is NOT about a mood or music (e.g., "what's the weather", "tell me a joke", "מתכון לעוגה").
+1.  'VIBE_VALID': The input describes a mood, activity, memory, or scenario suitable for music.
+2.  'VIBE_INVALID_GIBBERISH': The input is nonsensical or keyboard mashing.
+3.  'VIBE_INVALID_OFF_TOPIC': The input is coherent but not about a mood or music.
 
 RULES:
 1.  Provide a concise, user-friendly 'reason' for your decision.
@@ -69,7 +78,7 @@ RULES:
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3-flash-preview',
                 contents: `Validate the following user input: "${mood}"`,
                 config: {
                     systemInstruction,
@@ -92,7 +101,6 @@ RULES:
     } else {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-        addLog(`Calling /api/validate.mjs with mood "${mood}"...`);
         try {
             const response = await fetch('/api/validate.mjs', {
                 method: 'POST',
@@ -109,7 +117,6 @@ RULES:
             return await response.json();
         } catch (error) {
             clearTimeout(timeoutId);
-            console.error("Vibe validation failed through proxy:", error);
             throw error;
         }
     }
@@ -117,23 +124,12 @@ RULES:
 
 export const generatePlaylistTeaser = async (mood: string): Promise<GeneratedTeaserRawWithMetrics> => {
     if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Generating teaser for "${mood}" directly...`);
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const systemInstruction = `You are a creative music curator. Your goal is to generate a creative, evocative playlist title and a short, compelling description.
-
-RULES:
-1. The description MUST be under 20 words.
-2. Mirror the language of the user's mood (e.g., Hebrew input gets a Hebrew title).
-3. Return ONLY a raw JSON object with 'playlist_title' and 'description'.
-
-LEARN FROM EXAMPLES:
-- GOOD EXAMPLE (Concise): "Unleash focus. Instrumental soundscapes for deep work." (7 words)
-- BAD EXAMPLE (Verbose): "This playlist is designed to help you by providing a series of songs that are really good for when you need to concentrate on your work for a long time." (30 words)`;
-
+            const systemInstruction = `You are a creative music curator. Generate a title and a short description (<20 words). Mirror input language. JSON only.`;
             const t_api_start = performance.now();
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3-flash-preview',
                 contents: `Generate a playlist title and description for the mood: "${mood}"`,
                 config: {
                     systemInstruction,
@@ -149,21 +145,16 @@ LEARN FROM EXAMPLES:
                 }
             });
             const t_api_end = performance.now();
-            const parsedData = JSON.parse(response.text);
-            addLog(`[PREVIEW MODE] Teaser generation successful for mood "${mood}".`);
             return {
-              ...parsedData,
+              ...JSON.parse(response.text),
               metrics: { geminiApiTimeMs: Math.round(t_api_end - t_api_start) }
             };
         } catch (error) {
-            console.error("[PREVIEW MODE] Direct Gemini call failed (teaser):", error);
             throw error;
         }
     } else {
-        // --- PRODUCTION MODE: SECURE PROXY CALL ---
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-        addLog(`Calling /api/teaser.mjs with mood "${mood}"...`);
         try {
             const response = await fetch('/api/teaser.mjs', {
                 method: 'POST',
@@ -180,37 +171,21 @@ LEARN FROM EXAMPLES:
             return await response.json();
         } catch (error) {
             clearTimeout(timeoutId);
-            console.error("Teaser generation failed through proxy:", error);
             throw error;
         }
     }
 };
 
 export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Promise<UserPlaylistMoodAnalysis | null> => {
-    if (!playlistTracks || playlistTracks.length === 0) {
-        addLog("Skipping playlist mood analysis: No tracks provided.");
-        return null;
-    }
+    if (!playlistTracks || playlistTracks.length === 0) return null;
 
     if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Analyzing ${playlistTracks.length} playlist tracks directly...`);
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const systemInstruction = `You are an expert music psychologist and mood categorizer.
-      Your task is to analyze a list of song titles and artists, representing a user's collection of personal playlists.
-      Based on this combined list, infer the overarching, most dominant "mood category" that these playlists collectively represent.
-      Also, provide a confidence score for your categorization.
-
-      RULES:
-      1. The 'playlist_mood_category' should be a concise, descriptive phrase (e.g., "High-Energy Workout Mix", "Relaxed Indie Vibes", "Chill Study Focus").
-      2. The 'confidence_score' must be a floating-point number between 0.0 (very uncertain) and 1.0 (very certain).
-      3. Return only raw, valid JSON matching the specified schema.`;
-            
-            const prompt = `Analyze the collective mood represented by these songs from a user's playlists:\n${playlistTracks.join('\n')}`;
-            
+            const systemInstruction = `Analyze song titles to infer an overarching mood category and confidence score. JSON only.`;
             const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
-              contents: prompt,
+              model: 'gemini-3-flash-preview',
+              contents: `Analyze: ${playlistTracks.join('\n')}`,
               config: {
                 systemInstruction,
                 responseMimeType: "application/json",
@@ -224,21 +199,13 @@ export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Pro
                 },
               }
             });
-
-            const parsedData = JSON.parse(response.text);
-            addLog(`[PREVIEW MODE] Successfully analyzed playlist mood. Category: ${parsedData.playlist_mood_category}`);
-            return parsedData;
-
+            return JSON.parse(response.text);
         } catch (error) {
-            console.error("[PREVIEW MODE] Direct Gemini call failed (playlists):", error);
             throw error;
         }
     } else {
-        // --- PRODUCTION MODE: SECURE PROXY CALL (Existing Logic) ---
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-
-        addLog(`Calling /api/analyze.mjs (playlists) with ${playlistTracks.length} tracks...`);
         try {
             const response = await fetch('/api/analyze.mjs', {
                 method: 'POST',
@@ -255,7 +222,6 @@ export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Pro
             return await response.json();
         } catch (error) {
             clearTimeout(timeoutId);
-            console.error("Error analyzing user playlist mood via proxy:", error);
             throw error;
         }
     }
@@ -268,8 +234,7 @@ export const generatePlaylistFromMood = async (
   excludeSongs?: string[]
 ): Promise<GeminiResponseWithMetrics> => {
   const t_prompt_start = performance.now();
-  const promptPayload = { /* ... payload construction ... */ }; // This part is the same
-   const promptText = JSON.stringify({
+  const promptText = JSON.stringify({
       user_target: { query: mood, modality: contextSignals.input_modality },
       environmental_context: {
           local_time: contextSignals.local_time,
@@ -290,22 +255,18 @@ export const generatePlaylistFromMood = async (
   const promptBuildTimeMs = Math.round(performance.now() - t_prompt_start);
 
     if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Generating vibe for "${mood}" directly...`);
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const systemInstruction = `You are a professional music curator/Mood-driven playlists with deep knowledge of audio engineering and music theory. Your goal is to create a playlist that matches the **physical audio requirements** of the user's intent, prioritizing physics over genre labels. ### 1. THE "AUDIO PHYSICS" HIERARCHY (ABSOLUTE RULES) When selecting songs, you must evaluate them in this order: 1. **INTENT (PHYSICAL CONSTRAINTS):** Does the song's audio texture match the requested activity? - *Workout:* Requires High Energy, Steady Beat. - *Focus:* Requires Steady Pulse, Minimal Lyrics. - *Sleep/Relax:* See Polarity Logic below. 2. **CONTEXT:** Time of day and location tuning. 3. **TASTE (STYLISTIC COMPASS):** Only use the user's favorite artists/genres if they fit the **Physical Constraints** of Step 1. - **CRITICAL:** If the user loves "Techno" but asks for "Sleep", **DO NOT** play "Chill Techno" (it still has kicks). Play an "Ambient" or "Beatless" track by a Techno artist, or ignore the genre entirely. - **NEW: DEEPER TASTE UNDERSTANDING:** If provided, leverage the 'user_playlist_mood' as a strong signal for the user's overall, inherent musical taste. This is *beyond* just top artists/genres and represents a more holistic "vibe fingerprint" for the user. Use it to fine-tune song selection, especially when there are multiple songs that fit the physical constraints. ### 2. TEMPORAL + LINGUISTIC POLARITY & INTENT DECODING (CRITICAL LOGIC) Determine whether the user describes a **PROBLEM** (needs fixing) or a **GOAL** (needs matching). **SCENARIO: User expresses fatigue ("tired", "low energy", "חסר אנרגיות")** *   **IF user explicitly requests sleep/relaxation:** *   → GOAL: Matching (Sleep/Calm) *   → Ignore time. *   **ELSE IF local_time is Morning/Afternoon (06:00–17:00):** *   → GOAL: Gentle Energy Lift (Compensation). *   → AUDIO PHYSICS: - Energy: Low → Medium. - Tempo: Slow → Mid. - Rhythm: Present but soft. - No ambient drones. No heavy drops. *   **ELSE IF local_time is Evening/Night (20:00–05:00):** *   → GOAL: Relaxation / Sleep. *   → AUDIO PHYSICS: - Constant low energy. - Slow tempo. - Ambient / minimal. - No drums. **RULE: "Waking up" ≠ "Sleep"** *   Waking up requires dynamic rising energy. *   Sleep requires static low energy. ### 3. "TITLE BIAS" WARNING **NEVER** infer a song's vibe from its title. - A song named "Pure Bliss" might be a high-energy Trance track (Bad for sleep). - A song named "Violent" might be a slow ballad (Good for sleep). - **Judge the Audio, Not the Metadata.** ### 4. LANGUAGE & FORMATTING RULES (NEW & CRITICAL) 1. **Language Mirroring:** If the user types in Hebrew/Spanish/etc., write the 'playlist_title' and 'description' in that **SAME LANGUAGE**. 2. **Metadata Exception:** Keep 'songs' metadata (Song Titles and Artist Names) in their original language (English/International). Do not translate them. 3. **Conciseness:** The 'description' must be **under 20 words**. Short, punchy, and evocative. ### 5. NEGATIVE EXAMPLES (LEARN FROM THESE ERRORS) *   **User Intent:** Sleep / Waking Up *   **User Taste:** Pop, EDM (e.g., Alan Walker, Calvin Harris) *   🔴 **BAD SELECTION:** "Alone" by Alan Walker. *   *Why:* Lyrically sad, but physically high energy (EDM drops, synth leads). *   🟢 **GOOD SELECTION:** "Faded (Restrung)" by Alan Walker or "Ambient Mix" by similar artists. *   *Why:* Matches taste but strips away the drums/energy to fit the physics of sleep. ### OUTPUT FORMAT Return the result as raw, valid JSON only. Do not use Markdown formatting. Use this exact JSON structure for your output: { "playlist_title": "Creative Title (Localized)", "mood": "The mood requested", "description": "Short description (<20 words, Localized)", "songs": [ { "title": "Song Title (Original Language)", "artist": "Artist Name (Original Language)", "estimated_vibe": { "energy": "Low" | "Medium" | "High" | "Explosive", "mood": "Adjective (e.g. Uplifting, Melancholic)", "genre_hint": "Specific Sub-genre" } } ] } CRITICAL RULES: 1. Pick 15 songs. 2. The songs must be real and findable on Spotify/iTunes. 3. If "Exclusion List" is provided: Do NOT include any of the songs listed. 4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel.`;
+            const systemInstruction = `You are a professional music curator. Create a playlist (15 songs) matching the audio physics of the user's intent. JSON only.`;
             const t_api_start = performance.now();
             const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
+              model: 'gemini-3-flash-preview',
               contents: promptText,
               config: { systemInstruction, responseMimeType: "application/json" }
             });
             const t_api_end = performance.now();
-            
-            const rawData = JSON.parse(response.text);
-            addLog(`[PREVIEW MODE] Playlist generation successful for mood "${mood}".`);
             return {
-                ...rawData,
+                ...JSON.parse(response.text),
                 promptText: promptText,
                 metrics: {
                     promptBuildTimeMs,
@@ -313,14 +274,11 @@ export const generatePlaylistFromMood = async (
                 }
             };
         } catch (error) {
-            console.error("[PREVIEW MODE] Direct Gemini call failed (vibe):", error);
             throw error;
         }
     } else {
-        // --- PRODUCTION MODE: SECURE PROXY CALL (Existing Logic) ---
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-        addLog(`Calling /api/vibe.mjs with mood "${mood}"...`);
         try {
             const response = await fetch('/api/vibe.mjs', {
                 method: 'POST',
@@ -345,57 +303,6 @@ export const generatePlaylistFromMood = async (
             };
         } catch (error) {
             clearTimeout(timeoutId);
-            console.error("Vibe generation failed through proxy:", error);
-            throw error;
-        }
-    }
-};
-
-export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<string> => {
-    if (!base64Audio) return "";
-
-    if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Transcribing audio directly (type: ${mimeType})...`);
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const promptText = "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble.";
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: [
-                    { inlineData: { mimeType: mimeType, data: base64Audio } },
-                    { text: promptText }
-                ]
-            });
-            const transcript = response.text || "";
-            addLog(`[PREVIEW MODE] Transcription successful. Text: "${transcript.substring(0, 50)}..."`);
-            return transcript;
-        } catch (error) {
-            console.error("[PREVIEW MODE] Direct Gemini call failed (transcribe):", error);
-            throw error;
-        }
-    } else {
-        // --- PRODUCTION MODE: SECURE PROXY CALL (Existing Logic) ---
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-        addLog(`Calling /api/transcribe.mjs...`);
-        try {
-            const response = await fetch('/api/transcribe.mjs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base64Audio, mimeType }),
-                signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                await handleApiKeyMissingError(response.status, errorData);
-                throw new Error(`Server error: ${errorData.error || response.statusText}`);
-            }
-            const data = await response.json();
-            return data.text || "";
-        } catch (error) {
-            clearTimeout(timeoutId);
-            console.error("Audio transcription failed through proxy:", error);
             throw error;
         }
     }
@@ -405,28 +312,21 @@ export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTr
     if (!tracks || tracks.length === 0) return { error: "No tracks to analyze" };
 
     if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Analyzing ${tracks.length} top tracks directly...`);
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const systemInstruction = `You are a music analysis engine. Analyze the provided list of songs. For each song, return a JSON object using this exact schema: {"song_name": "Song Name", "artist_name": "Artist Name", "semantic_tags": {"primary_genre": "specific genre (lowercase)", "secondary_genres": ["genre1", "genre2"], "energy": "low" | "medium" | "high" | "explosive", "mood": ["mood1", "mood2"], "tempo": "slow" | "mid" | "fast", "vocals": "instrumental" | "lead_vocal" | "choral", "texture": "organic" | "electric" | "synthetic"}, "confidence": "low" | "medium" | "high"} RULES: 1. Split the input string (e.g. "Song by Artist") into "song_name" and "artist_name". 2. Normalize values: Use lowercase, controlled vocabulary only. 3. Use arrays for attributes that can be multiple (mood, secondary_genres). 4. Interpret attributes as soft signals, not absolute facts. Return the result as a raw JSON array.`;
-            const prompt = tracks.join('\n');
+            const systemInstruction = `Analyze song lists into structured semantic tags. JSON only.`;
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
+                model: 'gemini-3-flash-preview',
+                contents: tracks.join('\n'),
                 config: { systemInstruction, responseMimeType: "application/json" }
             });
-            const parsedData = JSON.parse(response.text);
-            addLog(`[PREVIEW MODE] Successfully analyzed ${parsedData.length} top tracks.`);
-            return parsedData;
+            return JSON.parse(response.text);
         } catch (error) {
-            console.error("[PREVIEW MODE] Direct Gemini call failed (tracks):", error);
             throw error;
         }
     } else {
-        // --- PRODUCTION MODE: SECURE PROXY CALL (Existing Logic) ---
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-        addLog(`Calling /api/analyze.mjs (tracks) with ${tracks.length} tracks...`);
         try {
             const response = await fetch('/api/analyze.mjs', {
                 method: 'POST',
@@ -443,7 +343,6 @@ export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTr
             return await response.json();
         } catch (error) {
             clearTimeout(timeoutId);
-            console.error("Error analyzing user top tracks via proxy:", error);
             throw error;
         }
     }
