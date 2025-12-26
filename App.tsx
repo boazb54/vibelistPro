@@ -644,7 +644,7 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    if (isLoading) {
+    if (isLoading && !teaserPlaylist) {
       return (
         <div className="min-h-[60vh] flex flex-col items-center justify-center text-center animate-fade-in p-4">
           <div className="relative w-24 h-24 mx-auto mb-8">
@@ -677,19 +677,6 @@ const App: React.FC = () => {
           onRemix={handleRemix}
           onShare={handleShare}
           exporting={exporting}
-        />
-      );
-    }
-    
-    // This handles both the initial teaser view and the post-auth confirmation view
-    if (teaserPlaylist) {
-      return (
-        <TeaserPlaylistView
-          playlist={teaserPlaylist}
-          isConfirmationStep={isConfirmationStep}
-          onConfirm={() => handleMoodSelect(teaserPlaylist.mood)}
-          onUnlock={handleLogin}
-          onTryAnother={handleReset}
         />
       );
     }
@@ -786,6 +773,16 @@ const App: React.FC = () => {
       <main className="relative z-10 flex-grow w-full">
         {renderContent()}
       </main>
+      
+      {teaserPlaylist && (
+        <TeaserPlaylistView
+          playlist={teaserPlaylist}
+          isConfirmationStep={isConfirmationStep}
+          onConfirm={() => handleMoodSelect(teaserPlaylist.mood)}
+          onUnlock={handleLogin}
+          onTryAnother={handleReset}
+        />
+      )}
 
       <PlayerControls 
         currentSong={currentSong}
