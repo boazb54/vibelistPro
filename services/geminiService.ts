@@ -1,4 +1,5 @@
-import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis, GeneratedTeaserRaw } from "../types";
+
+import { GeminiResponseWithMetrics, GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis, GeneratedTeaserRaw, VibeValidationResponse } from "../types";
 import { GoogleGenAI, Type } from "@google/genai";
 
 declare const addLog: (message: string) => void;
@@ -49,6 +50,70 @@ async function handleApiKeyMissingError(responseStatus: number, errorData: any) 
 }
 
 // --- END: PREVIEW MODE IMPLEMENTATION ---
+
+export const validateVibe = async (mood: string): Promise<VibeValidationResponse> => {
+    const systemInstruction = `You are an AI gatekeeper for a music playlist generator. Your task is to validate a user's input based on whether it's a plausible request for a music vibe.
+
+You must classify the input into one of three categories:
+1.  'VIBE_VALID': The input describes a mood, activity, memory, or scenario suitable for music (e.g., "rainy day", "post-breakup", "coding at 2am", "שמח"). This is the most common case.
+2.  'VIBE_INVALID_GIBBERISH': The input is nonsensical, random characters, or keyboard mashing (e.g., "asdfasdf", "jhgjhgj").
+3.  'VIBE_INVALID_OFF_TOPIC': The input is a coherent question or statement but is NOT about a mood or music (e.g., "what's the weather", "tell me a joke", "מתכון לעוגה").
+
+RULES:
+1.  Provide a concise, user-friendly 'reason' for your decision.
+2.  **LANGUAGE MIRRORING (CRITICAL):** The 'reason' MUST be in the same language as the user's input.
+3.  Return ONLY a raw JSON object matching the schema.`;
+
+    if (isPreviewEnvironment()) {
+        addLog(`[PREVIEW MODE] Validating vibe for "${mood}" directly...`);
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: `Validate the following user input: "${mood}"`,
+                config: {
+                    systemInstruction,
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            validation_status: { type: Type.STRING },
+                            reason: { type: Type.STRING }
+                        },
+                        required: ["validation_status", "reason"]
+                    }
+                }
+            });
+            return JSON.parse(response.text);
+        } catch (error) {
+            console.error("[PREVIEW MODE] Direct Gemini call failed (validate):", error);
+            throw error;
+        }
+    } else {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+        addLog(`Calling /api/validate.mjs with mood "${mood}"...`);
+        try {
+            const response = await fetch('/api/validate.mjs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mood }),
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                await handleApiKeyMissingError(response.status, errorData);
+                throw new Error(`Server error: ${errorData.error || response.statusText}`);
+            }
+            return await response.json();
+        } catch (error) {
+            clearTimeout(timeoutId);
+            console.error("Vibe validation failed through proxy:", error);
+            throw error;
+        }
+    }
+};
 
 export const generatePlaylistTeaser = async (mood: string): Promise<GeneratedTeaserRawWithMetrics> => {
     if (isPreviewEnvironment()) {
