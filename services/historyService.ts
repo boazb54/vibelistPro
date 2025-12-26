@@ -1,4 +1,3 @@
-
 import { supabase } from './supabaseClient';
 import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from '../types';
 
@@ -7,9 +6,10 @@ import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } f
  */
 export const saveVibe = async (
   mood: string, 
-  playlist: Playlist, 
+  playlist: Partial<Playlist> & { title: string; description: string }, // Accommodates both full and teaser playlists
   userId: string | null,
-  stats?: VibeGenerationStats 
+  stats: Partial<VibeGenerationStats>, // Teaser stats will be partial
+  userJourneyPhase: 'pre_auth_teaser' | 'post_auth_generation'
 ) => {
   try {
     const payload: any = { 
@@ -17,7 +17,8 @@ export const saveVibe = async (
       mood_prompt: mood,
       playlist_json: playlist,
       is_exported: false,
-      is_failed: false 
+      is_failed: false,
+      user_journey_phase: userJourneyPhase
     };
 
     if (stats) {
@@ -62,7 +63,8 @@ export const logGenerationFailure = async (
   mood: string,
   errorReason: string,
   userId: string | null,
-  stats?: Partial<VibeGenerationStats>
+  stats?: Partial<VibeGenerationStats>,
+  userJourneyPhase?: 'pre_auth_teaser' | 'post_auth_generation'
 ) => {
   try {
     const payload: any = {
@@ -72,6 +74,7 @@ export const logGenerationFailure = async (
       is_failed: true,
       error_message: errorReason,
       is_exported: false,
+      user_journey_phase: userJourneyPhase || (userId ? 'post_auth_generation' : 'pre_auth_teaser'),
       
       total_duration_ms: stats?.totalDurationMs || 0,
       context_time_ms: stats?.contextTimeMs || 0,
