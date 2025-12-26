@@ -1,5 +1,4 @@
 
-
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -190,4 +189,12 @@ export interface AdminDataInspectorProps {
   userTaste: UserTasteProfile | null;
   aggregatedPlaylists: AggregatedPlaylist[];
   debugLogs: string[];
+}
+
+// V1.2.0: Vibe Validation Gate Types
+export type VibeValidationStatus = 'VIBE_VALID' | 'VIBE_INVALID_GIBBERISH' | 'VIBE_INVALID_OFF_TOPIC';
+
+export interface VibeValidationResponse {
+  validation_status: VibeValidationStatus;
+  reason: string;
 }

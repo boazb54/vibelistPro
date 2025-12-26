@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
@@ -7,7 +8,7 @@ import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
 import AdminDataInspector from './components/AdminDataInspector';
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist } from './types';
-import { generatePlaylistFromMood, generatePlaylistTeaser, analyzeUserTopTracks, analyzeUserPlaylistsForMood, isPreviewEnvironment } from './services/geminiService';
+import { validateVibe, generatePlaylistFromMood, generatePlaylistTeaser, analyzeUserTopTracks, analyzeUserPlaylistsForMood, isPreviewEnvironment } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
@@ -31,6 +32,9 @@ interface TeaserPlaylist {
   mood: string;
 }
 
+// Module-level guard to survive React remounts
+let authProcessedGlobal = false;
+
 const App: React.FC = () => {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [teaserPlaylist, setTeaserPlaylist] = useState<TeaserPlaylist | null>(null);
@@ -48,15 +52,44 @@ const App: React.FC = () => {
   const [showAdminDataInspector, setShowAdminDataInspector] = useState(false);
   const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]);
   const [isConfirmationStep, setIsConfirmationStep] = useState(false);
+  const [validationError, setValidationError] = useState<{ message: string; key: number } | null>(null);
 
-  const authProcessed = useRef(false);
   const generationSessionId = useRef(0);
-
   const spotifyClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
 
   const addLog = useCallback((msg: string) => {
     setDebugLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`]);
   }, []);
+
+  const handleSpotifyAuth = useCallback(async (signal: AbortSignal) => {
+    if (authProcessedGlobal) return;
+
+    const code = new URLSearchParams(window.location.search).get('code');
+    const token = getTokenFromHash();
+
+    if (code) {
+      authProcessedGlobal = true;
+      window.history.replaceState({}, '', window.location.pathname);
+      const verifier = localStorage.getItem('code_verifier');
+      if (verifier) {
+        try {
+          const data = await exchangeCodeForToken(spotifyClientId, DEFAULT_REDIRECT_URI, code, verifier, signal);
+          if (!signal.aborted) {
+            handleSuccessFullAuth(data.access_token, data.refresh_token);
+          }
+        } catch (e) {
+          if (e instanceof Error && e.name === 'AbortError') return;
+          authProcessedGlobal = false; // Reset on failure so retry is possible
+          addLog(`PKCE Exchange failed: ${e instanceof Error ? e.message : String(e)}`);
+          console.error("PKCE Exchange failed", e);
+        }
+      }
+    } else if (token) {
+      authProcessedGlobal = true;
+      window.location.hash = "";
+      handleSuccessFullAuth(token);
+    }
+  }, [spotifyClientId, addLog]);
 
   useEffect(() => {
     (window as any).addLog = addLog;
@@ -67,7 +100,8 @@ const App: React.FC = () => {
       fetchProfile(storedToken);
     }
     
-    handleSpotifyAuth();
+    const controller = new AbortController();
+    handleSpotifyAuth(controller.signal);
 
     const params = new URLSearchParams(window.location.search);
     const sharedMood = params.get('mood');
@@ -77,34 +111,12 @@ const App: React.FC = () => {
          if (!playlist) handleMoodSelect(sharedMood, 'text');
        }, 500);
     }
+
+    return () => {
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addLog]);
-
-  const handleSpotifyAuth = async () => {
-    if (authProcessed.current) return;
-
-    const code = new URLSearchParams(window.location.search).get('code');
-    const token = getTokenFromHash();
-
-    if (code) {
-      authProcessed.current = true;
-      window.history.replaceState({}, '', window.location.pathname);
-      const verifier = localStorage.getItem('code_verifier');
-      if (verifier) {
-        try {
-          const data = await exchangeCodeForToken(spotifyClientId, DEFAULT_REDIRECT_URI, code, verifier);
-          handleSuccessFullAuth(data.access_token, data.refresh_token);
-        } catch (e) {
-          addLog(`PKCE Exchange failed: ${e instanceof Error ? e.message : String(e)}`);
-          console.error("PKCE Exchange failed", e);
-        }
-      }
-    } else if (token) {
-      authProcessed.current = true;
-      window.location.hash = "";
-      handleSuccessFullAuth(token);
-    }
-  };
+  }, [addLog, handleSpotifyAuth]);
 
   const handleSuccessFullAuth = async (accessToken: string, refreshToken?: string) => {
     setSpotifyToken(accessToken);
@@ -156,91 +168,101 @@ const App: React.FC = () => {
     }
   };
 
+  /**
+   * [Release v1.2.0 - API Parallelization]
+   * Refactored into a Wave-Based Concurrent Architecture.
+   */
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
-          addLog("Fetching Spotify User Taste Profile (Top Artists, Top Tracks)...");
-          const taste = await fetchUserTasteProfile(token);
+          // --- WAVE 1: CONCURRENT DATA ACQUISITION ---
+          addLog("[Wave 1: Spotify] Initiating concurrent data acquisition...");
+          
+          const [tasteResult, playlistsResult] = await Promise.allSettled([
+            fetchUserTasteProfile(token),
+            fetchUserPlaylistsAndTracks(token)
+          ]);
+
+          let taste: UserTasteProfile | null = null;
+          let aggregatedPlaylists: AggregatedPlaylist[] = [];
+
+          if (tasteResult.status === 'fulfilled' && tasteResult.value) {
+            taste = tasteResult.value;
+            addLog("[Wave 1: Spotify] Taste Profile branch successful (Artists/Tracks acquired).");
+          } else {
+            addLog(`[Wave 1: Spotify] Taste Profile branch failed or returned null.`);
+          }
+
+          if (playlistsResult.status === 'fulfilled') {
+            aggregatedPlaylists = playlistsResult.value;
+            setUserAggregatedPlaylists(aggregatedPlaylists);
+            addLog(`[Wave 1: Spotify] Playlists branch successful. Hydrated ${aggregatedPlaylists.length} playlists.`);
+          } else {
+            addLog(`[Wave 1: Spotify] Playlists branch failed.`);
+          }
+
           if (!taste) {
-              saveUserProfile(profile, null);
-              addLog("No taste profile returned from Spotify. Saving user profile without taste data.");
-              return;
+             addLog("[Wave 1: Spotify] Critical failure: No taste data available. Saving profile without analysis.");
+             saveUserProfile(profile, null);
+             return;
           }
 
           let enhancedTaste: UserTasteProfile = { ...taste };
+          const rawAggregatedPlaylistTracks = aggregatedPlaylists.flatMap(p => p.tracks);
 
-          addLog("Fetching user playlists and tracks for deeper mood analysis...");
-          let fetchedAggregatedPlaylists: AggregatedPlaylist[] = [];
-          let rawAggregatedPlaylistTracks: string[] = [];
-          try {
-            fetchedAggregatedPlaylists = await fetchUserPlaylistsAndTracks(token);
-            setUserAggregatedPlaylists(fetchedAggregatedPlaylists);
-            rawAggregatedPlaylistTracks = fetchedAggregatedPlaylists.flatMap(p => p.tracks);
-          } catch (e: any) {
-            addLog(`Error fetching user playlists: ${e.message}`);
-            console.error("Error fetching user playlists:", e);
-          }
+          // --- WAVE 2: CONCURRENT AI ANALYSIS ---
+          addLog("[Wave 2: Gemini] Initiating concurrent AI analysis...");
+
+          const analysisPromises: Promise<any>[] = [];
+          const analysisTypes: ('mood' | 'tracks')[] = [];
 
           if (rawAggregatedPlaylistTracks.length > 0) {
-              addLog(`Found ${rawAggregatedPlaylistTracks.length} tracks from user playlists. Sending to Gemini for overall mood analysis...`);
-              try {
-                  const playlistMoodAnalysis = await analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks);
-                  if (playlistMoodAnalysis) {
-                      addLog("--- GEMINI PLAYLIST MOOD ANALYSIS ---");
-                      addLog(`Category: "${playlistMoodAnalysis.playlist_mood_category}", Confidence: ${playlistMoodAnalysis.confidence_score.toFixed(2)}`);
-                      enhancedTaste.playlistMoodAnalysis = playlistMoodAnalysis;
-                  } else {
-                      addLog("Gemini Playlist Mood Analysis returned empty or null.");
-                  }
-              } catch (error: any) {
-                  addLog(`Gemini Playlist Mood Analysis Failed: ${error.message || error}`);
-                  console.error("Gemini Playlist Mood Analysis Error:", error);
-              }
-          } else {
-              addLog("No user playlist tracks found for deeper mood analysis.");
+            analysisPromises.push(analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks));
+            analysisTypes.push('mood');
+            addLog("[Wave 2: Gemini] Branch Queued: User Playlist Mood Inference.");
           }
 
           if (enhancedTaste.topTracks.length > 0) {
-              addLog("Sending Top Tracks to Gemini for Feature Analysis (Energy, Mood, Genre)...");
-              
-              analyzeUserTopTracks(enhancedTaste.topTracks)
-                  .then((analysis) => {
-                      if ('error' in analysis) {
-                          addLog(`Gemini Top Tracks Analysis Error: ${analysis.error}`);
-                          setUserTaste(enhancedTaste); 
-                          saveUserProfile(profile, enhancedTaste);
-                          return;
-                      }
-
-                      addLog("--- GEMINI AUDIO ANALYSIS & GENRE (RAW) ---");
-                      addLog(`Analyzed ${analysis.length} tracks.`);
-                      
-                      addLog("--- AGGREGATING SESSION PROFILE (TYPESCRIPT) ---");
-                      const sessionProfile = aggregateSessionData(analysis);
-                      
-                      addLog(JSON.stringify(sessionProfile, null, 2));
-                      
-                      enhancedTaste = {
-                          ...enhancedTaste,
-                          session_analysis: sessionProfile
-                      };
-                      
-                      setUserTaste(enhancedTaste);
-                      saveUserProfile(profile, enhancedTaste);
-                  })
-                  .catch(err => {
-                      addLog(`Gemini Top Tracks Analysis Failed: ${err.message || err}`);
-                      console.error("Gemini Top Tracks Analysis Error:", err);
-                      setUserTaste(enhancedTaste);
-                      saveUserProfile(profile, enhancedTaste);
-                  });
-          } else {
-              addLog("No top tracks available for Gemini analysis.");
-              setUserTaste(enhancedTaste);
-              saveUserProfile(profile, enhancedTaste);
+            analysisPromises.push(analyzeUserTopTracks(enhancedTaste.topTracks));
+            analysisTypes.push('tracks');
+            addLog("[Wave 2: Gemini] Branch Queued: Top Tracks Audio Feature Analysis.");
           }
+
+          if (analysisPromises.length > 0) {
+            const results = await Promise.allSettled(analysisPromises);
+            
+            results.forEach((res, index) => {
+              const type = analysisTypes[index];
+              if (res.status === 'fulfilled' && res.value) {
+                if (type === 'mood') {
+                  enhancedTaste.playlistMoodAnalysis = res.value;
+                  addLog(`[Wave 2: Gemini] Playlist Mood Analysis successful: "${res.value.playlist_mood_category}"`);
+                } else if (type === 'tracks') {
+                  const analysis = res.value;
+                  if (analysis && !('error' in analysis)) {
+                    addLog(`[Wave 2: Gemini] Top Tracks Analysis successful. Processing session fingerprint...`);
+                    const sessionProfile = aggregateSessionData(analysis as any);
+                    enhancedTaste.session_analysis = sessionProfile;
+                    addLog(">>> SESSION SEMANTIC PROFILE GENERATED <<<");
+                  } else {
+                    addLog(`[Wave 2: Gemini] Top Tracks Analysis returned error: ${analysis?.error || 'Unknown'}`);
+                  }
+                }
+              } else {
+                addLog(`[Wave 2: Gemini] ${type === 'mood' ? 'Playlist Mood' : 'Top Tracks'} branch failed to resolve.`);
+              }
+            });
+          } else {
+            addLog("[Wave 2: Gemini] Skipping analysis: No track data available.");
+          }
+
+          // --- FINAL ATOMIC STATE UPDATE ---
+          addLog(">>> PARALLEL DATA REFRESH COMPLETE <<<");
+          setUserTaste(enhancedTaste);
+          saveUserProfile(profile, enhancedTaste);
+
       } catch (e: any) {
-          console.warn("Could not load taste profile or perform initial Spotify/Gemini analysis", e);
-          addLog(`Critical error during profile and taste refresh: ${e.message || e}`);
+          console.warn("Could not perform parallel profile/taste refresh", e);
+          addLog(`Critical Error during Parallel Refresh: ${e.message || e}`);
           saveUserProfile(profile, null);
       }
   };
@@ -277,14 +299,45 @@ const App: React.FC = () => {
     localStorage.removeItem('spotify_token');
     localStorage.removeItem('spotify_refresh_token');
     setShowSettings(false);
+    authProcessedGlobal = false;
     handleReset();
     addLog("User signed out.");
   };
 
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
+    setValidationError(null);
+
+    // --- STAGE 1: CLIENT-SIDE PRE-FLIGHT CHECK ---
+    if (mood.trim().length < 3) {
+      setValidationError({ message: "Please describe the vibe in a bit more detail.", key: Date.now() });
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // --- STAGE 2: API VALIDATION CALL ---
+      addLog(`Validating mood: "${mood}"`);
+      const validationResponse = await validateVibe(mood);
+      addLog(`Validation status: ${validationResponse.validation_status}`);
+
+      if (validationResponse.validation_status !== 'VIBE_VALID') {
+        setValidationError({ message: validationResponse.reason, key: Date.now() });
+        setIsLoading(false);
+        return;
+      }
+    } catch (error: any) {
+      console.error("Vibe validation failed:", error);
+      addLog(`Vibe validation failed: ${error.message}`);
+      setValidationError({ message: "Sorry, there was an issue checking your vibe. Please try again.", key: Date.now() });
+      setIsLoading(false);
+      return;
+    }
+
+    // --- STAGE 3: PROCEED TO GENERATION ---
+
     // --- START: ANONYMOUS TEASER FLOW ---
     if (!spotifyToken && !isRemix) {
-        setIsLoading(true);
         setLoadingMessage("Crafting the perfect title...");
 
         const t0_start = performance.now();
@@ -373,7 +426,6 @@ const App: React.FC = () => {
 
     const failureDetails: { title: string, artist: string, reason: string }[] = [];
 
-    setIsLoading(true);
     setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
     
     setPlaylist(null);
@@ -555,6 +607,7 @@ const App: React.FC = () => {
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
     setIsConfirmationStep(false);
+    setValidationError(null);
     addLog("App state reset.");
   };
 
@@ -681,7 +734,7 @@ const App: React.FC = () => {
       );
     }
 
-    return <MoodSelector onSelectMood={handleMoodSelect} isLoading={isLoading} />;
+    return <MoodSelector onSelectMood={handleMoodSelect} isLoading={isLoading} validationError={validationError} />;
   };
 
   return (
