@@ -1,5 +1,3 @@
-
-
 import { SPOTIFY_AUTH_ENDPOINT, SPOTIFY_SCOPES } from "../constants";
 import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, SpotifyTrack, UserTasteProfile, AggregatedPlaylist } from "../types";
 import { fetchSongMetadata } from "./itunesService";
@@ -26,7 +24,7 @@ export const getPkceLoginUrl = (clientId: string, redirectUri: string, codeChall
   return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}${showDialog ? '&show_dialog=true' : ''}`;
 };
 
-export const exchangeCodeForToken = async (clientId: string, redirectUri: string, code: string, codeVerifier: string) => {
+export const exchangeCodeForToken = async (clientId: string, redirectUri: string, code: string, codeVerifier: string, signal?: AbortSignal) => {
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code: code,
@@ -41,6 +39,7 @@ export const exchangeCodeForToken = async (clientId: string, redirectUri: string
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: body.toString(),
+    signal,
   });
 
   if (!response.ok) {
