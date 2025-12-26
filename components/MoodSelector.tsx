@@ -1,24 +1,34 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { MOODS } from '../constants';
 import { MicIcon } from './Icons';
 import { transcribeAudio } from '../services/geminiService';
 import HowItWorks from './HowItWorks';
+import { isRtl } from '../utils/textUtils';
 
 interface MoodSelectorProps {
   onSelectMood: (mood: string, modality: 'text' | 'voice') => void;
   isLoading: boolean;
+  validationError: { message: string; key: number } | null;
 }
 
-const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) => {
+const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, validationError }) => {
   const [customMood, setCustomMood] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [inputModality, setInputModality] = useState<'text' | 'voice'>('text');
+  const [visibleError, setVisibleError] = useState<string | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
   const CHAR_LIMIT = 500;
+
+  useEffect(() => {
+    if (validationError) {
+      setVisibleError(validationError.message);
+    }
+  }, [validationError]);
+
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,14 +93,26 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
                 const base64Data = base64Full.split(',')[1];
                 const transcript = await transcribeAudio(base64Data, audioBlob.type);
                 
-                if (transcript) {
-                    const cleanTranscript = transcript.trim();
-                    const newValue = customMood ? `${customMood} ${cleanTranscript}` : cleanTranscript;
-                    if (newValue.length <= CHAR_LIMIT) {
-                        setCustomMood(newValue);
-                        setInputModality('voice');
-                    }
+                const cleanTranscript = transcript ? transcript.trim() : "";
+                const hasArtifacts = /^\*.*\*/.test(cleanTranscript) || /^\[.*\]/.test(cleanTranscript) || /^\d{2}:\d{2}/.test(cleanTranscript);
+                const noiseWords = new Set(['thwack', 'thump', 'tap', 'shh', 'shhhh', 'shhhhhh', 'click', 'clack', 'whack', 'knock']);
+                const words = cleanTranscript.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+                const isOnlyNoiseWords = words.length > 0 && words.every(word => noiseWords.has(word));
+                const isInvalidTranscript = !cleanTranscript || hasArtifacts || isOnlyNoiseWords;
+
+                if (isInvalidTranscript) {
+                    if ((window as any).addLog) (window as any).addLog(`Filtered invalid transcript: "${transcript}"`);
+                    setVisibleError("I hear you, but that doesn't sound like a vibe...");
+                    setIsProcessingAudio(false);
+                    return;
                 }
+                
+                const newValue = customMood ? `${customMood} ${cleanTranscript}` : cleanTranscript;
+                if (newValue.length <= CHAR_LIMIT) {
+                    setCustomMood(newValue);
+                    setInputModality('voice');
+                }
+
             } catch (error: any) {
                 console.error("Audio transcription failed", error);
                 alert(`Voice processing failed: ${error.message}`);
@@ -112,21 +134,45 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
     }
   };
 
-  /**
-   * V.2.0.9 - Clean Document Scroll & Targeted Mobile Resizing
-   * 
-   * STRATEGY: 
-   * - Unified Scrolling: Root div no longer uses h-full, added pb-40 spacer for Player overlap.
-   * - Section 4: Removed flex-1 and internal scrolling. Grid/Placards resize specifically on mobile.
-   * - Visual Integrity Lock: Gaps and font sizes change, but gradients/overlays are preserved.
-   */
+  const handleCloseErrorModal = () => {
+    setVisibleError(null);
+  };
+
+  const isRightToLeft = visibleError ? isRtl(visibleError) : false;
+  const textAlign = isRightToLeft ? 'text-right' : 'text-left';
+  const contentDir = isRightToLeft ? 'rtl' : 'ltr';
+  const fontClass = isRightToLeft ? "font-['Heebo']" : "";
 
   return (
     <div className="flex flex-col w-full max-w-5xl mx-auto px-4 animate-fade-in-up pb-40">
       
-      {/* SECTION 1 & 2 & 3: COMPACTED TOP SECTION */}
+      {/* V1.3.1: MODAL ERROR DISPLAY */}
+      {visibleError && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4"
+          onClick={handleCloseErrorModal}
+          aria-modal="true"
+          role="dialog"
+        >
+          <div
+            className="relative bg-rose-950/80 border border-rose-500/30 rounded-2xl shadow-2xl w-full max-w-md p-6 text-center animate-fade-in-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-rose-200 mb-2">Hold on a sec...</h3>
+            <div className={`text-lg text-rose-300 mb-6 ${textAlign} ${fontClass}`} dir={contentDir}>
+              <span className="font-bold">AI Curator:</span> {visibleError}
+            </div>
+            <button
+              onClick={handleCloseErrorModal}
+              className="bg-white/90 text-black font-extrabold rounded-xl px-8 py-3 text-sm uppercase tracking-widest transition-all hover:bg-white hover:scale-105 active:scale-95"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-none pt-4 md:pt-6 pb-2">
-          {/* SECTION 1: HEADER TITLE */}
           <div className="text-center mb-4 md:mb-6">
               <h2 className="text-3xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500 pb-1 leading-tight">
                 How are you feeling today?
@@ -134,13 +180,10 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
           </div>
 
           <div className="flex flex-col gap-y-3 md:gap-y-4 max-w-4xl mx-auto w-full">
-              {/* SECTION 2: HOW IT WORKS RIBBON */}
               <HowItWorks />
-
-              {/* SECTION 3: MOOD SELECTOR (HERO) */}
+              
               <form onSubmit={handleCustomSubmit} className="relative w-full">
                 <div className="relative group">
-                    {/* Blue Halo Focus Effect */}
                     <div className={`absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-3xl opacity-30 group-focus-within:opacity-70 transition duration-500 blur-lg ${isRecording ? 'animate-pulse opacity-90' : ''}`}></div>
                     
                     <div className="relative bg-slate-900 border border-white/10 rounded-3xl p-1.5 shadow-2xl">
@@ -175,9 +218,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
                             </button>
                         </div>
                         
-                        {/* MIRRORING V.2.0.2 ACTION BAR INSIDE THE CONTAINER */}
                         <div className="flex justify-between items-center px-4 pb-2 pt-1">
-                            {/* Counter styled as badge */}
                             <div className="bg-slate-700/50 px-2.5 py-1 rounded-md">
                                 <span className={`text-[10px] font-bold tracking-widest uppercase ${customMood.length > 400 ? 'text-yellow-400' : 'text-slate-400'}`}>
                                     {customMood.length} / {CHAR_LIMIT}
@@ -198,7 +239,6 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading }) 
           </div>
       </div>
 
-      {/* SECTION 4: SCALED QUICK VIBE SECTION - V.2.0.9: Unified Scrolling & Mobile Compaction */}
       <div className="mt-4 md:mt-6">
           <div className="flex items-center justify-center gap-4 mb-6 opacity-40">
               <div className="h-px bg-slate-800 flex-grow max-w-[60px]"></div>
