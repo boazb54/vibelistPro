@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { MOODS } from '../constants';
 import { MicIcon } from './Icons';
@@ -22,13 +21,14 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  const CHAR_LIMIT = 50;
+  const CHAR_LIMIT = 500;
 
   useEffect(() => {
     if (validationError) {
       setVisibleError(validationError.message);
     }
   }, [validationError]);
+
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,14 +93,26 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                 const base64Data = base64Full.split(',')[1];
                 const transcript = await transcribeAudio(base64Data, audioBlob.type);
                 
-                if (transcript) {
-                    const cleanTranscript = transcript.trim();
-                    const newValue = customMood ? `${customMood} ${cleanTranscript}` : cleanTranscript;
-                    if (newValue.length <= CHAR_LIMIT) {
-                        setCustomMood(newValue);
-                        setInputModality('voice');
-                    }
+                const cleanTranscript = transcript ? transcript.trim() : "";
+                const hasArtifacts = /^\*.*\*/.test(cleanTranscript) || /^\[.*\]/.test(cleanTranscript) || /^\d{2}:\d{2}/.test(cleanTranscript);
+                const noiseWords = new Set(['thwack', 'thump', 'tap', 'shh', 'shhhh', 'shhhhhh', 'click', 'clack', 'whack', 'knock']);
+                const words = cleanTranscript.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+                const isOnlyNoiseWords = words.length > 0 && words.every(word => noiseWords.has(word));
+                const isInvalidTranscript = !cleanTranscript || hasArtifacts || isOnlyNoiseWords;
+
+                if (isInvalidTranscript) {
+                    if ((window as any).addLog) (window as any).addLog(`Filtered invalid transcript: "${transcript}"`);
+                    setVisibleError("I hear you, but that doesn't sound like a vibe...");
+                    setIsProcessingAudio(false);
+                    return;
                 }
+                
+                const newValue = customMood ? `${customMood} ${cleanTranscript}` : cleanTranscript;
+                if (newValue.length <= CHAR_LIMIT) {
+                    setCustomMood(newValue);
+                    setInputModality('voice');
+                }
+
             } catch (error: any) {
                 console.error("Audio transcription failed", error);
                 alert(`Voice processing failed: ${error.message}`);
@@ -134,6 +146,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   return (
     <div className="flex flex-col w-full max-w-5xl mx-auto px-4 animate-fade-in-up pb-40">
       
+      {/* V1.3.1: MODAL ERROR DISPLAY */}
       {visibleError && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4"
@@ -179,17 +192,16 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                                 value={customMood}
                                 onChange={handleChange}
                                 onKeyDown={handleKeyDown}
-                                dir={isRtl(customMood) ? 'rtl' : 'ltr'}
                                 placeholder={
                                     isRecording 
-                                    ? "Listening..." 
+                                    ? "Listening... (Tap mic to stop)" 
                                     : (isProcessingAudio 
                                         ? "AI is processing your voice..." 
-                                        : "Describe a moment, a memory, or a dream...")
+                                        : "Talk to the AI. Describe a moment, a memory, or a dream. E.g., 'I just finished a marathon' or 'Driving at 2AM'...")
                                 }
                                 disabled={isLoading || isProcessingAudio}
                                 rows={3}
-                                className={`w-full bg-slate-800/60 text-white placeholder-slate-400/70 rounded-2xl py-6 md:py-10 pl-6 pr-14 focus:outline-none resize-none align-top text-base md:text-lg leading-relaxed transition-colors ${isRecording ? 'placeholder-red-400/70 text-red-200 border-red-500/50 shadow-red-500/50' : ''} ${isRtl(customMood) ? 'font-["Heebo"]' : ''}`}
+                                className={`w-full bg-slate-800/60 text-white placeholder-slate-400/70 rounded-2xl py-6 md:py-10 pl-6 pr-14 focus:outline-none resize-none align-top text-base md:text-lg leading-relaxed transition-colors ${isRecording ? 'placeholder-red-400/70 text-red-200' : ''}`}
                             />
                             <button 
                                 type="button"
