@@ -21,10 +21,11 @@ import {
   fetchUserPlaylistsAndTracks
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
-import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure } from './services/historyService';
+import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure, fetchVibeById } from './services/historyService';
 import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
 
 interface TeaserPlaylist {
+  id: string;
   title: string;
   description: string;
   mood: string;
@@ -105,7 +106,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSuccessFullAuth = (accessToken: string, refreshToken?: string) => {
+  const handleSuccessFullAuth = async (accessToken: string, refreshToken?: string) => {
     setSpotifyToken(accessToken);
     localStorage.setItem('spotify_token', accessToken);
     if (refreshToken) {
@@ -113,16 +114,31 @@ const App: React.FC = () => {
     }
     fetchProfile(accessToken);
 
-    const pendingTeaserJSON = localStorage.getItem('vibelist_pending_teaser');
-    if (pendingTeaserJSON) {
+    const pendingVibeId = localStorage.getItem('vibelist_pending_vibe_id');
+    if (pendingVibeId) {
       try {
-        const pendingTeaser = JSON.parse(pendingTeaserJSON);
-        localStorage.removeItem('vibelist_pending_teaser');
-        setTeaserPlaylist(pendingTeaser);
-        setIsConfirmationStep(true);
-      } catch(e) {
-        console.error("Failed to parse pending teaser from localStorage", e);
-        localStorage.removeItem('vibelist_pending_teaser');
+        addLog(`Found pending vibe ID: ${pendingVibeId}. Fetching from DB...`);
+        const { data: pendingVibe, error } = await fetchVibeById(pendingVibeId);
+        if (error) throw error;
+        
+        if (pendingVibe && pendingVibe.playlist_json) {
+          const teaserData = pendingVibe.playlist_json as { title: string, description: string };
+          setTeaserPlaylist({
+            id: pendingVibe.id,
+            title: teaserData.title,
+            description: teaserData.description,
+            mood: pendingVibe.mood_prompt,
+          });
+          setIsConfirmationStep(true);
+          addLog(`Successfully retrieved pending vibe "${teaserData.title}" from DB.`);
+        } else {
+           addLog(`Pending vibe ID ${pendingVibeId} not found in DB or has no data. Clearing.`);
+           localStorage.removeItem('vibelist_pending_vibe_id');
+        }
+      } catch(e: any) {
+        console.error("Failed to retrieve pending vibe from database", e);
+        addLog(`DB Error retrieving vibe: ${e.message}`);
+        localStorage.removeItem('vibelist_pending_vibe_id');
       }
     }
   };
@@ -282,16 +298,11 @@ const App: React.FC = () => {
             const teaserData = await generatePlaylistTeaser(mood);
             const t1_end = performance.now();
             
-            const pendingTeaser = { 
+            const teaserPayload = { 
                 title: teaserData.playlist_title,
                 description: teaserData.description,
-                mood: mood 
             };
-            localStorage.setItem('vibelist_pending_teaser', JSON.stringify(pendingTeaser));
-            setTeaserPlaylist(pendingTeaser);
-            addLog(`Teaser generated for mood: "${mood}"`);
 
-            // Log pre-auth event to DB
             const ipAddress = await ipPromise;
             const stats: Partial<VibeGenerationStats> = {
                 totalDurationMs: Math.round(t1_end - t0_start),
@@ -300,7 +311,15 @@ const App: React.FC = () => {
                 inputModality: modality,
             };
 
-            saveVibe(mood, { title: teaserData.playlist_title, description: teaserData.description }, null, stats, 'pre_auth_teaser');
+            const { data: savedVibe, error: saveError } = await saveVibe(mood, teaserPayload, null, stats, 'pre_auth_teaser');
+
+            if (saveError || !savedVibe) {
+                throw new Error(saveError?.message || "Failed to save initial vibe to DB.");
+            }
+            
+            localStorage.setItem('vibelist_pending_vibe_id', savedVibe.id);
+            setTeaserPlaylist({ ...teaserPayload, mood: mood, id: savedVibe.id });
+            addLog(`Teaser generated and saved for mood: "${mood}" (ID: ${savedVibe.id})`);
 
         } catch (error: any) {
             console.error("Teaser generation failed:", error);
@@ -330,6 +349,9 @@ const App: React.FC = () => {
     // --- END: ANONYMOUS TEASER FLOW ---
 
     // --- START: AUTHENTICATED PLAYLIST FLOW ---
+    const pendingVibeId = localStorage.getItem('vibelist_pending_vibe_id');
+    localStorage.removeItem('vibelist_pending_vibe_id');
+
     const currentSessionId = ++generationSessionId.current;
     
     const localTime = new Date().toLocaleTimeString();
@@ -431,6 +453,7 @@ const App: React.FC = () => {
         if (currentSessionId !== generationSessionId.current) return;
 
         const finalPlaylist: Playlist = {
+            id: pendingVibeId || undefined,
             title: generatedData.playlist_title,
             mood: generatedData.mood,
             description: generatedData.description,
@@ -467,14 +490,13 @@ const App: React.FC = () => {
         };
 
         try {
-            const { data: savedVibe, error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null, stats, 'post_auth_generation');
+            const { error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null, stats, 'post_auth_generation', pendingVibeId || undefined);
             
             if (saveError) {
                 addLog(`Database Error: ${saveError.message}`);
                 setShowDebug(true); 
-            } else if (savedVibe) {
-                setPlaylist(prev => prev ? { ...prev, id: savedVibe.id } : null);
-                addLog(`Vibe saved to memory (ID: ${savedVibe.id})`);
+            } else {
+                addLog(`Vibe updated in memory (ID: ${pendingVibeId || 'new'})`);
             }
         } catch (dbErr) {
             console.error(dbErr);
@@ -527,6 +549,7 @@ const App: React.FC = () => {
   };
 
   const handleReset = () => {
+    localStorage.removeItem('vibelist_pending_vibe_id');
     setPlaylist(null);
     setTeaserPlaylist(null);
     setCurrentSong(null);
