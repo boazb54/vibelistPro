@@ -151,13 +151,13 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
                   : `https://open.spotify.com/search/${encodeURIComponent(song.title + " " + song.artist)}`;
 
                 return (
-                  <div key={song.id} className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-200 ${isCurrent ? 'bg-white/10 border-l-4 border-purple-500' : 'hover:bg-white/5 border-l-4 border-transparent'}`}>
+                  <div key={song.id} className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-300 ease-in-out ${isCurrent ? 'bg-slate-800/80 border-l-4 border-purple-500 shadow-lg shadow-purple-500/20 scale-[1.02]' : 'border-l-4 border-transparent hover:bg-slate-800/50 hover:border-purple-500/30 hover:scale-[1.01]'}`}>
                     {/* Artwork & Play Button (Fixed Anchor: Always Left) */}
                     <div className="relative flex-shrink-0 w-12 h-12 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-800 shadow-lg">
                       {song.artworkUrl ? <img src={song.artworkUrl} alt={song.album} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-600 bg-slate-900"><span className="text-xs">No Art</span></div>}
                       
                       {hasPreview ? (
-                          <button onClick={() => isPlaying ? onPause() : onPlaySong(song)} className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity opacity-100`}>
+                          <button onClick={() => isPlaying ? onPause() : onPlaySong(song)} className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${isPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                           {isPlaying ? <PauseIcon className="w-6 h-6 text-white" /> : <PlayIcon className="w-6 h-6 text-white" />}
                           </button>
                       ) : (
