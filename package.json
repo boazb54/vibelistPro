@@ -1,6 +1,5 @@
-
 {
-  "name": "vibelist-plus",
+  "name": "vibelist-pro",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^1.31.0",
+    "@google/genai": "^0.1.1",
     "@supabase/supabase-js": "^2.39.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

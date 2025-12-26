@@ -82,6 +82,11 @@ export interface GeneratedPlaylistRaw {
   songs: GeneratedSongRaw[];
 }
 
+export interface GeneratedTeaserRaw {
+  playlist_title: string;
+  description: string;
+}
+
 export interface GeminiResponseWithMetrics extends GeneratedPlaylistRaw {
   promptText: string;
   metrics: {
