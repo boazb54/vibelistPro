@@ -2,14 +2,16 @@ import { supabase } from './supabaseClient';
 import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from '../types';
 
 /**
- * Saves a generated playlist to the 'generated_vibes' table.
+ * Saves or updates a generated playlist in the 'generated_vibes' table.
+ * If an existingVibeId is provided, it updates that record. Otherwise, it inserts a new one.
  */
 export const saveVibe = async (
   mood: string, 
-  playlist: Partial<Playlist> & { title: string; description: string }, // Accommodates both full and teaser playlists
+  playlist: Partial<Playlist> & { title: string; description: string },
   userId: string | null,
-  stats: Partial<VibeGenerationStats>, // Teaser stats will be partial
-  userJourneyPhase: 'pre_auth_teaser' | 'post_auth_generation'
+  stats: Partial<VibeGenerationStats>,
+  userJourneyPhase: 'pre_auth_teaser' | 'post_auth_generation',
+  existingVibeId?: string
 ) => {
   try {
     const payload: any = { 
@@ -42,11 +44,25 @@ export const saveVibe = async (
       payload.ip_address = stats.ipAddress;
     }
 
-    const { data, error } = await supabase
-      .from('generated_vibes')
-      .insert([payload])
-      .select()
-      .single();
+    let query;
+    if (existingVibeId) {
+      // Update existing record, primarily to add user_id and full playlist details
+      query = supabase
+        .from('generated_vibes')
+        .update(payload)
+        .eq('id', existingVibeId)
+        .select()
+        .single();
+    } else {
+      // Insert a new record (for pre-auth teasers or remixes without a pending vibe)
+      query = supabase
+        .from('generated_vibes')
+        .insert([payload])
+        .select()
+        .single();
+    }
+    
+    const { data, error } = await query;
 
     if (error) {
       console.error("Supabase Raw Error:", error);
@@ -58,6 +74,28 @@ export const saveVibe = async (
     return { data: null, error };
   }
 };
+
+/**
+ * Fetches a single vibe record from the database by its ID.
+ */
+export const fetchVibeById = async (vibeId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('generated_vibes')
+      .select('id, mood_prompt, playlist_json')
+      .eq('id', vibeId)
+      .single();
+
+    if (error) {
+      console.error("Supabase error fetching vibe by ID:", error);
+    }
+    return { data, error };
+  } catch (error: any) {
+    console.error("Exception fetching vibe by ID:", error);
+    return { data: null, error };
+  }
+};
+
 
 export const logGenerationFailure = async (
   mood: string,
