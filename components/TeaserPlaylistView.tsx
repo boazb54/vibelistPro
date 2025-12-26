@@ -32,12 +32,12 @@ const TeaserPlaylistView: React.FC<TeaserPlaylistViewProps> = ({ playlist, isCon
     if (isConfirmationStep) {
       return (
         <div className="flex flex-col items-center justify-center gap-4 w-full mt-6" dir="ltr">
-          <button 
-            onClick={onTryAnother}
-            className="text-slate-300 font-medium hover:text-white transition-colors"
-          >
-            Try another moment
-          </button>
+          {/*
+            [Architectural Decision v1.5.2]
+            The "Try another moment" button is deliberately removed from the post-authentication confirmation step.
+            This is to prevent user confusion and create a single, clear path to generating the selected vibe.
+            The user must now use primary navigation (e.g., the logo) to intentionally reset the flow.
+          */}
           <button onClick={onConfirm} className={`${confirmBtnClass} max-w-xs mt-2`}>
             <span>One last touch</span>
           </button>
