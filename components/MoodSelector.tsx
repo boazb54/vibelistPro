@@ -22,7 +22,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  const CHAR_LIMIT = 500;
+  const CHAR_LIMIT = 50;
 
   useEffect(() => {
     if (validationError) {
