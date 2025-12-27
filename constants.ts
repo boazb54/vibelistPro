@@ -1,4 +1,3 @@
-
 export const MOODS = [
   { id: 'chill', label: 'Chill', emoji: '☕', color: 'from-blue-500 to-cyan-400' },
   { id: 'workout', label: 'Workout', emoji: '💪', color: 'from-red-500 to-orange-400' },
