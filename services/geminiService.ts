@@ -275,9 +275,16 @@ RULES:
             });
             clearTimeout(timeoutId);
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
+                const errorBody = await response.text(); // Always try to get raw text
+                let errorData: any = {};
+                try {
+                    errorData = JSON.parse(errorBody);
+                } catch (e) {
+                    addLog(`Server response was not JSON for status ${response.status}, falling back to raw text. Raw body: "${errorBody.substring(0, 200)}..."`);
+                    errorData.error = `Non-JSON response from server: ${errorBody.substring(0, 500)}`; // Provide truncated raw body
+                }
                 await handleApiKeyMissingError(response.status, errorData);
-                throw new Error(`Server error: ${errorData.error || response.statusText}`);
+                throw new Error(`Server error (${response.status}): ${errorData.error || response.statusText || 'Unknown server response'}`);
             }
             const rawData: UnifiedVibeResponse = await response.json();
             return {
