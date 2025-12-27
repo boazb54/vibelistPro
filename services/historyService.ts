@@ -10,7 +10,7 @@ export const saveVibe = async (
   playlist: Partial<Playlist> & { title: string; description: string },
   userId: string | null,
   stats: Partial<VibeGenerationStats>,
-  userJourneyPhase: 'pre_auth_teaser' | 'post_auth_generation',
+  userJourneyPhase: 'pre_auth_teaser' | 'post_auth_generation' | 'validation_failure', // Added validation_failure
   existingVibeId?: string
 ) => {
   try {
@@ -102,7 +102,7 @@ export const logGenerationFailure = async (
   errorReason: string,
   userId: string | null,
   stats?: Partial<VibeGenerationStats>,
-  userJourneyPhase?: 'pre_auth_teaser' | 'post_auth_generation'
+  userJourneyPhase?: 'pre_auth_teaser' | 'post_auth_generation' | 'validation_failure' // Added validation_failure
 ) => {
   try {
     const payload: any = {
