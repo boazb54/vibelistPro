@@ -153,24 +153,6 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                     onSelectMood(newValue, 'voice'); // Immediately trigger mood selection with voice input
                 } else {
                     setVisibleError(`Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`);
-                const cleanTranscript = transcript ? transcript.trim() : "";
-                const hasArtifacts = /^\*.*\*/.test(cleanTranscript) || /^\[.*\]/.test(cleanTranscript) || /^\d{2}:\d{2}/.test(cleanTranscript);
-                const noiseWords = new Set(['thwack', 'thump', 'tap', 'shh', 'shhhh', 'shhhhhh', 'click', 'clack', 'whack', 'knock']);
-                const words = cleanTranscript.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
-                const isOnlyNoiseWords = words.length > 0 && words.every(word => noiseWords.has(word));
-                const isInvalidTranscript = !cleanTranscript || hasArtifacts || isOnlyNoiseWords;
-
-                if (isInvalidTranscript) {
-                    if ((window as any).addLog) (window as any).addLog(`Filtered invalid transcript: "${transcript}"`);
-                    setVisibleError("I hear you, but that doesn't sound like a vibe...");
-                    setIsProcessingAudio(false);
-                    return;
-                }
-                
-                const newValue = customMood ? `${customMood} ${cleanTranscript}` : cleanTranscript;
-                if (newValue.length <= CHAR_LIMIT) {
-                    setCustomMood(newValue);
-                    setInputModality('voice');
                 }
 
             } catch (error: any) {
