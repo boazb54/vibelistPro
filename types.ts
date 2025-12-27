@@ -1,4 +1,3 @@
-
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -86,12 +85,15 @@ export interface GeneratedTeaserRaw {
   description: string;
 }
 
-export interface GeminiResponseWithMetrics extends GeneratedPlaylistRaw {
+export interface GeminiResponseMetrics { // Extracted metrics interface for reuse
+  promptBuildTimeMs: number;
+  geminiApiTimeMs: number;
+}
+
+// Previously GeminiResponseWithMetrics, now part of UnifiedVibeResponse
+export interface GeminiPlaylistResponse extends GeneratedPlaylistRaw {
   promptText: string;
-  metrics: {
-    promptBuildTimeMs: number;
-    geminiApiTimeMs: number;
-  };
+  metrics: GeminiResponseMetrics;
 }
 
 export enum PlayerState {
@@ -197,4 +199,19 @@ export type VibeValidationStatus = 'VIBE_VALID' | 'VIBE_INVALID_GIBBERISH' | 'VI
 export interface VibeValidationResponse {
   validation_status: VibeValidationStatus;
   reason: string;
+}
+
+// V1.2.0: Unified response for the /api/vibe.mjs endpoint
+// This type combines possible outcomes: validation, teaser, or full playlist
+export interface UnifiedVibeResponse {
+  validation_status?: VibeValidationStatus; // Present for all responses, optional as server might omit if always valid
+  reason?: string; // Reason for validation status
+
+  playlist_title?: string; // Present for teasers and full playlists
+  mood?: string; // Present for full playlists
+  description?: string; // Present for teasers and full playlists
+  songs?: GeneratedSongRaw[]; // Present only for full playlists
+
+  promptText?: string; // Only returned from client-side `generatePlaylistFromMood` in preview env
+  metrics?: GeminiResponseMetrics; // Optional, server might provide
 }
