@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
@@ -49,7 +50,8 @@ const App: React.FC = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdminDataInspector, setShowAdminDataInspector] = useState(false);
-  const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]);
+  const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]
+  );
   const [isConfirmationStep, setIsConfirmationStep] = useState(false);
   const [validationError, setValidationError] = useState<{ message: string; key: number } | null>(null);
 
@@ -282,14 +284,15 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSettings = () => {
-    if (spotifyToken) {
-        setShowSettings(true);
-    } else {
-        alert("Please login first to manage your settings.");
-        handleLogin();
-    }
-  };
+  // handleSettings function removed - functionality moved to user profile display
+  // const handleSettings = () => {
+  //   if (spotifyToken) {
+  //       setShowSettings(true);
+  //   } else {
+  //       setValidationError({ message: "Please login first to manage your settings.", key: Date.now() });
+  //       handleLogin();
+  //   }
+  // };
 
   const handleSignOut = () => {
     setSpotifyToken(null);
@@ -518,10 +521,10 @@ const App: React.FC = () => {
         addLog(`Playlist generation failed. Error Name: ${error.name || 'UnknownError'}, Message: ${error.message || 'No message provided.'}`);
         
         if (error.name === 'ApiKeyRequiredError') {
-            alert(error.message);
-            setLoadingMessage(error.message);
+            setValidationError({ message: error.message, key: Date.now() }); // Use new modal for API Key errors
         } else {
             setLoadingMessage("Error generating playlist. Please check debug logs for details.");
+            setValidationError({ message: `Error generating playlist. Details: ${error.message || 'Unknown error.'}`, key: Date.now() });
         }
 
         if ((error as any).details) {
@@ -715,9 +718,10 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-4">
-           <button onClick={handleSettings} className="text-slate-400 hover:text-white transition-colors" title="Settings">
+           {/* Settings button removed - functionality moved to user profile display */}
+           {/* <button onClick={handleSettings} className="text-slate-400 hover:text-white transition-colors" title="Settings">
                <CogIcon className="w-6 h-6" />
-           </button>
+           </button> */}
 
            <button 
              onClick={(e) => {
@@ -744,7 +748,10 @@ const App: React.FC = () => {
                Login with Spotify
              </button>
            ) : (
-             <div className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10">
+             <div 
+               className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10 cursor-pointer hover:bg-white/10 transition-colors"
+               onClick={() => setShowSettings(true)} // Clicking profile now opens settings
+             >
                {userProfile?.images?.[0] ? (
                  <img src={userProfile.images[0].url} alt="Profile" className="w-6 h-6 rounded-full border border-white/20" />
                ) : (
@@ -817,3 +824,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+    
