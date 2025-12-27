@@ -8,7 +8,7 @@ import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
 import AdminDataInspector from './components/AdminDataInspector';
 import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse } from './types';
-import { generatePlaylistFromMood, analyzeFullTasteProfile, isPreviewEnvironment } from './services/geminiService';
+import { generatePlaylistFromMood, analyzeUserTopTracks, analyzeUserPlaylistsForMood, isPreviewEnvironment } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
@@ -32,6 +32,7 @@ interface TeaserPlaylist {
   mood: string;
 }
 
+// Module-level guard to survive React remounts
 let authProcessedGlobal = false;
 
 const App: React.FC = () => {
@@ -49,7 +50,8 @@ const App: React.FC = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdminDataInspector, setShowAdminDataInspector] = useState(false);
-  const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]);
+  const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]
+  );
   const [isConfirmationStep, setIsConfirmationStep] = useState(false);
   const [validationError, setValidationError] = useState<{ message: string; key: number } | null>(null);
 
@@ -78,8 +80,9 @@ const App: React.FC = () => {
           }
         } catch (e) {
           if (e instanceof Error && e.name === 'AbortError') return;
-          authProcessedGlobal = false;
+          authProcessedGlobal = false; // Reset on failure so retry is possible
           addLog(`PKCE Exchange failed: ${e instanceof Error ? e.message : String(e)}`);
+          console.error("PKCE Exchange failed", e);
         }
       }
     } else if (token) {
@@ -91,21 +94,66 @@ const App: React.FC = () => {
 
   useEffect(() => {
     (window as any).addLog = addLog;
+
     const storedToken = localStorage.getItem('spotify_token');
     if (storedToken) {
       setSpotifyToken(storedToken);
       fetchProfile(storedToken);
     }
+    
     const controller = new AbortController();
     handleSpotifyAuth(controller.signal);
-    return () => controller.abort();
+
+    const params = new URLSearchParams(window.location.search);
+    const sharedMood = params.get('mood');
+    if (sharedMood) {
+       window.history.replaceState({}, '', window.location.pathname);
+       setTimeout(() => {
+         if (!playlist) handleMoodSelect(sharedMood, 'text');
+       }, 500);
+    }
+
+    return () => {
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addLog, handleSpotifyAuth]);
 
   const handleSuccessFullAuth = async (accessToken: string, refreshToken?: string) => {
     setSpotifyToken(accessToken);
     localStorage.setItem('spotify_token', accessToken);
-    if (refreshToken) localStorage.setItem('spotify_refresh_token', refreshToken);
+    if (refreshToken) {
+      localStorage.setItem('spotify_refresh_token', refreshToken);
+    }
     fetchProfile(accessToken);
+
+    const pendingVibeId = localStorage.getItem('vibelist_pending_vibe_id');
+    if (pendingVibeId) {
+      try {
+        addLog(`Found pending vibe ID: ${pendingVibeId}. Fetching from DB...`);
+        const { data: pendingVibe, error } = await fetchVibeById(pendingVibeId);
+        if (error) throw error;
+        
+        if (pendingVibe && pendingVibe.playlist_json) {
+          const teaserData = pendingVibe.playlist_json as { title: string, description: string };
+          setTeaserPlaylist({
+            id: pendingVibe.id,
+            title: teaserData.title,
+            description: teaserData.description,
+            mood: pendingVibe.mood_prompt,
+          });
+          setIsConfirmationStep(true);
+          addLog(`Successfully retrieved pending vibe "${teaserData.title}" from DB.`);
+        } else {
+           addLog(`Pending vibe ID ${pendingVibeId} not found in DB or has no data. Clearing.`);
+           localStorage.removeItem('vibelist_pending_vibe_id');
+        }
+      } catch(e: any) {
+        console.error("Failed to retrieve pending vibe from database", e);
+        addLog(`DB Error retrieving vibe: ${e.message}`);
+        localStorage.removeItem('vibelist_pending_vibe_id');
+      }
+    }
   };
 
   const fetchProfile = async (token: string) => {
@@ -114,18 +162,22 @@ const App: React.FC = () => {
       setUserProfile(profile);
       refreshProfileAndTaste(token, profile);
     } catch (e) {
+      addLog(`Failed to fetch Spotify profile: ${e instanceof Error ? e.message : String(e)}`);
+      console.error("Failed to fetch profile", e);
       localStorage.removeItem('spotify_token');
       setSpotifyToken(null);
     }
   };
 
   /**
-   * [Release v1.2.2 - Quantum Taste]
-   * Consolidates Spotify data analysis into a single Gemini API pass.
+   * [Release v1.2.0 - API Parallelization]
+   * Refactored into a Wave-Based Concurrent Architecture.
    */
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
-          addLog("[Wave 1: Spotify] Fetching tracks and playlists...");
+          // --- WAVE 1: CONCURRENT DATA ACQUISITION ---
+          addLog("[Wave 1: Spotify] Initiating concurrent data acquisition...");
+          
           const [tasteResult, playlistsResult] = await Promise.allSettled([
             fetchUserTasteProfile(token),
             fetchUserPlaylistsAndTracks(token)
@@ -136,60 +188,111 @@ const App: React.FC = () => {
 
           if (tasteResult.status === 'fulfilled' && tasteResult.value) {
             taste = tasteResult.value;
+            addLog("[Wave 1: Spotify] Taste Profile branch successful (Artists/Tracks acquired).");
+          } else {
+            addLog(`[Wave 1: Spotify] Taste Profile branch failed or returned null.`);
           }
+
           if (playlistsResult.status === 'fulfilled') {
             aggregatedPlaylists = playlistsResult.value;
             setUserAggregatedPlaylists(aggregatedPlaylists);
+            addLog(`[Wave 1: Spotify] Playlists branch successful. Hydrated ${aggregatedPlaylists.length} playlists.`);
+          } else {
+            addLog(`[Wave 1: Spotify] Playlists branch failed.`);
           }
 
           if (!taste) {
+             addLog("[Wave 1: Spotify] Critical failure: No taste data available. Saving profile without analysis.");
              saveUserProfile(profile, null);
              return;
           }
 
-          const rawPlaylistTracks = aggregatedPlaylists.flatMap(p => p.tracks);
+          let enhancedTaste: UserTasteProfile = { ...taste };
+          const rawAggregatedPlaylistTracks = aggregatedPlaylists.flatMap(p => p.tracks);
 
-          // --- WAVE 2: UNIFIED SEMANTIC SYNTHESIS ---
-          addLog("[Wave 2: Gemini] Initiating Quantum Taste Unification...");
-          const unifiedResult = await analyzeFullTasteProfile(taste.topTracks, rawPlaylistTracks);
+          // --- WAVE 2: CONCURRENT AI ANALYSIS ---
+          addLog("[Wave 2: Gemini] Initiating concurrent AI analysis...");
 
-          if (unifiedResult) {
-            addLog(`[Wave 2: Gemini] Unified synthesis complete. Category: "${unifiedResult.playlist_mood.playlist_mood_category}"`);
-            
-            const sessionProfile = aggregateSessionData(unifiedResult.analyzed_tracks);
-            
-            const finalTaste: UserTasteProfile = {
-              ...taste,
-              playlistMoodAnalysis: unifiedResult.playlist_mood,
-              session_analysis: sessionProfile,
-              unified_analysis: unifiedResult
-            };
+          const analysisPromises: Promise<any>[] = [];
+          const analysisTypes: ('mood' | 'tracks')[] = [];
 
-            setUserTaste(finalTaste);
-            saveUserProfile(profile, finalTaste);
-            addLog(">>> UNIFIED VIBE FINGERPRINT GENERATED <<<");
-          } else {
-            addLog("[Wave 2: Gemini] Synthesis returned null. Using raw profile.");
-            saveUserProfile(profile, taste);
+          if (rawAggregatedPlaylistTracks.length > 0) {
+            analysisPromises.push(analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks));
+            analysisTypes.push('mood');
+            addLog("[Wave 2: Gemini] Branch Queued: User Playlist Mood Inference.");
           }
 
+          if (enhancedTaste.topTracks.length > 0) {
+            analysisPromises.push(analyzeUserTopTracks(enhancedTaste.topTracks));
+            analysisTypes.push('tracks');
+            addLog("[Wave 2: Gemini] Branch Queued: Top Tracks Audio Feature Analysis.");
+          }
+
+          if (analysisPromises.length > 0) {
+            const results = await Promise.allSettled(analysisPromises);
+            
+            results.forEach((res, index) => {
+              const type = analysisTypes[index];
+              if (res.status === 'fulfilled' && res.value) {
+                if (type === 'mood') {
+                  enhancedTaste.playlistMoodAnalysis = res.value;
+                  addLog(`[Wave 2: Gemini] Playlist Mood Analysis successful: "${res.value.playlist_mood_category}"`);
+                } else if (type === 'tracks') {
+                  const analysis = res.value;
+                  if (analysis && !('error' in analysis)) {
+                    addLog(`[Wave 2: Gemini] Top Tracks Analysis successful. Processing session fingerprint...`);
+                    const sessionProfile = aggregateSessionData(analysis as any);
+                    enhancedTaste.session_analysis = sessionProfile;
+                    addLog(">>> SESSION SEMANTIC PROFILE GENERATED <<<");
+                  } else {
+                    addLog(`[Wave 2: Gemini] Top Tracks Analysis returned error: ${analysis?.error || 'Unknown'}`);
+                  }
+                }
+              } else {
+                addLog(`[Wave 2: Gemini] ${type === 'mood' ? 'Playlist Mood' : 'Top Tracks'} branch failed to resolve.`);
+              }
+            });
+          } else {
+            addLog("[Wave 2: Gemini] Skipping analysis: No track data available.");
+          }
+
+          // --- FINAL ATOMIC STATE UPDATE ---
+          addLog(">>> PARALLEL DATA REFRESH COMPLETE <<<");
+          setUserTaste(enhancedTaste);
+          saveUserProfile(profile, enhancedTaste);
+
       } catch (e: any) {
-          addLog(`Critical Error during Refresh: ${e.message || e}`);
+          console.warn("Could not perform parallel profile/taste refresh", e);
+          addLog(`Critical Error during Parallel Refresh: ${e.message || e}`);
           saveUserProfile(profile, null);
       }
   };
 
   const handleLogin = async () => {
     if (isPreviewEnvironment()) {
+      addLog("Preview environment detected. Using top-level redirect for Spotify login.");
       const currentUrl = window.location.href.split('#')[0];
-      window.top.location.href = getLoginUrl(spotifyClientId, currentUrl);
+      const url = getLoginUrl(spotifyClientId, currentUrl);
+      window.top.location.href = url;
     } else {
+      addLog("Production environment detected. Using PKCE flow for Spotify login.");
       const verifier = generateRandomString(128);
       const challenge = await generateCodeChallenge(verifier);
       localStorage.setItem('code_verifier', verifier);
-      window.location.href = getPkceLoginUrl(spotifyClientId, DEFAULT_REDIRECT_URI, challenge);
+      const url = getPkceLoginUrl(spotifyClientId, DEFAULT_REDIRECT_URI, challenge);
+      window.location.href = url;
     }
   };
+
+  // handleSettings function removed - functionality moved to user profile display
+  // const handleSettings = () => {
+  //   if (spotifyToken) {
+  //       setShowSettings(true);
+  //   } else {
+  //       setValidationError({ message: "Please login first to manage your settings.", key: Date.now() });
+  //       handleLogin();
+  //   }
+  // };
 
   const handleSignOut = () => {
     setSpotifyToken(null);
@@ -200,10 +303,14 @@ const App: React.FC = () => {
     setShowSettings(false);
     authProcessedGlobal = false;
     handleReset();
+    addLog("User signed out.");
   };
 
+  // --- START: Unified handleMoodSelect (v1.2.0) ---
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
     setValidationError(null);
+
+    // --- STAGE 1: CLIENT-SIDE PRE-FLIGHT CHECK ---
     if (mood.trim().length < 3) {
       setValidationError({ message: "Please describe the vibe in a bit more detail.", key: Date.now() });
       return;
@@ -211,76 +318,249 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
+    
     setPlaylist(null);
     setTeaserPlaylist(null);
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
+    setIsConfirmationStep(false);
 
     const currentSessionId = ++generationSessionId.current;
     const ipPromise = fetch('https://api.ipify.org?format=json').then(res => res.json()).then(data => data.ip).catch(() => 'unknown');
+
     const t0_start = performance.now();
+    let t1_gemini_end = 0;
+    let t2_itunes_start = 0;
+    let t3_itunes_end = 0;
+    let capturedPromptText = "";
+    let capturedContextTime = 0;
+
+    const failureDetails: { title: string, artist: string, reason: string }[] = [];
+    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
+    
+    addLog(`Generating vibe for: "${mood}" (${modality})...`);
+
+    const localTime = new Date().toLocaleTimeString();
+    const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const browserLanguage = navigator.language;
+    const deviceType = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+
+    const t_context_start = performance.now();
+    const contextSignals: ContextualSignals = {
+        local_time: localTime,
+        day_of_week: dayOfWeek,
+        device_type: deviceType,
+        input_modality: modality,
+        browser_language: browserLanguage,
+        country: userProfile?.country
+    };
+    const t_context_end = performance.now();
+    capturedContextTime = Math.round(t_context_end - t_context_start);
 
     try {
-        const contextSignals: ContextualSignals = {
-            local_time: new Date().toLocaleTimeString(),
-            day_of_week: new Date().toLocaleDateString('en-US', { weekday: 'long' }),
-            device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
-            input_modality: modality,
-            browser_language: navigator.language,
-            country: userProfile?.country
-        };
-
         const unifiedResponse: UnifiedVibeResponse = await generatePlaylistFromMood(
             mood, 
             contextSignals, 
-            !!spotifyToken,
+            !!spotifyToken, // isAuthenticated flag
             userTaste || undefined, 
-            isRemix && playlist ? playlist.songs.map(s => s.title) : undefined
+            excludeSongs
         );
+
+        capturedPromptText = unifiedResponse.promptText;
+        t1_gemini_end = performance.now(); 
+
+        addLog("--- CONTEXTUAL PROMPT PAYLOAD ---");
+        addLog(unifiedResponse.promptText);
+        addLog(`Unified response status: ${unifiedResponse.validation_status || 'N/A'}`);
 
         if (currentSessionId !== generationSessionId.current) return;
 
-        if (unifiedResponse.validation_status !== 'VIBE_VALID') {
+        // --- Handle Validation Errors ---
+        if (unifiedResponse.validation_status && unifiedResponse.validation_status !== 'VIBE_VALID') {
             setValidationError({ message: unifiedResponse.reason!, key: Date.now() });
             setIsLoading(false);
+            
+            const t_fail = performance.now();
+            const ipAddress = await ipPromise;
+            logGenerationFailure(
+                mood,
+                unifiedResponse.reason || "Validation failed",
+                userProfile?.id || null,
+                {
+                    totalDurationMs: Math.round(t_fail - t0_start),
+                    localTime, dayOfWeek, browserLanguage, deviceType, ipAddress,
+                    inputModality: modality,
+                },
+                'validation_failure' // New phase for explicit validation failures
+            );
             return;
         }
 
-        if (!spotifyToken && !unifiedResponse.songs) {
-            const teaserPayload = { title: unifiedResponse.playlist_title!, description: unifiedResponse.description! };
-            const { data: savedVibe } = await saveVibe(mood, teaserPayload, null, {}, 'pre_auth_teaser');
-            if (savedVibe) {
-                localStorage.setItem('vibelist_pending_vibe_id', savedVibe.id);
-                setTeaserPlaylist({ ...teaserPayload, mood: mood, id: savedVibe.id });
+        // --- Handle Teaser Generation ---
+        if (!spotifyToken && !unifiedResponse.songs) { // No songs means it's a teaser
+            const teaserPayload = { 
+                title: unifiedResponse.playlist_title!,
+                description: unifiedResponse.description!,
+            };
+
+            const ipAddress = await ipPromise;
+            const stats: Partial<VibeGenerationStats> = {
+                totalDurationMs: Math.round(t1_gemini_end - t0_start),
+                geminiApiTimeMs: unifiedResponse.metrics?.geminiApiTimeMs || 0,
+                localTime, dayOfWeek, browserLanguage, deviceType, ipAddress,
+                inputModality: modality,
+            };
+
+            const { data: savedVibe, error: saveError } = await saveVibe(mood, teaserPayload, null, stats, 'pre_auth_teaser');
+
+            if (saveError || !savedVibe) {
+                throw new Error(saveError?.message || "Failed to save initial vibe to DB.");
             }
+            
+            localStorage.setItem('vibelist_pending_vibe_id', savedVibe.id);
+            setTeaserPlaylist({ ...teaserPayload, mood: mood, id: savedVibe.id });
+            addLog(`Teaser generated and saved for mood: "${mood}" (ID: ${savedVibe.id})`);
             setIsLoading(false);
             return;
         }
 
+        // --- Handle Full Playlist Generation ---
         if (unifiedResponse.songs) {
+            addLog("AI generation complete. Fetching metadata (Safe Mode)...");
+            t2_itunes_start = performance.now();
+
             const validSongs: Song[] = [];
-            const BATCH_SIZE = 5;
-            for (let i = 0; i < unifiedResponse.songs.length; i += BATCH_SIZE) {
+            const BATCH_SIZE = 5; 
+            const allSongsRaw = unifiedResponse.songs;
+
+            for (let i = 0; i < allSongsRaw.length; i += BATCH_SIZE) {
                 if (currentSessionId !== generationSessionId.current) return;
-                const batch = unifiedResponse.songs.slice(i, i + BATCH_SIZE);
-                const results = await Promise.all(batch.map(raw => fetchSongMetadata(raw)));
-                results.forEach(s => s && validSongs.push(s));
+                
+                const batch = allSongsRaw.slice(i, i + BATCH_SIZE);
+                const batchPromises = batch.map(raw => fetchSongMetadata(raw));
+                
+                const results = await Promise.all(batchPromises);
+                
+                results.forEach((s, index) => {
+                    if (s !== null) {
+                        validSongs.push(s);
+                    } else {
+                        const rawSong = batch[index];
+                        failureDetails.push({
+                            title: rawSong.title,
+                            artist: rawSong.artist,
+                            reason: "Metadata or Preview not found in iTunes"
+                        });
+                    }
+                });
+                
+                await new Promise(r => setTimeout(r, 100));
             }
 
+            t3_itunes_end = performance.now();
+
+            if (currentSessionId !== generationSessionId.current) return;
+
+            const pendingVibeId = localStorage.getItem('vibelist_pending_vibe_id');
+            localStorage.removeItem('vibelist_pending_vibe_id');
+
             const finalPlaylist: Playlist = {
+                id: pendingVibeId || undefined,
                 title: unifiedResponse.playlist_title!,
                 mood: mood,
                 description: unifiedResponse.description!,
                 songs: validSongs
             };
+            
             setPlaylist(finalPlaylist);
             setIsLoading(false);
+            addLog(`Complete. Found ${validSongs.length}/${allSongsRaw.length} songs with previews.`);
+
+            const t4_total_end = performance.now();
+            const ipAddress = await ipPromise; 
+            
+            const stats: VibeGenerationStats = {
+                geminiTimeMs: Math.round(t1_gemini_end - t0_start), 
+                itunesTimeMs: Math.round(t3_itunes_end - t2_itunes_start), 
+                totalDurationMs: Math.round(t4_total_end - t0_start),
+                
+                contextTimeMs: capturedContextTime, 
+                promptBuildTimeMs: unifiedResponse.metrics.promptBuildTimeMs, 
+                geminiApiTimeMs: unifiedResponse.metrics.geminiApiTimeMs, 
+                promptText: unifiedResponse.promptText,
+
+                successCount: validSongs.length,
+                failCount: failureDetails.length,
+                failureDetails: failureDetails,
+
+                localTime,
+                dayOfWeek,
+                browserLanguage,
+                inputModality: modality,
+                deviceType,
+                ipAddress
+            };
+
+            try {
+                const { error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null, stats, 'post_auth_generation', pendingVibeId || undefined);
+                
+                if (saveError) {
+                    addLog(`Database Error: ${saveError.message}`);
+                    setShowDebug(true); 
+                } else {
+                    addLog(`Vibe updated in memory (ID: ${pendingVibeId || 'new'})`);
+                }
+            } catch (dbErr) {
+                console.error(dbErr);
+                addLog(`Failed to save vibe to database: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+            }
         }
+
     } catch (error: any) {
-        setIsLoading(false);
+        console.error("Playlist generation failed:", error);
+        addLog(`Playlist generation failed. Error Name: ${error.name || 'UnknownError'}, Message: ${error.message || 'No message provided.'}`);
+        
+        if (error.name === 'ApiKeyRequiredError') {
+            setValidationError({ message: error.message, key: Date.now() }); // Use new modal for API Key errors
+        } else {
+            setLoadingMessage("Error generating playlist. Please check debug logs for details.");
+            setValidationError({ message: `Error generating playlist. Details: ${error.message || 'Unknown error.'}`, key: Date.now() });
+        }
+
+        if ((error as any).details) {
+            addLog(`Server Details: ${JSON.stringify((error as any).details, null, 2)}`);
+        }
+        if (error.stack) {
+            addLog(`Stack: ${error.stack}`);
+        }
+        
+        const t_fail = performance.now();
+        const failDuration = Math.round(t_fail - t0_start);
+        const ipAddress = await ipPromise; 
+
+        await logGenerationFailure(
+            mood,
+            error?.message || "Unknown error",
+            userProfile?.id || null,
+            {
+                totalDurationMs: failDuration,
+                contextTimeMs: capturedContextTime,
+                promptText: capturedPromptText,
+                localTime,
+                dayOfWeek,
+                browserLanguage,
+                inputModality: modality,
+                deviceType,
+                ipAddress
+            },
+            'post_auth_generation'
+        );
+
         setShowDebug(true);
+        setTimeout(() => setIsLoading(false), 3000);
     }
   };
+  // --- END: Unified handleMoodSelect (v1.2.0) ---
 
   const handleReset = () => {
     localStorage.removeItem('vibelist_pending_vibe_id');
@@ -290,26 +570,113 @@ const App: React.FC = () => {
     setPlayerState(PlayerState.STOPPED);
     setIsConfirmationStep(false);
     setValidationError(null);
+    addLog("App state reset.");
+  };
+
+  const handleRemix = () => {
+      if (playlist) {
+          handleMoodSelect(playlist.mood, 'text', true);
+      }
+  };
+
+  const handleShare = () => {
+      if (!playlist) return;
+      const url = `${window.location.origin}/?mood=${encodeURIComponent(playlist.mood)}`;
+      navigator.clipboard.writeText(url).then(() => {
+          alert(`Vibe link copied to clipboard!\n${url}`);
+          addLog(`Shared vibe link copied: ${url}`);
+      });
   };
 
   const handlePlaySong = (song: Song) => {
     if (currentSong?.id === song.id) {
-      setPlayerState(playerState === PlayerState.PLAYING ? PlayerState.PAUSED : PlayerState.PLAYING);
+      if (playerState === PlayerState.PLAYING) {
+        setPlayerState(PlayerState.PAUSED);
+        addLog(`Paused song: ${song.title}`);
+      } else {
+        setPlayerState(PlayerState.PLAYING);
+        addLog(`Resumed song: ${song.title}`);
+      }
     } else {
       setCurrentSong(song);
       setPlayerState(PlayerState.PLAYING);
+      addLog(`Playing new song: ${song.title} by ${song.artist}`);
     }
+  };
+
+  const handlePause = () => {
+    setPlayerState(PlayerState.PAUSED);
+    addLog(`Playback paused.`);
+  };
+
+  const handleNext = () => {
+    if (!playlist || !currentSong) return;
+    const idx = playlist.songs.findIndex(s => s.id === currentSong.id);
+    if (idx < playlist.songs.length - 1) {
+      handlePlaySong(playlist.songs[idx + 1]);
+      addLog(`Skipped to next song.`);
+    } else {
+      setPlayerState(PlayerState.STOPPED);
+      addLog(`Playlist ended.`);
+    }
+  };
+
+  const handlePrev = () => {
+    if (!playlist || !currentSong) return;
+    const idx = playlist.songs.findIndex(s => s.id === currentSong.id);
+    if (idx > 0) {
+      handlePlaySong(playlist.songs[idx - 1]);
+      addLog(`Skipped to previous song.`);
+    }
+  };
+
+  const handleExportToSpotify = async () => {
+    if (!playlist || !spotifyToken || !userProfile) {
+      handleLogin();
+      return;
+    }
+    setExporting(true);
+    addLog(`Attempting to export playlist "${playlist.title}" to Spotify...`);
+    try {
+      const url = await createSpotifyPlaylist(spotifyToken, playlist, userProfile.id);
+      if (playlist.id) {
+          await markVibeAsExported(playlist.id);
+      }
+      window.open(url, '_blank');
+      addLog(`Playlist "${playlist.title}" successfully exported to Spotify: ${url}`);
+    } catch (e: any) {
+      alert(`Failed to export: ${e.message}`);
+      addLog(`Failed to export playlist to Spotify: ${e.message || e}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleClosePlayer = () => {
+      setPlayerState(PlayerState.STOPPED);
+      setCurrentSong(null); 
+      addLog("Player closed.");
   };
 
   const renderContent = () => {
     if (isLoading && !teaserPlaylist) {
       return (
         <div className="min-h-[60vh] flex flex-col items-center justify-center text-center animate-fade-in p-4">
-          <div className="relative w-24 h-24 mx-auto mb-8 animate-spin rounded-full border-4 border-purple-500 border-t-transparent"></div>
-          <h2 className="text-2xl font-bold text-white animate-pulse">{loadingMessage}</h2>
+          <div className="relative w-24 h-24 mx-auto mb-8">
+             <div className="absolute inset-0 border-4 border-slate-700 rounded-full"></div>
+             <div className="absolute inset-0 border-4 border-purple-500 rounded-full border-t-transparent animate-spin"></div>
+             <div className="absolute inset-0 flex items-center justify-center">
+               <span className="text-2xl">✨</span>
+             </div>
+          </div>
+          <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-cyan-400 animate-pulse">
+            {loadingMessage}
+          </h2>
+          <p className="text-slate-500 mt-2">Consulting the oracles...</p>
         </div>
       );
     }
+
     if (playlist) {
       return (
         <PlaylistView 
@@ -317,39 +684,101 @@ const App: React.FC = () => {
           currentSong={currentSong}
           playerState={playerState}
           onPlaySong={handlePlaySong}
-          onPause={() => setPlayerState(PlayerState.PAUSED)}
+          onPause={handlePause}
           onReset={handleReset}
-          onExport={() => {}}
+          onExport={handleExportToSpotify}
           onDownloadCsv={() => {}}
           onYouTubeExport={() => {}}
-          onRemix={() => handleMoodSelect(playlist.mood, 'text', true)}
-          onShare={() => {}}
+          onRemix={handleRemix}
+          onShare={handleShare}
           exporting={exporting}
         />
       );
     }
+
     return <MoodSelector onSelectMood={handleMoodSelect} isLoading={isLoading} validationError={validationError} />;
   };
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white flex flex-col relative font-inter">
-      <header className="relative z-20 w-full p-6 flex justify-between items-center glass-panel border-b border-white/5">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute -top-20 -left-20 w-96 h-96 bg-purple-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
+        <div className="absolute top-40 right-10 w-96 h-96 bg-cyan-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-20 left-1/2 w-96 h-96 bg-pink-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
+      </div>
+
+      <header className="relative z-20 w-full p-4 md:p-6 px-6 flex justify-between items-center glass-panel border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
-           <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 to-cyan-400 rounded-lg flex items-center justify-center font-bold">V+</div>
-           <h1 className="text-xl font-bold">VibeList+</h1>
+           <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 to-cyan-400 rounded-lg flex items-center justify-center">
+             <span className="font-bold text-white">V+</span>
+           </div>
+           <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden md:block">
+             VibeList+
+           </h1>
         </div>
+        
         <div className="flex items-center gap-4">
-           <button onClick={(e) => e.ctrlKey ? setShowAdminDataInspector(true) : setShowDebug(!showDebug)} className="text-xs text-slate-700 font-mono px-3">π</button>
+           {/* Settings button removed - functionality moved to user profile display */}
+           {/* <button onClick={handleSettings} className="text-slate-400 hover:text-white transition-colors" title="Settings">
+               <CogIcon className="w-6 h-6" />
+           </button> */}
+
+           <button 
+             onClick={(e) => {
+               addLog(`'π' button clicked. Ctrl key pressed: ${e.ctrlKey}. Current Admin Inspector state: ${showAdminDataInspector}.`);
+               if (e.ctrlKey) {
+                 addLog(`Ctrl+Click detected for 'π'. Toggling AdminDataInspector to ${!showAdminDataInspector}.`);
+                 setShowAdminDataInspector(prev => !prev);
+               } else {
+                 addLog(`Regular click detected for 'π'. Toggling debug logs to ${!showDebug}.`);
+                 setShowDebug(prev => !prev);
+               }
+             }} 
+             className="text-xs text-slate-700 hover:text-slate-500 font-mono px-3"
+             title="Debug"
+           >
+               π
+           </button>
+
            {!spotifyToken ? (
-             <button onClick={handleLogin} className="bg-[#1DB954] text-black px-5 py-2 rounded-full font-medium">Login with Spotify</button>
+             <button 
+               onClick={handleLogin}
+               className="text-sm font-medium bg-[#1DB954] text-black px-5 py-2 rounded-full hover:bg-[#1ed760] transition-all shadow-lg hover:shadow-[#1DB954]/20"
+             >
+               Login with Spotify
+             </button>
            ) : (
-             <div className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10 cursor-pointer" onClick={() => setShowSettings(true)}>
-               {userProfile?.display_name}
+             <div 
+               className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10 cursor-pointer hover:bg-white/10 transition-colors"
+               onClick={() => setShowSettings(true)} // Clicking profile now opens settings
+             >
+               {userProfile?.images?.[0] ? (
+                 <img src={userProfile.images[0].url} alt="Profile" className="w-6 h-6 rounded-full border border-white/20" />
+               ) : (
+                 <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-xs font-bold">
+                    {userProfile?.display_name?.[0] || 'U'}
+                 </div>
+               )}
+               <span className="text-sm font-medium text-slate-200 hidden md:block">
+                 {userProfile?.display_name}
+               </span>
              </div>
            )}
         </div>
       </header>
-      <main className="relative z-10 flex-grow w-full">{renderContent()}</main>
+
+      {showDebug && (
+          <div className="fixed bottom-24 right-4 w-80 h-96 bg-black/95 text-green-400 font-mono text-xs p-4 overflow-y-auto z-[60] border border-green-800 rounded-lg shadow-2xl">
+              <div className="flex justify-between border-b border-green-900 pb-1 mb-2">
+                  <span>DEBUG LOGS</span>
+                  <button onClick={() => setDebugLogs([])}>Clear</button>
+              </div>
+              {debugLogs.map((log, i) => (
+                  <div key={i} className="mb-1 break-words whitespace-pre-wrap">{log}</div>
+              ))}
+          </div>
+      )}
+
       {showAdminDataInspector && (
           <AdminDataInspector
               isOpen={showAdminDataInspector}
@@ -359,14 +788,40 @@ const App: React.FC = () => {
               debugLogs={debugLogs}
           />
       )}
+
+      <main className="relative z-10 flex-grow w-full">
+        {renderContent()}
+      </main>
+      
+      {teaserPlaylist && (
+        <TeaserPlaylistView
+          playlist={teaserPlaylist}
+          isConfirmationStep={isConfirmationStep}
+          onConfirm={() => handleMoodSelect(teaserPlaylist.mood, 'text')}
+          onUnlock={handleLogin}
+          onTryAnother={handleReset}
+        />
+      )}
+
       <PlayerControls 
-        currentSong={currentSong} playerState={playerState}
-        onTogglePlay={() => setPlayerState(playerState === PlayerState.PLAYING ? PlayerState.PAUSED : PlayerState.PLAYING)}
-        onNext={() => {}} onPrev={() => {}} onClose={() => { setCurrentSong(null); setPlayerState(PlayerState.STOPPED); }}
+        currentSong={currentSong}
+        playerState={playerState}
+        onTogglePlay={() => playerState === PlayerState.PLAYING ? handlePause() : currentSong && handlePlaySong(currentSong)}
+        onNext={handleNext}
+        onPrev={handlePrev}
+        onClose={handleClosePlayer} 
+        playlistTitle={playlist?.title}
       />
-      <SettingsOverlay isOpen={showSettings} onClose={() => setShowSettings(false)} userProfile={userProfile} onSignOut={handleSignOut} />
+      
+      <SettingsOverlay 
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        userProfile={userProfile}
+        onSignOut={handleSignOut}
+      />
     </div>
   );
 };
 
 export default App;
+    
