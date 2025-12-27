@@ -60,41 +60,6 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
       });
   };
 
-  // --- START: Enhanced Voice Input Validation (v1.2.0) ---
-  const performClientSideTranscriptValidation = (transcript: string): { isValid: boolean, reason?: string } => {
-    const cleanTranscript = transcript ? transcript.trim() : "";
-    const words = cleanTranscript.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
-
-    // Basic length check (similar to text input's minimum length)
-    if (words.length < 3 || cleanTranscript.length < 10) {
-      return { isValid: false, reason: "Please describe the vibe in a bit more detail. It sounds too short." };
-    }
-
-    // Existing artifact/noise word filter
-    const hasArtifacts = /^\*.*\*/.test(cleanTranscript) || /^\[.*\]/.test(cleanTranscript) || /^\d{2}:\d{2}/.test(cleanTranscript);
-    const noiseWords = new Set(['thwack', 'thump', 'tap', 'shh', 'shhhhh', 'shhhhhh', 'click', 'clack', 'whack', 'knock']);
-    const isOnlyNoiseWords = words.length > 0 && words.every(word => noiseWords.has(word));
-    if (hasArtifacts || isOnlyNoiseWords) {
-      return { isValid: false, reason: "I hear you, but that doesn't sound like a vibe. Please try again with clearer speech." };
-    }
-
-    // Heuristic check for gibberish patterns
-    // Example: repeated characters, very few unique characters in a long string, too many non-alphanumeric
-    const uniqueChars = new Set(cleanTranscript.replace(/\s/g, '')).size;
-    if (cleanTranscript.length > 20 && uniqueChars < (cleanTranscript.length / 5)) { // If fewer than 1/5 unique chars for long string
-        return { isValid: false, reason: "That sounds like gibberish. Can you please describe your mood clearly?" };
-    }
-
-    // Simple check for common non-vibe topics (off-topic)
-    const offTopicKeywords = ['what is the weather', 'tell me a joke', 'what time is it', 'how are you', 'do you exist', 'who made you', 'what is your name', 'recipe for', 'tell me a story', 'who won the game'];
-    if (offTopicKeywords.some(keyword => cleanTranscript.toLowerCase().includes(keyword))) {
-      return { isValid: false, reason: "I'm designed to create music playlists, not answer general questions. Please describe your desired vibe." };
-    }
-
-    return { isValid: true };
-  };
-  // --- END: Enhanced Voice Input Validation (v1.2.0) ---
-
   const handleVoiceToggle = async () => {
     if (isRecording) {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -120,11 +85,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             stream.getTracks().forEach(track => track.stop());
 
-            if (audioBlob.size === 0) {
-                setVisibleError("No audio detected. Please ensure your microphone is working and try speaking again.");
-                setIsProcessingAudio(false);
-                return;
-            }
+            if (audioBlob.size === 0) return;
 
             setIsProcessingAudio(true);
             try {
@@ -132,27 +93,6 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                 const base64Data = base64Full.split(',')[1];
                 const transcript = await transcribeAudio(base64Data, audioBlob.type);
                 
-                // --- START: Client-side Enhanced Transcript Validation (v1.2.0) ---
-                if ((window as any).addLog) (window as any).addLog(`Raw transcript received: "${transcript}"`);
-                const validationResult = performClientSideTranscriptValidation(transcript);
-
-                if (!validationResult.isValid) {
-                    if ((window as any).addLog) (window as any).addLog(`Client-side voice validation failed: "${validationResult.reason}". Original transcript: "${transcript}"`);
-                    setVisibleError(validationResult.reason || "I couldn't quite understand that as a music vibe. Please try again.");
-                    setIsProcessingAudio(false);
-                    return; // STOP here, do NOT call onSelectMood
-                }
-                // --- END: Client-side Enhanced Transcript Validation ---
-
-                // If passes client-side enhanced validation, proceed to App.tsx's onSelectMood
-                if ((window as any).addLog) (window as any).addLog(`Client-side voice validation passed. Transcript: "${transcript}"`);
-                const newValue = customMood ? `${customMood} ${transcript}` : transcript;
-                if (newValue.length <= CHAR_LIMIT) {
-                    setCustomMood(newValue);
-                    setInputModality('voice');
-                    onSelectMood(newValue, 'voice'); // Immediately trigger mood selection with voice input
-                } else {
-                    setVisibleError(`Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`);
                 const cleanTranscript = transcript ? transcript.trim() : "";
                 const hasArtifacts = /^\*.*\*/.test(cleanTranscript) || /^\[.*\]/.test(cleanTranscript) || /^\d{2}:\d{2}/.test(cleanTranscript);
                 const noiseWords = new Set(['thwack', 'thump', 'tap', 'shh', 'shhhh', 'shhhhhh', 'click', 'clack', 'whack', 'knock']);
@@ -175,7 +115,6 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
 
             } catch (error: any) {
                 console.error("Audio transcription failed", error);
-                if ((window as any).addLog) (window as any).addLog(`Audio transcription failed: ${error.message}`);
                 alert(`Voice processing failed: ${error.message}`);
             } finally {
                 setIsProcessingAudio(false);
