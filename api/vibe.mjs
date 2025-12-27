@@ -1,4 +1,4 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { GEMINI_MODEL } from "../constants";
 
 // --- START: VERY EARLY DIAGNOSTIC LOG (v1.2.4) ---
@@ -8,6 +8,10 @@ console.log(`[API/VIBE] Module loaded successfully at ${new Date().toISOString()
 // --- END: VERY EARLY DIAGNOSTIC LOG (v1.2.4) ---
 
 export default async function handler(req, res) {
+  // Import these symbols here, right at the start of the handler,
+  // to ensure they are resolved only when the handler is invoked.
+  const { HarmCategory, HarmBlockThreshold, Type } = await import("@google/genai");
+
   const t_handler_start = Date.now();
   console.log(`[API/VIBE] Handler started at ${new Date().toISOString()}. Region: ${process.env.VERCEL_REGION || 'unknown'}`);
 
@@ -95,7 +99,6 @@ RULES:
     }
 
     // --- Declare variables for the next stage ---
-    // Fix: Declare these variables with `let` to resolve "Cannot find name" errors.
     let systemInstruction;
     let geminiContent;
     let responseSchema;
