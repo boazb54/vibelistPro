@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
@@ -7,8 +6,8 @@ import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
 import AdminDataInspector from './components/AdminDataInspector';
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist } from './types';
-import { validateVibe, generatePlaylistFromMood, generatePlaylistTeaser, analyzeUserTopTracks, analyzeUserPlaylistsForMood, isPreviewEnvironment } from './services/geminiService';
+import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse } from './types';
+import { generatePlaylistFromMood, analyzeUserTopTracks, analyzeUserPlaylistsForMood, isPreviewEnvironment } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
@@ -304,6 +303,7 @@ const App: React.FC = () => {
     addLog("User signed out.");
   };
 
+  // --- START: Unified handleMoodSelect (v1.2.0) ---
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
     setValidationError(null);
 
@@ -314,52 +314,96 @@ const App: React.FC = () => {
     }
 
     setIsLoading(true);
+    setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
+    
+    setPlaylist(null);
+    setTeaserPlaylist(null);
+    setCurrentSong(null);
+    setPlayerState(PlayerState.STOPPED);
+    setIsConfirmationStep(false);
+
+    const currentSessionId = ++generationSessionId.current;
+    const ipPromise = fetch('https://api.ipify.org?format=json').then(res => res.json()).then(data => data.ip).catch(() => 'unknown');
+
+    const t0_start = performance.now();
+    let t1_gemini_end = 0;
+    let t2_itunes_start = 0;
+    let t3_itunes_end = 0;
+    let capturedPromptText = "";
+    let capturedContextTime = 0;
+
+    const failureDetails: { title: string, artist: string, reason: string }[] = [];
+    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
+    
+    addLog(`Generating vibe for: "${mood}" (${modality})...`);
+
+    const localTime = new Date().toLocaleTimeString();
+    const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const browserLanguage = navigator.language;
+    const deviceType = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+
+    const t_context_start = performance.now();
+    const contextSignals: ContextualSignals = {
+        local_time: localTime,
+        day_of_week: dayOfWeek,
+        device_type: deviceType,
+        input_modality: modality,
+        browser_language: browserLanguage,
+        country: userProfile?.country
+    };
+    const t_context_end = performance.now();
+    capturedContextTime = Math.round(t_context_end - t_context_start);
 
     try {
-      // --- STAGE 2: API VALIDATION CALL ---
-      addLog(`Validating mood: "${mood}"`);
-      const validationResponse = await validateVibe(mood);
-      addLog(`Validation status: ${validationResponse.validation_status}`);
+        const unifiedResponse: UnifiedVibeResponse = await generatePlaylistFromMood(
+            mood, 
+            contextSignals, 
+            !!spotifyToken, // isAuthenticated flag
+            userTaste || undefined, 
+            excludeSongs
+        );
 
-      if (validationResponse.validation_status !== 'VIBE_VALID') {
-        setValidationError({ message: validationResponse.reason, key: Date.now() });
-        setIsLoading(false);
-        return;
-      }
-    } catch (error: any) {
-      console.error("Vibe validation failed:", error);
-      addLog(`Vibe validation failed: ${error.message}`);
-      setValidationError({ message: "Sorry, there was an issue checking your vibe. Please try again.", key: Date.now() });
-      setIsLoading(false);
-      return;
-    }
+        capturedPromptText = unifiedResponse.promptText;
+        t1_gemini_end = performance.now(); 
 
-    // --- STAGE 3: PROCEED TO GENERATION ---
+        addLog("--- CONTEXTUAL PROMPT PAYLOAD ---");
+        addLog(unifiedResponse.promptText);
+        addLog(`Unified response status: ${unifiedResponse.validation_status || 'N/A'}`);
 
-    // --- START: ANONYMOUS TEASER FLOW ---
-    if (!spotifyToken && !isRemix) {
-        setLoadingMessage("Crafting the perfect title...");
+        if (currentSessionId !== generationSessionId.current) return;
 
-        const t0_start = performance.now();
-        const localTime = new Date().toLocaleTimeString();
-        const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-        const browserLanguage = navigator.language;
-        const deviceType = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
-        const ipPromise = fetch('https://api.ipify.org?format=json').then(res => res.json()).then(data => data.ip).catch(() => 'unknown');
-
-        try {
-            const teaserData = await generatePlaylistTeaser(mood);
-            const t1_end = performance.now();
+        // --- Handle Validation Errors ---
+        if (unifiedResponse.validation_status && unifiedResponse.validation_status !== 'VIBE_VALID') {
+            setValidationError({ message: unifiedResponse.reason!, key: Date.now() });
+            setIsLoading(false);
             
+            const t_fail = performance.now();
+            const ipAddress = await ipPromise;
+            logGenerationFailure(
+                mood,
+                unifiedResponse.reason || "Validation failed",
+                userProfile?.id || null,
+                {
+                    totalDurationMs: Math.round(t_fail - t0_start),
+                    localTime, dayOfWeek, browserLanguage, deviceType, ipAddress,
+                    inputModality: modality,
+                },
+                'validation_failure' // New phase for explicit validation failures
+            );
+            return;
+        }
+
+        // --- Handle Teaser Generation ---
+        if (!spotifyToken && !unifiedResponse.songs) { // No songs means it's a teaser
             const teaserPayload = { 
-                title: teaserData.playlist_title,
-                description: teaserData.description,
+                title: unifiedResponse.playlist_title!,
+                description: unifiedResponse.description!,
             };
 
             const ipAddress = await ipPromise;
             const stats: Partial<VibeGenerationStats> = {
-                totalDurationMs: Math.round(t1_end - t0_start),
-                geminiApiTimeMs: teaserData.metrics?.geminiApiTimeMs || 0,
+                totalDurationMs: Math.round(t1_gemini_end - t0_start),
+                geminiApiTimeMs: unifiedResponse.metrics?.geminiApiTimeMs || 0,
                 localTime, dayOfWeek, browserLanguage, deviceType, ipAddress,
                 inputModality: modality,
             };
@@ -373,186 +417,100 @@ const App: React.FC = () => {
             localStorage.setItem('vibelist_pending_vibe_id', savedVibe.id);
             setTeaserPlaylist({ ...teaserPayload, mood: mood, id: savedVibe.id });
             addLog(`Teaser generated and saved for mood: "${mood}" (ID: ${savedVibe.id})`);
-
-        } catch (error: any) {
-            console.error("Teaser generation failed:", error);
-            addLog(`Teaser generation failed: ${error.message}`);
-            setLoadingMessage("Error creating teaser. Please try again.");
-            setShowDebug(true);
-
-            const t_fail = performance.now();
-            const ipAddress = await ipPromise;
-            logGenerationFailure(
-                mood,
-                error?.message || "Unknown error",
-                null,
-                {
-                    totalDurationMs: Math.round(t_fail - t0_start),
-                    localTime, dayOfWeek, browserLanguage, deviceType, ipAddress,
-                    inputModality: modality,
-                },
-                'pre_auth_teaser'
-            );
-            setTimeout(() => setIsLoading(false), 3000);
-        } finally {
             setIsLoading(false);
-        }
-        return;
-    }
-    // --- END: ANONYMOUS TEASER FLOW ---
-
-    // --- START: AUTHENTICATED PLAYLIST FLOW ---
-    const pendingVibeId = localStorage.getItem('vibelist_pending_vibe_id');
-    localStorage.removeItem('vibelist_pending_vibe_id');
-
-    const currentSessionId = ++generationSessionId.current;
-    
-    const localTime = new Date().toLocaleTimeString();
-    const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-    const browserLanguage = navigator.language;
-    const deviceType = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
-    
-    const ipPromise = fetch('https://api.ipify.org?format=json')
-        .then(res => res.json())
-        .then(data => data.ip)
-        .catch(() => 'unknown');
-
-    const t0_start = performance.now();
-    let t1_gemini_end = 0;
-    let t2_itunes_start = 0;
-    let t3_itunes_end = 0;
-    let capturedPromptText = "";
-    let capturedContextTime = 0;
-
-    const failureDetails: { title: string, artist: string, reason: string }[] = [];
-
-    setLoadingMessage(isRemix ? 'Remixing...' : 'Curating vibes...');
-    
-    setPlaylist(null);
-    setTeaserPlaylist(null);
-    setCurrentSong(null);
-    setPlayerState(PlayerState.STOPPED);
-    setIsConfirmationStep(false);
-
-    const excludeSongs = isRemix && playlist ? playlist.songs.map(s => s.title) : undefined;
-    
-    addLog(`Generating vibe for: "${mood}" (${modality})...`);
-
-    const t_context_start = performance.now();
-
-    const contextSignals: ContextualSignals = {
-        local_time: localTime,
-        day_of_week: dayOfWeek,
-        device_type: deviceType,
-        input_modality: modality,
-        browser_language: browserLanguage,
-        country: userProfile?.country
-    };
-
-    const t_context_end = performance.now();
-    const contextTimeMs = Math.round(t_context_end - t_context_start);
-    capturedContextTime = contextTimeMs;
-
-    try {
-        const generatedData = await generatePlaylistFromMood(
-            mood, 
-            contextSignals, 
-            userTaste || undefined, 
-            excludeSongs
-        );
-
-        capturedPromptText = generatedData.promptText;
-        t1_gemini_end = performance.now(); 
-
-        addLog("--- CONTEXTUAL PROMPT PAYLOAD ---");
-        addLog(generatedData.promptText);
-
-        if (currentSessionId !== generationSessionId.current) return;
-
-        addLog("AI generation complete. Fetching metadata (Safe Mode)...");
-        t2_itunes_start = performance.now();
-
-        const validSongs: Song[] = [];
-        const BATCH_SIZE = 5; 
-        const allSongsRaw = generatedData.songs;
-
-        for (let i = 0; i < allSongsRaw.length; i += BATCH_SIZE) {
-             if (currentSessionId !== generationSessionId.current) return;
-             
-             const batch = allSongsRaw.slice(i, i + BATCH_SIZE);
-             const batchPromises = batch.map(raw => fetchSongMetadata(raw));
-             
-             const results = await Promise.all(batchPromises);
-             
-             results.forEach((s, index) => {
-                 if (s !== null) {
-                     validSongs.push(s);
-                 } else {
-                     const rawSong = batch[index];
-                     failureDetails.push({
-                         title: rawSong.title,
-                         artist: rawSong.artist,
-                         reason: "Metadata or Preview not found in iTunes"
-                     });
-                 }
-             });
-             
-             await new Promise(r => setTimeout(r, 100));
+            return;
         }
 
-        t3_itunes_end = performance.now();
+        // --- Handle Full Playlist Generation ---
+        if (unifiedResponse.songs) {
+            addLog("AI generation complete. Fetching metadata (Safe Mode)...");
+            t2_itunes_start = performance.now();
 
-        if (currentSessionId !== generationSessionId.current) return;
+            const validSongs: Song[] = [];
+            const BATCH_SIZE = 5; 
+            const allSongsRaw = unifiedResponse.songs;
 
-        const finalPlaylist: Playlist = {
-            id: pendingVibeId || undefined,
-            title: generatedData.playlist_title,
-            mood: generatedData.mood,
-            description: generatedData.description,
-            songs: validSongs
-        };
-        
-        setPlaylist(finalPlaylist);
-        setIsLoading(false);
-        addLog(`Complete. Found ${validSongs.length}/${allSongsRaw.length} songs with previews.`);
-
-        const t4_total_end = performance.now();
-        const ipAddress = await ipPromise; 
-        
-        const stats: VibeGenerationStats = {
-            geminiTimeMs: Math.round(t1_gemini_end - t0_start), 
-            itunesTimeMs: Math.round(t3_itunes_end - t2_itunes_start), 
-            totalDurationMs: Math.round(t4_total_end - t0_start),
-            
-            contextTimeMs: contextTimeMs, 
-            promptBuildTimeMs: generatedData.metrics.promptBuildTimeMs, 
-            geminiApiTimeMs: generatedData.metrics.geminiApiTimeMs, 
-            promptText: generatedData.promptText,
-
-            successCount: validSongs.length,
-            failCount: failureDetails.length,
-            failureDetails: failureDetails,
-
-            localTime,
-            dayOfWeek,
-            browserLanguage,
-            inputModality: modality,
-            deviceType,
-            ipAddress
-        };
-
-        try {
-            const { error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null, stats, 'post_auth_generation', pendingVibeId || undefined);
-            
-            if (saveError) {
-                addLog(`Database Error: ${saveError.message}`);
-                setShowDebug(true); 
-            } else {
-                addLog(`Vibe updated in memory (ID: ${pendingVibeId || 'new'})`);
+            for (let i = 0; i < allSongsRaw.length; i += BATCH_SIZE) {
+                if (currentSessionId !== generationSessionId.current) return;
+                
+                const batch = allSongsRaw.slice(i, i + BATCH_SIZE);
+                const batchPromises = batch.map(raw => fetchSongMetadata(raw));
+                
+                const results = await Promise.all(batchPromises);
+                
+                results.forEach((s, index) => {
+                    if (s !== null) {
+                        validSongs.push(s);
+                    } else {
+                        const rawSong = batch[index];
+                        failureDetails.push({
+                            title: rawSong.title,
+                            artist: rawSong.artist,
+                            reason: "Metadata or Preview not found in iTunes"
+                        });
+                    }
+                });
+                
+                await new Promise(r => setTimeout(r, 100));
             }
-        } catch (dbErr) {
-            console.error(dbErr);
-            addLog(`Failed to save vibe to database: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+
+            t3_itunes_end = performance.now();
+
+            if (currentSessionId !== generationSessionId.current) return;
+
+            const pendingVibeId = localStorage.getItem('vibelist_pending_vibe_id');
+            localStorage.removeItem('vibelist_pending_vibe_id');
+
+            const finalPlaylist: Playlist = {
+                id: pendingVibeId || undefined,
+                title: unifiedResponse.playlist_title!,
+                mood: mood,
+                description: unifiedResponse.description!,
+                songs: validSongs
+            };
+            
+            setPlaylist(finalPlaylist);
+            setIsLoading(false);
+            addLog(`Complete. Found ${validSongs.length}/${allSongsRaw.length} songs with previews.`);
+
+            const t4_total_end = performance.now();
+            const ipAddress = await ipPromise; 
+            
+            const stats: VibeGenerationStats = {
+                geminiTimeMs: Math.round(t1_gemini_end - t0_start), 
+                itunesTimeMs: Math.round(t3_itunes_end - t2_itunes_start), 
+                totalDurationMs: Math.round(t4_total_end - t0_start),
+                
+                contextTimeMs: capturedContextTime, 
+                promptBuildTimeMs: unifiedResponse.metrics.promptBuildTimeMs, 
+                geminiApiTimeMs: unifiedResponse.metrics.geminiApiTimeMs, 
+                promptText: unifiedResponse.promptText,
+
+                successCount: validSongs.length,
+                failCount: failureDetails.length,
+                failureDetails: failureDetails,
+
+                localTime,
+                dayOfWeek,
+                browserLanguage,
+                inputModality: modality,
+                deviceType,
+                ipAddress
+            };
+
+            try {
+                const { error: saveError } = await saveVibe(mood, finalPlaylist, userProfile?.id || null, stats, 'post_auth_generation', pendingVibeId || undefined);
+                
+                if (saveError) {
+                    addLog(`Database Error: ${saveError.message}`);
+                    setShowDebug(true); 
+                } else {
+                    addLog(`Vibe updated in memory (ID: ${pendingVibeId || 'new'})`);
+                }
+            } catch (dbErr) {
+                console.error(dbErr);
+                addLog(`Failed to save vibe to database: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+            }
         }
 
     } catch (error: any) {
@@ -599,6 +557,7 @@ const App: React.FC = () => {
         setTimeout(() => setIsLoading(false), 3000);
     }
   };
+  // --- END: Unified handleMoodSelect (v1.2.0) ---
 
   const handleReset = () => {
     localStorage.removeItem('vibelist_pending_vibe_id');
@@ -831,7 +790,7 @@ const App: React.FC = () => {
         <TeaserPlaylistView
           playlist={teaserPlaylist}
           isConfirmationStep={isConfirmationStep}
-          onConfirm={() => handleMoodSelect(teaserPlaylist.mood)}
+          onConfirm={() => handleMoodSelect(teaserPlaylist.mood, 'text')}
           onUnlock={handleLogin}
           onTryAnother={handleReset}
         />
