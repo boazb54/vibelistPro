@@ -1,16 +1,20 @@
 import { GoogleGenAI } from "@google/genai";
-import { GEMINI_MODEL } from "../constants";
 
-// --- START: VERY EARLY DIAGNOSTIC LOG (v1.2.4) ---
-// This log runs when the module is first loaded by the Node.js runtime on Vercel.
-// If this doesn't appear in logs, it indicates a failure before our code even starts.
-console.log(`[API/VIBE] Module loaded successfully at ${new Date().toISOString()}.`);
-// --- END: VERY EARLY DIAGNOSTIC LOG (v1.2.4) ---
+// --- START: VERY EARLY DIAGNOSTIC LOGS (v1.2.7) ---
+console.log(`[API/VIBE] Module start: ${new Date().toISOString()}.`);
+
+// Temporarily inline GEMINI_MODEL for isolation diagnostic
+const GEMINI_MODEL = 'gemini-2.5-flash';
+console.log(`[API/VIBE] GEMINI_MODEL constant declared: ${GEMINI_MODEL}.`);
+// --- END: VERY EARLY DIAGNOSTIC LOGS (v1.2.7) ---
 
 export default async function handler(req, res) {
+  console.log(`[API/VIBE] Handler entry point reached: ${new Date().toISOString()}.`);
+
   // Import these symbols here, right at the start of the handler,
   // to ensure they are resolved only when the handler is invoked.
   const { HarmCategory, HarmBlockThreshold, Type } = await import("@google/genai");
+  console.log(`[API/VIBE] @google/genai dynamic imports completed.`);
 
   const t_handler_start = Date.now();
   console.log(`[API/VIBE] Handler started at ${new Date().toISOString()}. Region: ${process.env.VERCEL_REGION || 'unknown'}`);
@@ -22,6 +26,7 @@ export default async function handler(req, res) {
 
   // --- API KEY VALIDATION ---
   const API_KEY = process.env.API_KEY; // Capture it here
+  console.log(`[API/VIBE] Checking API_KEY. Is it present? ${!!API_KEY}`); // Granular log
   if (!API_KEY) { // Use the captured value
     console.error("[API/VIBE] API_KEY environment variable is not set or is empty.");
     return res.status(401).json({ error: 'API_KEY environment variable is missing from serverless function. Please ensure it is correctly configured in your deployment environment (e.g., Vercel environment variables or AI Studio settings).' });
