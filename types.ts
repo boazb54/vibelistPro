@@ -1,3 +1,4 @@
+
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -150,12 +151,19 @@ export interface UserPlaylistMoodAnalysis {
   confidence_score: number; // 0.0 to 1.0
 }
 
+// V1.2.2: Unified Taste Analysis Result
+export interface UnifiedTasteAnalysis {
+  playlist_mood: UserPlaylistMoodAnalysis;
+  analyzed_tracks: AnalyzedTrack[];
+}
+
 export interface UserTasteProfile {
   topArtists: string[];
   topGenres: string[];
   topTracks: string[]; // RESTORED: For Gemini Analysis
   session_analysis?: SessionSemanticProfile; // NEW: Processed "Vibe Fingerprint"
   playlistMoodAnalysis?: UserPlaylistMoodAnalysis; // NEW: Added for overall playlist mood
+  unified_analysis?: UnifiedTasteAnalysis; // V1.2.2: The result of consolidated AI pass
 }
 
 export interface VibeGenerationStats {
