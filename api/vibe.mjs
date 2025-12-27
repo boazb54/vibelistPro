@@ -1,7 +1,5 @@
-
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-
-const GEMINI_MODEL = 'gemini-2.5-flash';
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Type } from "@google/genai";
+import { GEMINI_MODEL } from "../constants";
 
 export default async function handler(req, res) {
   const t_handler_start = Date.now();
@@ -20,9 +18,9 @@ export default async function handler(req, res) {
   }
   // --- END API KEY VALIDATION ---
 
-  const { mood, contextSignals, tasteProfile, excludeSongs, promptText } = req.body; // Receive promptText from client
+  const { mood, contextSignals, isAuthenticated, tasteProfile, excludeSongs, promptText } = req.body; // Receive promptText and isAuthenticated flag from client
 
-  console.log(`[API/VIBE] Incoming request for mood: "${mood}"`);
+  console.log(`[API/VIBE] Incoming request for mood: "${mood}" (Authenticated: ${isAuthenticated})`);
   console.log(`[API/VIBE] Context Signals: ${JSON.stringify(contextSignals)}`);
   console.log(`[API/VIBE] Taste Profile provided: ${!!tasteProfile}`);
   console.log(`[API/VIBE] Exclude Songs count: ${excludeSongs ? excludeSongs.length : 0}`);
@@ -36,8 +34,92 @@ export default async function handler(req, res) {
   try {
     const ai = new GoogleGenAI({ apiKey: API_KEY }); // Use the validated API_KEY
     console.log("[API/VIBE] DEBUG: GoogleGenAI client initialized.");
-    
-    const systemInstruction = `You are a professional music curator/Mood-driven playlists with deep knowledge of audio engineering and music theory.
+
+    // --- STAGE 1: Mood Validation (Absorbed from api/validate.mjs) ---
+    const validationSystemInstruction = `You are an AI gatekeeper for a music playlist generator. Your task is to validate a user's input based on whether it's a plausible request for a music vibe.
+
+You must classify the input into one of three categories:
+1.  'VIBE_VALID': The input describes a mood, activity, memory, or scenario suitable for music (e.g., "rainy day", "post-breakup", "coding at 2am", "שמח"). This is the most common case.
+2.  'VIBE_INVALID_GIBBERISH': The input is nonsensical, random characters, or keyboard mashing (e.g., "asdfasdf", "jhgjhgj").
+3.  'VIBE_INVALID_OFF_TOPIC': The input is a coherent question or statement but is NOT about a mood or music (e.g., "what's the weather", "tell me a joke", "מתכון לעוגה").
+
+RULES:
+1.  Provide a concise, user-friendly 'reason' for your decision.
+2.  **LANGUAGE MIRRORING (CRITICAL):** The 'reason' MUST be in the same language as the user's input.
+3.  Return ONLY a raw JSON object matching the schema.`;
+
+    console.log("[API/VIBE] Performing mood validation...");
+    const t_validation_api_start = Date.now();
+    const validationResponse = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: `Validate the following user input: "${mood}"`,
+        config: {
+            systemInstruction: validationSystemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    validation_status: { type: Type.STRING },
+                    reason: { type: Type.STRING }
+                },
+                required: ["validation_status", "reason"]
+            },
+            thinkingConfig: { thinkingBudget: 0 },
+            safetySettings: [
+                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+            ],
+        }
+    });
+    const t_validation_api_end = Date.now();
+    const validationData = JSON.parse(validationResponse.text);
+    console.log(`[API/VIBE] Validation status: ${validationData.validation_status}`);
+
+    if (validationData.validation_status !== 'VIBE_VALID') {
+        const t_handler_end = Date.now();
+        console.log(`[API/VIBE] Handler finished with validation error in ${t_handler_end - t_handler_start}ms.`);
+        return res.status(200).json({
+            validation_status: validationData.validation_status,
+            reason: validationData.reason,
+            metrics: { geminiApiTimeMs: t_validation_api_end - t_validation_api_start }
+        });
+    }
+
+    // --- STAGE 2: Teaser or Full Playlist Generation ---
+    let systemInstruction;
+    let geminiContent;
+    let responseSchema = {};
+    let isFullPlaylistGeneration = false;
+
+    if (!isAuthenticated) {
+        // Teaser Generation (Absorbed from api/teaser.mjs)
+        console.log("[API/VIBE] Generating playlist teaser...");
+        systemInstruction = `You are a creative music curator. Your goal is to generate a creative, evocative playlist title and a short, compelling description.
+
+RULES:
+1. The description MUST be under 20 words.
+2. Mirror the language of the user's mood (e.g., Hebrew input gets a Hebrew title).
+3. Return ONLY a raw JSON object with 'playlist_title' and 'description'.
+
+LEARN FROM EXAMPLES:
+- GOOD EXAMPLE (Concise): "Unleash focus. Instrumental soundscapes for deep work." (7 words)
+- BAD EXAMPLE (Verbose): "This playlist is designed to help you by providing a series of songs that are really good for when you need to concentrate on your work for a long time." (30 words)`;
+        geminiContent = `Generate a playlist title and description for the mood: "${mood}"`;
+        responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                playlist_title: { type: Type.STRING },
+                description: { type: Type.STRING }
+            },
+            required: ["playlist_title", "description"]
+        };
+    } else {
+        // Full Playlist Generation (Existing api/vibe.mjs logic)
+        console.log("[API/VIBE] Generating full playlist...");
+        isFullPlaylistGeneration = true;
+        systemInstruction = `You are a professional music curator/Mood-driven playlists with deep knowledge of audio engineering and music theory.
   Your goal is to create a playlist that matches the **physical audio requirements** of the user's intent, prioritizing physics over genre labels.
 
   ### 1. THE "AUDIO PHYSICS" HIERARCHY (ABSOLUTE RULES)
@@ -130,18 +212,50 @@ export default async function handler(req, res) {
   3. If "Exclusion List" is provided: Do NOT include any of the songs listed.
   4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel.
   `;
+        geminiContent = promptText; // The promptText is already structured JSON from client
+        responseSchema = { // Define schema for full playlist response
+            type: Type.OBJECT,
+            properties: {
+                playlist_title: { type: Type.STRING },
+                mood: { type: Type.STRING },
+                description: { type: Type.STRING },
+                songs: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            title: { type: Type.STRING },
+                            artist: { type: Type.STRING },
+                            estimated_vibe: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    energy: { type: Type.STRING },
+                                    mood: { type: Type.STRING },
+                                    genre_hint: { type: Type.STRING }
+                                },
+                                required: ["energy", "mood", "genre_hint"]
+                            }
+                        },
+                        required: ["title", "artist"]
+                    }
+                }
+            },
+            required: ["playlist_title", "mood", "description", "songs"]
+        };
+    }
 
-    console.log("[API/VIBE] Sending prompt to Gemini. Prompt Text (first 500 chars):", promptText.substring(0, 500));
+    console.log("[API/VIBE] Sending prompt to Gemini. Prompt Text (first 500 chars):", JSON.stringify(geminiContent).substring(0, 500));
     const t_api_start = Date.now();
     let geminiResponseText = "";
     
     try {
       const response = await ai.models.generateContent({
         model: GEMINI_MODEL,
-        contents: promptText, // Use promptText received from client
+        contents: geminiContent,
         config: {
           systemInstruction,
           responseMimeType: "application/json",
+          responseSchema: responseSchema, // Use dynamic schema
           thinkingConfig: { thinkingBudget: 0 },
           safetySettings: [
             {
@@ -167,7 +281,6 @@ export default async function handler(req, res) {
     } catch (geminiError) {
       console.error("[API/VIBE] Error calling Gemini API:", geminiError);
       console.error(`[API/VIBE] Gemini Error Details: Name=${(geminiError).name}, Message=${(geminiError).message}`);
-      // Log the full error object for more details
       console.error("[API/VIBE] Gemini Error Object:", JSON.stringify(geminiError, null, 2));
       if ((geminiError).stack) {
         console.error("[API/VIBE] Gemini Error Stack:", (geminiError).stack);
@@ -188,12 +301,18 @@ export default async function handler(req, res) {
         const t_handler_end = Date.now();
         console.log(`[API/VIBE] Handler finished successfully in ${t_handler_end - t_handler_start}ms.`);
         
-        return res.status(200).json({
-          ...rawData,
-          metrics: {
-            geminiApiTimeMs: t_api_end - t_api_start
-          }
-        });
+        // Unified response structure
+        const finalResponse = {
+            validation_status: validationData.validation_status,
+            reason: validationData.reason,
+            ...rawData,
+            metrics: {
+                geminiApiTimeMs: (t_validation_api_end - t_validation_api_start) + (t_api_end - t_api_start) // Sum of all Gemini calls
+            }
+        };
+        
+        return res.status(200).json(finalResponse);
+
       } catch (parseError) {
         console.error("[API/VIBE] Error parsing Gemini response JSON:", parseError);
         console.error(`[API/VIBE] Parsing Error Details: Name=${(parseError).name}, Message=${(parseError).message}`);
@@ -212,7 +331,6 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("[API/VIBE] Vibe API Handler - Uncaught Error:", error);
     console.error(`[API/VIBE] Uncaught Error Details: Name=${(error).name}, Message=${(error).message}`);
-    // Log the full error object for more details
     console.error("[API/VIBE] Uncaught Error Object:", JSON.stringify(error, null, 2));
     if ((error).stack) {
       console.error("[API/VIBE] Uncaught Error Stack:", (error).stack);
