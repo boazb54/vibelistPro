@@ -16,6 +16,7 @@ export default async function handler(req, res) {
     console.error("[API/VIBE] API_KEY environment variable is not set or is empty.");
     return res.status(401).json({ error: 'API_KEY environment variable is missing from serverless function. Please ensure it is correctly configured in your deployment environment (e.g., Vercel environment variables or AI Studio settings).' });
   }
+  console.log(`[API/VIBE] API Key Status: ${API_KEY ? 'Present' : 'Missing'}. First 5 chars: ${API_KEY ? API_KEY.substring(0, 5) : 'N/A'}`);
   // --- END API KEY VALIDATION ---
 
   const { mood, contextSignals, isAuthenticated, tasteProfile, excludeSongs, promptText } = req.body; // Receive promptText and isAuthenticated flag from client
@@ -315,19 +316,22 @@ LEARN FROM EXAMPLES:
 
       } catch (parseError) {
         console.error("[API/VIBE] Error parsing Gemini response JSON:", parseError);
-        console.error(`[API/VIBE] Parsing Error Details: Name=${(parseError).name}, Message=${(parseError).message}`);
+        console.error(`[API/VIBE] Parsing Error Details: Name=${parseError.name}, Message=${parseError.message}`);
         console.error("[API/VIBE] Malformed response text:", geminiResponseText);
         
         const t_handler_end = Date.now();
         console.log(`[API/VIBE] Handler finished with parsing error in ${t_handler_end - t_handler_start}ms.`);
-        return res.status(500).json({ error: `Failed to parse AI response: ${(parseError).message}` });
+        return res.status(500).json({ 
+            error: `Failed to parse AI response from Gemini: ${parseError.message || 'Unknown parsing error'}. Raw Gemini text: ${geminiResponseText.substring(0, Math.min(geminiResponseText.length, 200))}...`,
+            serverErrorName: parseError.name || 'JsonParsingError'
+        });
       }
     }
 
-    console.error("[API/VIBE] Empty response from AI.");
+    console.error("[API/VIBE] Empty response from AI after Gemini call."); // Clarify log
     const t_handler_end = Date.now();
     console.log(`[API/VIBE] Handler finished with empty AI response in ${t_handler_end - t_handler_start}ms.`);
-    throw new Error("Empty response from AI");
+    return res.status(500).json({ error: 'AI returned an empty response.', serverErrorName: 'EmptyAiResponseError' });
   } catch (error) {
     console.error("[API/VIBE] Vibe API Handler - Uncaught Error:", error);
     console.error(`[API/VIBE] Uncaught Error Details: Name=${(error).name}, Message=${(error).message}`);
