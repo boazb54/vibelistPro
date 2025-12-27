@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { MOODS } from '../constants';
 import { MicIcon } from './Icons';
@@ -16,7 +17,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [inputModality, setInputModality] = useState<'text' | 'voice'>('text');
-  const [visibleError, setVisibleError] = useState<string | null>(null);
+  const [visibleError, setVisibleError] = useState<{ message: string; key: number } | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -25,7 +26,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
 
   useEffect(() => {
     if (validationError) {
-      setVisibleError(validationError.message);
+      setVisibleError(validationError);
     }
   }, [validationError]);
 
@@ -121,7 +122,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
             stream.getTracks().forEach(track => track.stop());
 
             if (audioBlob.size === 0) {
-                setVisibleError("No audio detected. Please ensure your microphone is working and try speaking again.");
+                setVisibleError({ message: "No audio detected. Please ensure your microphone is working and try speaking again.", key: Date.now() });
                 setIsProcessingAudio(false);
                 return;
             }
@@ -138,7 +139,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
 
                 if (!validationResult.isValid) {
                     if ((window as any).addLog) (window as any).addLog(`Client-side voice validation failed: "${validationResult.reason}". Original transcript: "${transcript}"`);
-                    setVisibleError(validationResult.reason || "I couldn't quite understand that as a music vibe. Please try again.");
+                    setVisibleError({ message: validationResult.reason || "I couldn't quite understand that as a music vibe. Please try again.", key: Date.now() });
                     setIsProcessingAudio(false);
                     return; // STOP here, do NOT call onSelectMood
                 }
@@ -152,13 +153,13 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                     setInputModality('voice');
                     onSelectMood(newValue, 'voice'); // Immediately trigger mood selection with voice input
                 } else {
-                    setVisibleError(`Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`);
+                    setVisibleError({ message: `Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`, key: Date.now() });
                 }
 
             } catch (error: any) {
                 console.error("Audio transcription failed", error);
                 if ((window as any).addLog) (window as any).addLog(`Audio transcription failed: ${error.message}`);
-                alert(`Voice processing failed: ${error.message}`);
+                setVisibleError({ message: `Voice processing failed: ${error.message}`, key: Date.now() });
             } finally {
                 setIsProcessingAudio(false);
             }
@@ -170,9 +171,9 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
     } catch (err) {
         console.error("Microphone Error:", err);
         if (err instanceof DOMException && err.name === "NotAllowedError") {
-             alert("Microphone access denied. Please allow microphone permissions in your browser settings.");
+             setVisibleError({ message: "Microphone access denied. Please allow microphone permissions in your browser settings.", key: Date.now() });
         } else {
-             alert("Could not access microphone.");
+             setVisibleError({ message: "Could not access microphone.", key: Date.now() });
         }
     }
   };
@@ -181,13 +182,13 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
     setVisibleError(null);
   };
 
-  const isRightToLeft = visibleError ? isRtl(visibleError) : false;
+  const isRightToLeft = visibleError ? isRtl(visibleError.message) : false;
   const textAlign = isRightToLeft ? 'text-right' : 'text-left';
   const contentDir = isRightToLeft ? 'rtl' : 'ltr';
   const fontClass = isRightToLeft ? "font-['Heebo']" : "";
 
   return (
-    <div className="flex flex-col w-full max-w-5xl mx-auto px-4 animate-fade-in-up pb-40">
+    <div className="flex flex-col w-full max-w-5xl mx-auto px-4 animate-fade-in-up pb-24"> {/* Adjusted pb-40 to pb-24 */}
       
       {/* V1.3.1: MODAL ERROR DISPLAY */}
       {visibleError && (
@@ -196,18 +197,19 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
           onClick={handleCloseErrorModal}
           aria-modal="true"
           role="dialog"
+          key={visibleError.key} // Use key to force re-render on new error, even if message is same
         >
           <div
-            className="relative bg-rose-950/80 border border-rose-500/30 rounded-2xl shadow-2xl w-full max-w-md p-6 text-center animate-fade-in-up"
+            className="relative bg-indigo-950/80 border border-cyan-500/30 rounded-2xl shadow-2xl w-full max-w-md p-6 text-center animate-fade-in-up"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-xl font-bold text-rose-200 mb-2">Hold on a sec...</h3>
-            <div className={`text-lg text-rose-300 mb-6 ${textAlign} ${fontClass}`} dir={contentDir}>
-              <span className="font-bold">AI Curator:</span> {visibleError}
+            <h3 className="text-xl font-bold text-purple-200 mb-2">Hold on a sec...</h3>
+            <div className={`text-lg text-cyan-300 mb-6 ${textAlign} ${fontClass}`} dir={contentDir}>
+              <span className="font-bold">AI Curator:</span> {visibleError.message}
             </div>
             <button
               onClick={handleCloseErrorModal}
-              className="bg-white/90 text-black font-extrabold rounded-xl px-8 py-3 text-sm uppercase tracking-widest transition-all hover:bg-white hover:scale-105 active:scale-95"
+              className="bg-blue-600/90 text-white font-extrabold rounded-xl px-8 py-3 text-sm uppercase tracking-widest transition-all hover:bg-blue-700 active:scale-95"
             >
               Try Again
             </button>
@@ -215,10 +217,11 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
         </div>
       )}
 
-      <div className="flex-none pt-4 md:pt-6 pb-2">
-          <div className="text-center mb-4 md:mb-6">
+      <div className="flex-none pt-2 md:pt-4 pb-0"> {/* Adjusted pt-4 md:pt-6 pb-2 to pt-2 md:pt-4 pb-0 */}
+          <div className="text-center mb-2 md:mb-4"> {/* Adjusted mb-4 md:mb-6 to mb-2 md:mb-4 */}
               <h2 className="text-3xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500 pb-1 leading-tight">
-                How are you feeling today?
+                <span className="md:hidden">How are you feeling?</span> {/* Mobile-specific text */}
+                <span className="hidden md:inline">How are you feeling today?</span> {/* Desktop-specific text */}
               </h2>
           </div>
 
@@ -240,12 +243,12 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                                     ? "Listening... (Tap mic to stop)" 
                                     : (isProcessingAudio 
                                         ? "AI is processing your voice..." 
-                                        : "Talk to the AI. Describe a moment, a memory, or a dream. E.g., 'I just finished a marathon' or 'Driving at 2AM'...")
+                                        : "Describe a moment, a memory, or a dream. E.g., 'I just finished a marathon' or 'Driving at 2AM'...")
                                 }
                                 disabled={isLoading || isProcessingAudio}
                                 rows={3}
-                                className={`w-full bg-slate-800/60 text-white placeholder-slate-400/70 rounded-2xl py-6 md:py-10 pl-6 pr-14 focus:outline-none resize-none align-top text-base md:text-lg leading-relaxed transition-colors ${isRecording ? 'placeholder-red-400/70 text-red-200' : ''}`}
-                            />
+                                className={`w-full bg-slate-800/60 text-white placeholder-slate-400/70 rounded-2xl py-8 md:py-12 pl-6 pr-14 focus:outline-none resize-none align-top text-base md:text-lg leading-relaxed transition-colors ${isRecording ? 'placeholder-red-400/70 text-red-200' : ''}`}
+                            /> {/* Adjusted py-6 md:py-10 to py-8 md:py-12 */}
                             <button 
                                 type="button"
                                 onClick={handleVoiceToggle}
@@ -282,7 +285,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
           </div>
       </div>
 
-      <div className="mt-4 md:mt-6">
+      <div className="mt-2 md:mt-4"> {/* Adjusted mt-4 md:mt-6 to mt-2 md:mt-4 */}
           <div className="flex items-center justify-center gap-4 mb-6 opacity-40">
               <div className="h-px bg-slate-800 flex-grow max-w-[60px]"></div>
               <span className="text-slate-500 text-[10px] uppercase tracking-[0.4em] font-bold">Quick Vibe</span>
@@ -312,3 +315,4 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
 };
 
 export default MoodSelector;
+    
