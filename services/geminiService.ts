@@ -1,4 +1,8 @@
-import { GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis, GeneratedTeaserRaw, VibeValidationResponse, UnifiedVibeResponse, GeminiResponseMetrics } from "../types";
+import { 
+  GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis, GeneratedTeaserRaw, VibeValidationResponse, UnifiedVibeResponse, GeminiResponseMetrics,
+  UnifiedTasteAnalysis,
+  UnifiedTasteGeminiResponse
+} from "../types";
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { GEMINI_MODEL } from "../constants"; // Use the global model constant
 
@@ -45,82 +49,6 @@ async function handleApiKeyMissingError(responseStatus: number, errorData: any) 
 
 // --- END: PREVIEW MODE IMPLEMENTATION ---
 
-export const analyzeUserPlaylistsForMood = async (playlistTracks: string[]): Promise<UserPlaylistMoodAnalysis | null> => {
-    if (!playlistTracks || playlistTracks.length === 0) {
-        addLog("Skipping playlist mood analysis: No tracks provided.");
-        return null;
-    }
-
-    if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Analyzing ${playlistTracks.length} playlist tracks directly...`);
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const systemInstruction = `You are an expert music psychologist and mood categorizer.
-      Your task is to analyze a list of song titles and artists, representing a user's collection of personal playlists.
-      Based on this combined list, infer the overarching, most dominant "mood category" that these playlists collectively represent.
-      Also, provide a confidence score for your categorization.
-
-      RULES:
-      1. The 'playlist_mood_category' should be a concise, descriptive phrase (e.g., "High-Energy Workout Mix", "Relaxed Indie Vibes", "Chill Study Focus").
-      2. The 'confidence_score' must be a floating-point number between 0.0 (very uncertain) and 1.0 (very certain).
-      3. Return only raw, valid JSON matching the specified schema.`;
-            
-            const prompt = `Analyze the collective mood represented by these songs from a user's playlists:\n${playlistTracks.join('\n')}`;
-            
-            const response = await ai.models.generateContent({
-              model: GEMINI_MODEL,
-              contents: prompt,
-              config: {
-                systemInstruction,
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: Type.OBJECT,
-                  properties: {
-                    playlist_mood_category: { type: Type.STRING },
-                    confidence_score: { type: Type.NUMBER }
-                  },
-                  required: ["playlist_mood_category", "confidence_score"],
-                },
-                thinkingConfig: { thinkingBudget: 0 }
-              }
-            });
-
-            const parsedData = JSON.parse(response.text);
-            addLog(`[PREVIEW MODE] Successfully analyzed playlist mood. Category: ${parsedData.playlist_mood_category}`);
-            return parsedData;
-
-        } catch (error) {
-            console.error("[PREVIEW MODE] Direct Gemini call failed (playlists):", error);
-            throw error;
-        }
-    } else {
-        // --- PRODUCTION MODE: SECURE PROXY CALL (Existing Logic) ---
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-
-        addLog(`Calling /api/analyze.mjs (playlists) with ${playlistTracks.length} tracks...`);
-        try {
-            const response = await fetch('/api/analyze.mjs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'playlists', playlistTracks }),
-                signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                await handleApiKeyMissingError(response.status, errorData);
-                throw new Error(`Server error: ${errorData.error || response.statusText}`);
-            }
-            return await response.json();
-        } catch (error) {
-            clearTimeout(timeoutId);
-            console.error("Error analyzing user playlist mood via proxy:", error);
-            throw error;
-        }
-    }
-};
-
 export const generatePlaylistFromMood = async (
   mood: string, 
   contextSignals: ContextualSignals,
@@ -145,11 +73,11 @@ export const generatePlaylistFromMood = async (
           country: contextSignals.country || 'Unknown'
       },
       taste_bias: tasteProfile ? {
-          type: tasteProfile.session_analysis?.taste_profile_type || 'unknown',
+          type: tasteProfile.unified_analysis?.session_semantic_profile?.taste_profile_type || 'unknown', // Updated
           top_artists: tasteProfile.topArtists.slice(0, 20),
           top_genres: tasteProfile.topGenres.slice(0, 10),
-          vibe_fingerprint: tasteProfile.session_analysis ? { energy: tasteProfile.session_analysis.energy_bias, favored_genres: tasteProfile.session_analysis.dominant_genres } : null,
-          user_playlist_mood: tasteProfile.playlistMoodAnalysis
+          vibe_fingerprint: tasteProfile.unified_analysis?.session_semantic_profile ? { energy: tasteProfile.unified_analysis.session_semantic_profile.energy_bias, favored_genres: tasteProfile.unified_analysis.session_semantic_profile.dominant_genres } : null, // Updated
+          user_playlist_mood: tasteProfile.unified_analysis?.overall_mood_category ? { playlist_mood_category: tasteProfile.unified_analysis.overall_mood_category, confidence_score: tasteProfile.unified_analysis.overall_mood_confidence } : null // Updated
       } : null,
       exclusions: excludeSongs || []
   }, null, 2);
@@ -353,50 +281,151 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
     }
 };
 
-export const analyzeUserTopTracks = async (tracks: string[]): Promise<AnalyzedTrack[] | { error: string }> => {
-    if (!tracks || tracks.length === 0) return { error: "No tracks to analyze" };
+// NEW: analyzeFullTasteProfile
+export const analyzeFullTasteProfile = async (
+  playlistTracks: string[], 
+  topTracks: string[]
+): Promise<UnifiedTasteGeminiResponse | { error: string }> => {
+  if ((!playlistTracks || playlistTracks.length === 0) && (!topTracks || topTracks.length === 0)) {
+    addLog("Skipping full taste profile analysis: No tracks or playlist tracks provided.");
+    return { error: "No tracks or playlist tracks to analyze" };
+  }
 
-    if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Analyzing ${tracks.length} top tracks directly...`);
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const systemInstruction = `You are a music analysis engine. Analyze the provided list of songs. For each song, return a JSON object using this exact schema: {"song_name": "Song Name", "artist_name": "Artist Name", "semantic_tags": {"primary_genre": "specific genre (lowercase)", "secondary_genres": ["genre1", "genre2"], "energy": "low" | "medium" | "high" | "explosive", "mood": ["mood1", "mood2"], "tempo": "slow" | "mid" | "fast", "vocals": "instrumental" | "lead_vocal" | "choral", "texture": "organic" | "electric" | "synthetic"}, "confidence": "low" | "medium" | "high"} RULES: 1. Split the input string (e.g. "Song by Artist") into "song_name" and "artist_name". 2. Normalize values: Use lowercase, controlled vocabulary only. 3. Use arrays for attributes that can be multiple (mood, secondary_genres). 4. Interpret attributes as soft signals, not absolute facts. Return the result as a raw JSON array.`;
-            const prompt = tracks.join('\n');
-            const response = await ai.models.generateContent({
-                model: GEMINI_MODEL,
-                contents: prompt,
-                config: { systemInstruction, responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } }
-            });
-            const parsedData = JSON.parse(response.text);
-            addLog(`[PREVIEW MODE] Successfully analyzed ${parsedData.length} top tracks.`);
-            return parsedData;
-        } catch (error) {
-            console.error("[PREVIEW MODE] Direct Gemini call failed (tracks):", error);
-            throw error;
-        }
-    } else {
-        // --- PRODUCTION MODE: SECURE PROXY CALL (Existing Logic) ---
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-        addLog(`Calling /api/analyze.mjs (tracks) with ${tracks.length} tracks...`);
-        try {
-            const response = await fetch('/api/analyze.mjs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'tracks', tracks }),
-                signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                await handleApiKeyMissingError(response.status, errorData);
-                throw new Error(`Server error: ${errorData.error || response.statusText}`);
-            }
-            return await response.json();
-        } catch (error) {
-            clearTimeout(timeoutId);
-            console.error("Error analyzing user top tracks via proxy:", error);
-            throw error;
-        }
+  const systemInstruction = `You are an expert music psychologist and an advanced music analysis engine.
+Your task is to perform a "Semantic Synthesis" of a user's musical taste by analyzing two distinct sets of data:
+1.  A list of song titles and artists from the user's personal playlists.
+2.  A list of the user's top 50 individual tracks.
+
+Based on this combined input, you must:
+A. Infer the overarching, most dominant "playlist mood category" that the user's playlists collectively represent, along with a confidence score.
+B. For each individual song from the "top 50 tracks" list, generate detailed semantic tags.
+
+RULES FOR OUTPUT:
+1.  Return ONLY raw, valid JSON matching the specified schema.
+2.  For 'playlist_mood_category', provide a concise, descriptive phrase (e.g., "High-Energy Workout Mix", "Relaxed Indie Vibes").
+3.  For 'overall_mood_confidence', provide a floating-point number between 0.0 (very uncertain) and 1.0 (very certain).
+4.  For individual song analysis ('analyzed_tracks'), use this exact schema for each item:
+    {
+      "song_name": "Song Name",
+      "artist_name": "Artist Name",
+      "semantic_tags": {
+        "primary_genre": "specific genre (lowercase)",
+        "secondary_genres": ["genre1", "genre2"],
+        "energy": "low" | "medium" | "high" | "explosive",
+        "mood": ["mood1", "mood2"],
+        "tempo": "slow" | "mid" | "fast",
+        "vocals": "instrumental" | "lead_vocal" | "choral",
+        "texture": "organic" | "electric" | "synthetic"
+      },
+      "confidence": "low" | "medium" | "high"
     }
+    a. Split the input string (e.g. "Song by Artist") into "song_name" and "artist_name".
+    b. Normalize values: Use lowercase, controlled vocabulary only.
+    c. Use arrays for attributes that can be multiple (mood, secondary_genres).
+    d. Interpret attributes as soft signals, not absolute facts.
+
+OUTPUT FORMAT:
+{
+  "playlist_mood_analysis": {
+    "playlist_mood_category": "string",
+    "confidence_score": "number"
+  },
+  "analyzed_tracks": [ // Array of AnalyzedTrack objects
+    // ...
+  ]
+}
+`;
+
+  const promptInput = JSON.stringify({
+    playlist_tracks: playlistTracks,
+    top_tracks: topTracks
+  }, null, 2);
+
+  if (isPreviewEnvironment()) {
+    addLog(`[PREVIEW MODE] Analyzing full taste profile directly...`);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: promptInput,
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              playlist_mood_analysis: {
+                type: Type.OBJECT,
+                properties: {
+                  playlist_mood_category: { type: Type.STRING },
+                  confidence_score: { type: Type.NUMBER }
+                },
+                required: ["playlist_mood_category", "confidence_score"],
+              },
+              analyzed_tracks: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    song_name: { type: Type.STRING },
+                    artist_name: { type: Type.STRING },
+                    semantic_tags: {
+                      type: Type.OBJECT,
+                      properties: {
+                        primary_genre: { type: Type.STRING },
+                        secondary_genres: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        energy: { type: Type.STRING },
+                        mood: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        tempo: { type: Type.STRING },
+                        vocals: { type: Type.STRING },
+                        texture: { type: Type.STRING },
+                      },
+                      required: ["primary_genre", "energy", "mood", "tempo", "vocals", "texture"],
+                    },
+                    confidence: { type: Type.STRING },
+                  },
+                  required: ["song_name", "artist_name", "semantic_tags", "confidence"],
+                },
+              },
+            },
+            required: ["playlist_mood_analysis", "analyized_tracks"],
+          },
+          thinkingConfig: { thinkingBudget: 0 }
+        }
+      });
+
+      const parsedData: UnifiedTasteGeminiResponse = JSON.parse(response.text);
+      addLog(`[PREVIEW MODE] Successfully analyzed full taste profile.`);
+      return parsedData;
+
+    } catch (error) {
+      console.error("[PREVIEW MODE] Direct Gemini call failed (unified taste analysis):", error);
+      throw error;
+    }
+  } else {
+    // PRODUCTION MODE: SECURE PROXY CALL
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+
+    addLog(`Calling /api/analyze.mjs (unified taste) with ${playlistTracks.length} playlist tracks and ${topTracks.length} top tracks...`);
+    try {
+      const response = await fetch('/api/analyze.mjs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'unified_taste', playlistTracks, topTracks }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        await handleApiKeyMissingError(response.status, errorData);
+        throw new Error(`Server error: ${errorData.error || response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      console.error("Error analyzing unified user taste via proxy:", error);
+      throw error;
+    }
+  }
 };
