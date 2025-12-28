@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
@@ -7,8 +6,15 @@ import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import { CogIcon } from './components/Icons'; 
 import AdminDataInspector from './components/AdminDataInspector';
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse } from './types';
-import { generatePlaylistFromMood, analyzeUserTopTracks, analyzeUserPlaylistsForMood, isPreviewEnvironment } from './services/geminiService';
+import { 
+  Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse,
+  UnifiedTasteAnalysis // NEW import
+} from './types';
+import { 
+  generatePlaylistFromMood, 
+  analyzeFullTasteProfile, // NEW import
+  isPreviewEnvironment 
+} from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
@@ -170,13 +176,12 @@ const App: React.FC = () => {
   };
 
   /**
-   * [Release v1.2.0 - API Parallelization]
-   * Refactored into a Wave-Based Concurrent Architecture.
+   * [Release v1.3.0 - Quantum Taste Unification]
+   * Refactored into a single-wave analysis pipeline.
    */
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
-          // --- WAVE 1: CONCURRENT DATA ACQUISITION ---
-          addLog("[Wave 1: Spotify] Initiating concurrent data acquisition...");
+          addLog("[Wave 1: Spotify Data Acquisition] Initiating concurrent data acquisition...");
           
           const [tasteResult, playlistsResult] = await Promise.allSettled([
             fetchUserTasteProfile(token),
@@ -188,83 +193,72 @@ const App: React.FC = () => {
 
           if (tasteResult.status === 'fulfilled' && tasteResult.value) {
             taste = tasteResult.value;
-            addLog("[Wave 1: Spotify] Taste Profile branch successful (Artists/Tracks acquired).");
+            addLog("[Wave 1: Spotify] Taste Profile (Artists/Tracks) acquired successfully.");
           } else {
-            addLog(`[Wave 1: Spotify] Taste Profile branch failed or returned null.`);
+            addLog(`[Wave 1: Spotify] Taste Profile acquisition failed or returned null.`);
           }
 
           if (playlistsResult.status === 'fulfilled') {
             aggregatedPlaylists = playlistsResult.value;
             setUserAggregatedPlaylists(aggregatedPlaylists);
-            addLog(`[Wave 1: Spotify] Playlists branch successful. Hydrated ${aggregatedPlaylists.length} playlists.`);
+            addLog(`[Wave 1: Spotify] Playlists acquired successfully. Hydrated ${aggregatedPlaylists.length} playlists.`);
           } else {
-            addLog(`[Wave 1: Spotify] Playlists branch failed.`);
+            addLog(`[Wave 1: Spotify] Playlists acquisition failed.`);
           }
 
-          if (!taste) {
-             addLog("[Wave 1: Spotify] Critical failure: No taste data available. Saving profile without analysis.");
+          // If no taste data at all, save profile without any AI analysis.
+          if (!taste || (taste.topTracks.length === 0 && aggregatedPlaylists.length === 0)) {
+             addLog("[Wave 1: Spotify] No meaningful taste data available for AI analysis. Saving profile without analysis.");
              saveUserProfile(profile, null);
+             setUserTaste(null); // Ensure taste is null if no data
              return;
           }
 
-          let enhancedTaste: UserTasteProfile = { ...taste };
+          // --- WAVE 2: UNIFIED AI ANALYSIS ---
+          addLog("[Wave 2: Gemini] Initiating unified AI taste analysis...");
+
           const rawAggregatedPlaylistTracks = aggregatedPlaylists.flatMap(p => p.tracks);
 
-          // --- WAVE 2: CONCURRENT AI ANALYSIS ---
-          addLog("[Wave 2: Gemini] Initiating concurrent AI analysis...");
-
-          const analysisPromises: Promise<any>[] = [];
-          const analysisTypes: ('mood' | 'tracks')[] = [];
-
-          if (rawAggregatedPlaylistTracks.length > 0) {
-            analysisPromises.push(analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks));
-            analysisTypes.push('mood');
-            addLog("[Wave 2: Gemini] Branch Queued: User Playlist Mood Inference.");
-          }
-
-          if (enhancedTaste.topTracks.length > 0) {
-            analysisPromises.push(analyzeUserTopTracks(enhancedTaste.topTracks));
-            analysisTypes.push('tracks');
-            addLog("[Wave 2: Gemini] Branch Queued: Top Tracks Audio Feature Analysis.");
-          }
-
-          if (analysisPromises.length > 0) {
-            const results = await Promise.allSettled(analysisPromises);
-            
-            results.forEach((res, index) => {
-              const type = analysisTypes[index];
-              if (res.status === 'fulfilled' && res.value) {
-                if (type === 'mood') {
-                  enhancedTaste.playlistMoodAnalysis = res.value;
-                  addLog(`[Wave 2: Gemini] Playlist Mood Analysis successful: "${res.value.playlist_mood_category}"`);
-                } else if (type === 'tracks') {
-                  const analysis = res.value;
-                  if (analysis && !('error' in analysis)) {
-                    addLog(`[Wave 2: Gemini] Top Tracks Analysis successful. Processing session fingerprint...`);
-                    const sessionProfile = aggregateSessionData(analysis as any);
-                    enhancedTaste.session_analysis = sessionProfile;
-                    addLog(">>> SESSION SEMANTIC PROFILE GENERATED <<<");
-                  } else {
-                    addLog(`[Wave 2: Gemini] Top Tracks Analysis returned error: ${analysis?.error || 'Unknown'}`);
-                  }
-                }
-              } else {
-                addLog(`[Wave 2: Gemini] ${type === 'mood' ? 'Playlist Mood' : 'Top Tracks'} branch failed to resolve.`);
+          if (taste.topTracks.length > 0 || rawAggregatedPlaylistTracks.length > 0) {
+            try {
+              const unifiedGeminiResponse = await analyzeFullTasteProfile(rawAggregatedPlaylistTracks, taste.topTracks);
+              
+              if ('error' in unifiedGeminiResponse) {
+                throw new Error(unifiedGeminiResponse.error);
               }
-            });
+
+              addLog(`[Wave 2: Gemini] Unified Taste Analysis successful. Processing session fingerprint...`);
+              const unifiedAnalysis: UnifiedTasteAnalysis = aggregateSessionData(unifiedGeminiResponse);
+              
+              const enhancedTaste: UserTasteProfile = {
+                  ...taste,
+                  unified_analysis: unifiedAnalysis // Assign unified_analysis
+              };
+
+              addLog(">>> UNIFIED SESSION SEMANTIC PROFILE GENERATED <<<");
+              setUserTaste(enhancedTaste);
+              saveUserProfile(profile, enhancedTaste); // Save profile with enhanced taste
+            } catch (geminiError: any) {
+              addLog(`[Wave 2: Gemini] Unified Taste Analysis failed: ${geminiError.message || 'Unknown error'}`);
+              console.warn("Unified Gemini analysis failed", geminiError);
+              
+              // On failure, save profile with existing taste (without unified_analysis)
+              setUserTaste(taste);
+              saveUserProfile(profile, taste);
+            }
           } else {
-            addLog("[Wave 2: Gemini] Skipping analysis: No track data available.");
+            addLog("[Wave 2: Gemini] Skipping unified analysis: No track or playlist data available.");
+            setUserTaste(taste); // Set taste even if no analysis
+            saveUserProfile(profile, taste);
           }
 
-          // --- FINAL ATOMIC STATE UPDATE ---
-          addLog(">>> PARALLEL DATA REFRESH COMPLETE <<<");
-          setUserTaste(enhancedTaste);
-          saveUserProfile(profile, enhancedTaste);
+          addLog(">>> ALL PROFILE DATA REFRESH COMPLETE <<<");
 
       } catch (e: any) {
           console.warn("Could not perform parallel profile/taste refresh", e);
-          addLog(`Critical Error during Parallel Refresh: ${e.message || e}`);
-          saveUserProfile(profile, null);
+          addLog(`Critical Error during Profile Refresh: ${e.message || e}`);
+          saveUserProfile(profile, null); // On critical failure, save profile without taste
+          setUserTaste(null);
       }
   };
 
@@ -824,4 +818,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-    
