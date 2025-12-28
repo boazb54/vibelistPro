@@ -304,7 +304,8 @@ RULES FOR OUTPUT:
 1.  Return ONLY raw, valid JSON matching the specified schema.
 2.  For 'playlist_mood_category', provide a concise, descriptive phrase (e.g., "High-Energy Workout Mix", "Relaxed Indie Vibes").
 3.  For 'overall_mood_confidence', provide a floating-point number between 0.0 (very uncertain) and 1.0 (very certain).
-4.  For individual song analysis ('analyzed_tracks'), use this exact schema for each item:
+4.  For language use SO-639-1 language codes only. If the song is instrumental or language is not clearly detectable, you may omit this field or provide an empty array.
+5.  For individual song analysis ('analyzed_tracks'), use this exact schema for each item:
     {
       "song_name": "Song Name",
       "artist_name": "Artist Name",
@@ -315,13 +316,14 @@ RULES FOR OUTPUT:
         "mood": ["mood1", "mood2"],
         "tempo": "slow" | "mid" | "fast",
         "vocals": "instrumental" | "lead_vocal" | "choral",
-        "texture": "organic" | "electric" | "synthetic"
+        "texture": "organic" | "electric" | "synthetic" ,
+        "language": ["language1" , "language2"] 
       },
       "confidence": "low" | "medium" | "high"
     }
     a. Split the input string (e.g. "Song by Artist") into "song_name" and "artist_name".
     b. Normalize values: Use lowercase, controlled vocabulary only.
-    c. Use arrays for attributes that can be multiple (mood, secondary_genres).
+    c. Use arrays for attributes that can be multiple (mood, secondary_genres, language).
     d. Interpret attributes as soft signals, not absolute facts.
 
 OUTPUT FORMAT:
@@ -379,6 +381,7 @@ OUTPUT FORMAT:
                         tempo: { type: Type.STRING },
                         vocals: { type: Type.STRING },
                         texture: { type: Type.STRING },
+                        language: { type: Type.ARRAY, items: { type: Type.STRING } }, // NEW: Added language for client-side schema
                       },
                       required: ["primary_genre", "energy", "mood", "tempo", "vocals", "texture"],
                     },
