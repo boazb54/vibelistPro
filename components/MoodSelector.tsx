@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import { MOODS } from '../constants';
 import { MicIcon } from './Icons';
@@ -64,7 +65,8 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   // --- START: Enhanced Voice Input Validation (v1.2.0) ---
   const performClientSideTranscriptValidation = (transcript: string): { isValid: boolean, reason?: string } => {
     const cleanTranscript = transcript ? transcript.trim() : "";
-    const words = cleanTranscript.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+    // BUG FIX (v1.3.1): Updated regex with Unicode property escapes (\p{L}\p{N}) for comprehensive Unicode awareness.
+    const words = cleanTranscript.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').split(/\s+/).filter(Boolean);
 
     // Basic length check (similar to text input's minimum length)
     if (words.length < 3 || cleanTranscript.length < 10) {
@@ -145,13 +147,13 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                 }
                 // --- END: Client-side Enhanced Transcript Validation ---
 
-                // If passes client-side enhanced validation, proceed to App.tsx's onSelectMood
+                // If passes client-side enhanced validation, populate the textarea and await manual "Generate" click (v1.3.2 fix)
                 if ((window as any).addLog) (window as any).addLog(`Client-side voice validation passed. Transcript: "${transcript}"`);
                 const newValue = customMood ? `${customMood} ${transcript}` : transcript;
                 if (newValue.length <= CHAR_LIMIT) {
                     setCustomMood(newValue);
                     setInputModality('voice');
-                    onSelectMood(newValue, 'voice'); // Immediately trigger mood selection with voice input
+                    // Removed: onSelectMood(newValue, 'voice'); // Removed in v1.3.2 to require explicit "Generate" click
                 } else {
                     setVisibleError({ message: `Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`, key: Date.now() });
                 }
@@ -315,4 +317,3 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
 };
 
 export default MoodSelector;
-    
