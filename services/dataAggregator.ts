@@ -1,5 +1,4 @@
-
-import { AnalyzedTrack, SessionSemanticProfile } from '../types';
+import { AnalyzedTrack, SessionSemanticProfile, UserPlaylistMoodAnalysis, UnifiedTasteAnalysis, UnifiedTasteGeminiResponse } from '../types';
 
 const CONFIDENCE_WEIGHTS: Record<string, number> = {
   'high': 1.0,
@@ -11,7 +10,21 @@ function getWeight(confidence: string): number {
   return CONFIDENCE_WEIGHTS[confidence?.toLowerCase()] || 0.3;
 }
 
-export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticProfile => {
+// Renamed and now extracts SessionSemanticProfile from AnalyzedTrack[]
+const createSessionSemanticProfile = (tracks: AnalyzedTrack[]): SessionSemanticProfile => {
+  if (!tracks || tracks.length === 0) {
+    return {
+      taste_profile_type: 'diverse',
+      dominant_genres: [],
+      energy_bias: 'medium',
+      energy_distribution: { low: 0, medium: 0, high: 0 },
+      dominant_moods: [],
+      tempo_bias: 'unknown',
+      vocals_bias: 'unknown',
+      texture_bias: 'unknown',
+      artist_examples: []
+    };
+  }
   
   // 1. ARTIST AGGREGATION (Weighted & Capped)
   const artistScores: Record<string, { score: number, count: number }> = {};
@@ -187,5 +200,19 @@ export const aggregateSessionData = (tracks: AnalyzedTrack[]): SessionSemanticPr
       vocals_bias: vocalsBias,
       texture_bias: textureBias,
       artist_examples: topArtists
+  };
+};
+
+// NEW: Main aggregation function that takes the unified Gemini response
+export const aggregateSessionData = (unifiedGeminiResponse: UnifiedTasteGeminiResponse): UnifiedTasteAnalysis => {
+  const { playlist_mood_analysis, analyzed_tracks } = unifiedGeminiResponse;
+
+  // Use the helper function to get the session semantic profile
+  const sessionSemanticProfile = createSessionSemanticProfile(analyzed_tracks);
+
+  return {
+    overall_mood_category: playlist_mood_analysis.playlist_mood_category,
+    overall_mood_confidence: playlist_mood_analysis.confidence_score,
+    session_semantic_profile: sessionSemanticProfile,
   };
 };
