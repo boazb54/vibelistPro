@@ -150,12 +150,24 @@ export interface UserPlaylistMoodAnalysis {
   confidence_score: number; // 0.0 to 1.0
 }
 
+// NEW: Unified Taste Analysis (combines SessionSemanticProfile and UserPlaylistMoodAnalysis)
+export interface UnifiedTasteAnalysis {
+  overall_mood_category: string;
+  overall_mood_confidence: number;
+  session_semantic_profile: SessionSemanticProfile;
+}
+
+// NEW: Gemini's raw unified response for taste analysis
+export interface UnifiedTasteGeminiResponse {
+  playlist_mood_analysis: UserPlaylistMoodAnalysis;
+  analyzed_tracks: AnalyzedTrack[];
+}
+
 export interface UserTasteProfile {
   topArtists: string[];
   topGenres: string[];
   topTracks: string[]; // RESTORED: For Gemini Analysis
-  session_analysis?: SessionSemanticProfile; // NEW: Processed "Vibe Fingerprint"
-  playlistMoodAnalysis?: UserPlaylistMoodAnalysis; // NEW: Added for overall playlist mood
+  unified_analysis?: UnifiedTasteAnalysis; // NEW: Replaces session_analysis and playlistMoodAnalysis
 }
 
 export interface VibeGenerationStats {
