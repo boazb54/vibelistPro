@@ -22,7 +22,8 @@ const createSessionSemanticProfile = (tracks: AnalyzedTrack[]): SessionSemanticP
       tempo_bias: 'unknown',
       vocals_bias: 'unknown',
       texture_bias: 'unknown',
-      artist_examples: []
+      artist_examples: [],
+      language_distribution: {}, // Default empty for no tracks
     };
   }
   
@@ -190,6 +191,33 @@ const createSessionSemanticProfile = (tracks: AnalyzedTrack[]): SessionSemanticP
   const vocalsBias = calculateBias(t => t.semantic_tags.vocals);
   const textureBias = calculateBias(t => t.semantic_tags.texture);
 
+  // 6. LANGUAGE AGGREGATION (NEW)
+  const languageCounts: Record<string, number> = {};
+  let totalLanguageScore = 0; // Use 'score' for weighted sum
+
+  tracks.forEach(track => {
+    const w = getWeight(track.confidence); // Apply confidence weight
+    if (track.semantic_tags.language && Array.isArray(track.semantic_tags.language)) {
+      track.semantic_tags.language.forEach(lang => {
+        const normalizedLang = lang.toLowerCase().trim(); // Normalize language string (e.g., 'en', 'he')
+        if (normalizedLang) {
+          languageCounts[normalizedLang] = (languageCounts[normalizedLang] || 0) + w;
+          totalLanguageScore += w; // Accumulate total weighted score
+        }
+      });
+    }
+  });
+
+  const languageDistribution: Record<string, number> = {};
+  // Calculate percentages
+  Object.entries(languageCounts).forEach(([lang, score]) => {
+    if (totalLanguageScore > 0) {
+      languageDistribution[lang] = Number((score / totalLanguageScore).toFixed(2)); // Round to two decimal places
+    } else {
+      languageDistribution[lang] = 0;
+    }
+  });
+
   return {
       taste_profile_type: tasteProfileType,
       dominant_genres: dominantGenres,
@@ -199,7 +227,8 @@ const createSessionSemanticProfile = (tracks: AnalyzedTrack[]): SessionSemanticP
       tempo_bias: tempoBias,
       vocals_bias: vocalsBias,
       texture_bias: textureBias,
-      artist_examples: topArtists
+      artist_examples: topArtists,
+      language_distribution: languageDistribution, // NEW: Add to the returned profile
   };
 };
 
