@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { AdminDataInspectorProps } from '../types';
@@ -55,6 +54,22 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
         {/* Content Area */}
         <div className="flex-grow overflow-y-auto custom-scrollbar pr-2">
           
+          {/* NEW: Unified Taste Analysis Results */}
+          <CollapsibleSection title="Unified Taste Analysis (Gemini)">
+            {userTaste?.unified_analysis ? (
+              <div className="space-y-3">
+                <p><strong>Overall Mood Category:</strong> {userTaste.unified_analysis.overall_mood_category} (Confidence: {userTaste.unified_analysis.overall_mood_confidence.toFixed(2)})</p>
+                
+                <h4 className="font-semibold text-white mt-4 mb-2">Session Semantic Profile:</h4>
+                <pre className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
+                  {JSON.stringify(userTaste.unified_analysis.session_semantic_profile, null, 2)}
+                </pre>
+              </div>
+            ) : (
+              <p>No unified taste analysis data available.</p>
+            )}
+          </CollapsibleSection>
+
           {/* Top 50 Artists */}
           <CollapsibleSection title="Spotify Top 50 Artists (Raw)">
             {userTaste?.topArtists && userTaste.topArtists.length > 0 ? (
@@ -68,7 +83,7 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
             )}
           </CollapsibleSection>
 
-          {/* Top 50 Tracks */}
+          {/* Top 50 Tracks (Raw) - now explicitly distinct from analyzed tracks*/}
           <CollapsibleSection title="Spotify Top 50 Tracks (Raw)">
             {userTaste?.topTracks && userTaste.topTracks.length > 0 ? (
               <ol className="list-decimal list-inside space-y-1">
