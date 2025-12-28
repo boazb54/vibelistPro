@@ -13,6 +13,7 @@ export interface SemanticTags {
   tempo: string; // "slow" | "mid" | "fast"
   vocals: string; // "instrumental" | "lead_vocal" | "choral"
   texture: string; // "organic" | "electric" | "synthetic"
+  language?: string[]; // NEW: ISO 639-1 language codes (e.g., ['en', 'he'])
 }
 
 export interface AnalyzedTrack {
@@ -33,6 +34,7 @@ export interface SessionSemanticProfile {
   vocals_bias: string;
   texture_bias: string;
   artist_examples: string[]; // Top 5 weighted artists
+  language_distribution: Record<string, number>; // NEW: e.g., { "en": 0.7, "he": 0.3 }
 }
 
 // NEW: Context Object for Intent Parsing
@@ -59,8 +61,9 @@ export interface Song {
   estimatedVibe?: AiVibeEstimate; // NEW: AI Qualitative Data
 }
 
+// Defines the client-side representation of a full playlist
 export interface Playlist {
-  id?: string; 
+  id?: string; // Optional, might be assigned after saving to DB
   title: string;
   mood: string;
   description: string;
