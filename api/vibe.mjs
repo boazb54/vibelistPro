@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 // --- START: VERY EARLY DIAGNOSTIC LOGS (v1.2.7) ---
@@ -55,7 +56,7 @@ export default async function handler(req, res) {
     const validationSystemInstruction = `You are an AI gatekeeper for a music playlist generator. Your task is to validate a user's input based on whether it's a plausible request for a music vibe.
 
 You must classify the input into one of three categories:
-1.  'VIBE_VALID': The input describes a mood, activity, memory, or scenario suitable for music (e.g., "rainy day", "post-breakup", "coding at 2am", "שמח"). This is the most common case.
+1.  'VIBE_VALID': The input describes a mood, activity, memory, scenario, or general positive affirmation suitable for music (e.g., "rainy day", "post-breakup", "coding at 2am", "שמח", "Good morning", "feeling good", "fresh start"). This is the most common case.
 2.  'VIBE_INVALID_GIBBERISH': The input is nonsensical, random characters, or keyboard mashing (e.g., "asdfasdf", "jhgjhgj").
 3.  'VIBE_INVALID_OFF_TOPIC': The input is a coherent question or statement but is NOT about a mood or music (e.g., "what's the weather", "tell me a joke", "מתכון לעוגה").
 
