@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useEffect } from 'react';
 import { MOODS } from '../constants';
 import { MicIcon } from './Icons';
@@ -63,10 +62,11 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   };
 
   // --- START: Enhanced Voice Input Validation (v1.2.0) ---
+  // THIS FUNCTION IS NOW DEPRECATED AND WILL BE REMOVED. 
+  // All validation now happens server-side via the Unified Vibe API.
   const performClientSideTranscriptValidation = (transcript: string): { isValid: boolean, reason?: string } => {
     const cleanTranscript = transcript ? transcript.trim() : "";
-    // BUG FIX (v1.3.1): Updated regex with Unicode property escapes (\p{L}\p{N}) for comprehensive Unicode awareness.
-    const words = cleanTranscript.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').split(/\s+/).filter(Boolean);
+    const words = cleanTranscript.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
 
     // Basic length check (similar to text input's minimum length)
     if (words.length < 3 || cleanTranscript.length < 10) {
@@ -136,24 +136,26 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                 const transcript = await transcribeAudio(base64Data, audioBlob.type);
                 
                 // --- START: Client-side Enhanced Transcript Validation (v1.2.0) ---
-                if ((window as any).addLog) (window as any).addLog(`Raw transcript received: "${transcript}"`);
-                const validationResult = performClientSideTranscriptValidation(transcript);
+                // [DELETED by v1.2.1 - BypassClientAudioValidation]
+                // if ((window as any).addLog) (window as any).addLog(`Raw transcript received: "${transcript}"`);
+                // const validationResult = performClientSideTranscriptValidation(transcript);
 
-                if (!validationResult.isValid) {
-                    if ((window as any).addLog) (window as any).addLog(`Client-side voice validation failed: "${validationResult.reason}". Original transcript: "${transcript}"`);
-                    setVisibleError({ message: validationResult.reason || "I couldn't quite understand that as a music vibe. Please try again.", key: Date.now() });
-                    setIsProcessingAudio(false);
-                    return; // STOP here, do NOT call onSelectMood
-                }
+                // if (!validationResult.isValid) {
+                //     if ((window as any).addLog) (window as any).addLog(`Client-side voice validation failed: "${validationResult.reason}". Original transcript: "${transcript}"`);
+                //     setVisibleError({ message: validationResult.reason || "I couldn't quite understand that as a music vibe. Please try again.", key: Date.now() });
+                //     setIsProcessingAudio(false);
+                //     return; // STOP here, do NOT call onSelectMood
+                // }
                 // --- END: Client-side Enhanced Transcript Validation ---
 
-                // If passes client-side enhanced validation, populate the textarea and await manual "Generate" click (v1.3.2 fix)
-                if ((window as any).addLog) (window as any).addLog(`Client-side voice validation passed. Transcript: "${transcript}"`);
+                // If passes (or bypasses) client-side validation, proceed to App.tsx's onSelectMood
+                if ((window as any).addLog) (window as any).addLog(`Client-side voice input processed. Transcript: "${transcript}"`);
                 const newValue = customMood ? `${customMood} ${transcript}` : transcript;
                 if (newValue.length <= CHAR_LIMIT) {
                     setCustomMood(newValue);
                     setInputModality('voice');
-                    // Removed: onSelectMood(newValue, 'voice'); // Removed in v1.3.2 to require explicit "Generate" click
+                    // Removed automatic call to onSelectMood to allow user review and explicit generation.
+                    // onSelectMood(newValue, 'voice'); // Immediately trigger mood selection with voice input
                 } else {
                     setVisibleError({ message: `Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`, key: Date.now() });
                 }
