@@ -290,9 +290,9 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
       </div>
 
       <div className="mt-2 md:mt-4"> {/* Adjusted mt-4 md:mt-6 to mt-2 md:mt-4 */}
-          <div className="flex items-center justify-center gap-4 mb-6 opacity-40">
+          <div className="flex items-center justify-center gap-4 mb-6 opacity-100">
               <div className="h-px bg-slate-800 flex-grow max-w-[60px]"></div>
-              <span className="text-slate-500 text-[10px] uppercase tracking-[0.4em] font-bold">Quick Vibe</span>
+              <span className="text-slate-500 text-[10px] uppercase tracking-[0.4em] font-bold">Or Choose A Quick Vibe</span>
               <div className="h-px bg-slate-800 flex-grow max-w-[60px]"></div>
           </div>
 
@@ -303,9 +303,9 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                     disabled={isLoading || isRecording || isProcessingAudio}
                     onClick={() => onSelectMood(m.id, 'text')}
                     className={`group relative overflow-hidden rounded-xl p-2.5 md:p-5 transition-all duration-300 hover:scale-[1.03] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
-                    bg-gradient-to-br ${m.color} bg-opacity-5 border border-white/5 hover:border-white/20`}
+                    bg-gradient-to-br ${m.color} bg-opacity-5 border border-white/5 hover:border-white/10`}
                 >
-                    <div className="absolute inset-0 bg-slate-900/80 group-hover:bg-slate-900/60 transition-colors"></div>
+                    <div className="absolute inset-0 bg-slate-900/60 group-hover:bg-slate-900/40 transition-colors"></div>
                     <div className="relative z-10 flex flex-col items-center text-center">
                         <span className="text-base md:text-2xl mb-1 transform group-hover:scale-110 transition-transform duration-300">{m.emoji}</span>
                         <span className="font-bold text-white tracking-wider text-[9px] md:text-xs uppercase opacity-90">{m.label}</span>
