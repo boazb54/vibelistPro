@@ -2,7 +2,7 @@
   "name": "VibeList Pro",
   "short_name": "VibeList Pro",
   "description": "Generate playlists by mood and vibe",
-  "start_url": "/",
+  "start_url": "https://vibelist-plus-erd2i2bwv-boazs-projects-89c69ca6.vercel.app/",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000",
