@@ -1,17 +1,11 @@
 {
-  "name": "VibeList Pro",
-  "short_name": "VibeList Pro",
-  "description": "Generate playlists by mood and vibe",
-  "start_url": "https://vibelist-plus-erd2i2bwv-boazs-projects-89c69ca6.vercel.app/",
+  "background_color": "#ffffff",
+  "dir": "ltr",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
-  "orientation": "portrait",
-  "icons": [
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    }
-  ]
+  "name": "vibelist Pro,
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "vibelist Pro,
+  "start_url": "https://vibelist-plus-4vbwxfqr9-boazs-projects-89c69ca6.vercel.app/",
+  "theme_color": "#ffffff"
 }
