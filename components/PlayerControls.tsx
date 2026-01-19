@@ -91,9 +91,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
        {/* Info */}
         <div className="flex-grow min-w-0">
-          <div className="text-xs text-purple-300 uppercase font-bold tracking-wider mb-0.5">
-            Now Playing Preview
-          </div>
           <h3 className="text-white font-semibold truncate">{currentSong.title}</h3>
           <p className="text-slate-400 text-sm truncate">{currentSong.artist}</p>
         </div>
