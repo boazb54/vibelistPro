@@ -4,7 +4,7 @@ import PlaylistView from './components/PlaylistView';
 import TeaserPlaylistView from './components/TeaserPlaylistView';
 import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
-import { CogIcon } from './components/Icons'; 
+import { BurgerIcon } from './components/Icons'; 
 import AdminDataInspector from './components/AdminDataInspector';
 import { 
   Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse,
@@ -277,16 +277,6 @@ const App: React.FC = () => {
       window.location.href = url;
     }
   };
-
-  // handleSettings function removed - functionality moved to user profile display
-  // const handleSettings = () => {
-  //   if (spotifyToken) {
-  //       setShowSettings(true);
-  //   } else {
-  //       setValidationError({ message: "Please login first to manage your settings.", key: Date.now() });
-  //       handleLogin();
-  //   }
-  // };
 
   const handleSignOut = () => {
     setSpotifyToken(null);
@@ -714,11 +704,6 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-4">
-           {/* Settings button removed - functionality moved to user profile display */}
-           {/* <button onClick={handleSettings} className="text-slate-400 hover:text-white transition-colors" title="Settings">
-               <CogIcon className="w-6 h-6" />
-           </button> */}
-
            <button 
              onClick={(e) => {
                addLog(`'π' button clicked. Ctrl key pressed: ${e.ctrlKey}. Current Admin Inspector state: ${showAdminDataInspector}.`);
@@ -737,13 +722,20 @@ const App: React.FC = () => {
            </button>
 
            {!spotifyToken ? (
-             <button 
-               onClick={handleLogin}
-               className="text-sm font-medium bg-[#1DB954] text-black px-5 py-2 rounded-full hover:bg-[#1ed760] transition-all shadow-lg hover:shadow-[#1DB954]/20"
-             >
-               Login with Spotify
-             </button>
+            // Pre-login: Burger menu icon
+             <>
+               <button 
+                 onClick={handleLogin}
+                 className="text-sm font-medium bg-[#1DB954] text-black px-5 py-2 rounded-full hover:bg-[#1ed760] transition-all shadow-lg hover:shadow-[#1DB954]/20"
+               >
+                 Login with Spotify
+               </button>
+               <button onClick={() => setShowSettings(true)} className="text-slate-400 hover:text-white transition-colors" title="Settings">
+                  <BurgerIcon className="w-6 h-6" />
+               </button>
+             </>
            ) : (
+            // Post-login: Spotify profile avatar
              <div 
                className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10 cursor-pointer hover:bg-white/10 transition-colors"
                onClick={() => setShowSettings(true)} // Clicking profile now opens settings
@@ -814,6 +806,7 @@ const App: React.FC = () => {
         onClose={() => setShowSettings(false)}
         userProfile={userProfile}
         onSignOut={handleSignOut}
+        isAuthenticated={!!spotifyToken}
       />
     </div>
   );
