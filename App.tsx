@@ -703,11 +703,9 @@ const App: React.FC = () => {
 
       <header className="relative z-20 w-full p-4 md:p-6 px-6 flex justify-between items-center glass-panel border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
-           <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 to-cyan-400 rounded-lg flex items-center justify-center">
-             <span className="font-bold text-white">V+</span>
-           </div>
+           <img src="/logo-Header.png" alt="VibeList Pro Logo" className="w-8 h-8"/>
            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden md:block">
-             VibeList+
+             VibeList Pro
            </h1>
         </div>
         
