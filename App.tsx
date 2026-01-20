@@ -706,7 +706,7 @@ const App: React.FC = () => {
            <img
   src="/vibelist-header-icon-final-64-v3.png"
   alt="VibeList Pro"
-  className="w-10 h-10"
+  className="w-9 h-9"
  />
            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden md:block">
              VibeList Pro
