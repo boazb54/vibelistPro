@@ -704,10 +704,10 @@ const App: React.FC = () => {
       <header className="relative z-20 w-full p-4 md:p-6 px-6 flex justify-between items-center glass-panel border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
            <img
-  src="/logo-Header.png"
+  src="/vibelist-header-icon-64.png"
   alt="VibeList Pro"
-  className="w-10 h-10 rounded-md border border-black/10"
-/>
+  className="w-10 h-10"
+ />
            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden md:block">
              VibeList Pro
            </h1>
