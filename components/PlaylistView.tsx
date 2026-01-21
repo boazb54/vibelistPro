@@ -10,7 +10,7 @@ interface PlaylistViewProps {
   playerState: PlayerState;
   onPlaySong: (song: Song) => void;
   onPause: () => void;
-  onReset: () => void;
+  // onReset: () => void; // Removed in revert
   onExport: () => void;
   onShare: () => void;
   exporting: boolean;
@@ -22,7 +22,7 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
   playerState,
   onPlaySong,
   onPause,
-  onReset,
+  // onReset, // Removed in revert
   onExport,
   onShare,
   exporting
@@ -49,7 +49,7 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
   const fontClass = isRightToLeft ? "font-['Heebo']" : "";
 
   // 1. UNIFIED BUTTON CLASSES
-  const secondaryActionBtnClass = "bg-white/5 border border-white/10 hover:bg-white/20 text-white p-2 md:px-4 md:py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors duration-200 group h-full";
+  // const secondaryActionBtnClass = "bg-white/5 border border-white/10 hover:bg-white/20 text-white p-2 md:px-4 md:py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors duration-200 group h-full"; // Removed in revert
   const primaryBtnClass = "bg-[#1DB954] text-black font-bold rounded-full px-8 py-3.5 flex items-center justify-center gap-2 hover:scale-105 transition-transform shadow-lg shadow-green-500/20 w-full md:w-auto";
   const iconClass = "w-5 h-5 flex-shrink-0";
 
@@ -60,24 +60,11 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
           {/* Background Ambient Glow */}
           <div className="absolute top-0 right-0 w-96 h-96 bg-purple-600 rounded-full filter blur-[120px] opacity-20 -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
-          {/* NEW: Exit Button (X) */}
-          <button 
-            onClick={onReset}
-            className="absolute top-6 left-6 text-slate-400 hover:text-white transition-colors z-10"
-            aria-label="Exit playlist view"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          {/* OLD: No Exit Button (X) - Removed in revert */}
 
           <div className="relative z-10 flex flex-col">
             
-            {/* NEW: Fixed Left-aligned Label */}
-            <div className="flex items-center gap-2 text-purple-300 uppercase tracking-wider text-xs font-bold mb-4">
-                <SparklesIcon className="w-4 h-4" />
-                <span>Mood-driven playlists</span>
-            </div>
+            {/* OLD: No Fixed Left-aligned Label - Removed in revert */}
 
             {/* LAYER 1: META (Hybrid Alignment) - Now only contains title and duration */}
             <div className={`flex flex-col gap-2 mb-4 ${containerAlign}`}> 
@@ -101,16 +88,9 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
             </div>
               
             {/* LAYER 3: ACTION LAYER (Always LTR, Right Anchored) */}
-            <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-4 md:gap-6 w-full border-t border-white/10 pt-6" dir="ltr">
+            {/* Reverted to original state: only primary button */}
+            <div className="flex flex-col md:flex-row items-center md:justify-end gap-4 md:gap-6 w-full border-t border-white/10 pt-6">
                 
-                {/* Secondary Actions - Now only "Share Playlist" */}
-                <div className="flex md:block w-full md:w-auto"> {/* Adjusted for standalone desktop share button */}
-                    <button onClick={onShare} title="Share Playlist" className={`${secondaryActionBtnClass} w-full`}>
-                      <ShareIcon className={iconClass} />
-                      <span className="text-[10px] md:text-sm font-medium whitespace-nowrap">Share Playlist</span>
-                    </button>
-                </div>
-
                 {/* Primary Action */}
                 <button onClick={onExport} disabled={exporting} className={primaryBtnClass}>
                   <SpotifyIcon className={iconClass} />
@@ -136,9 +116,9 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
                 return (
                   <div 
                     key={song.id} 
-                    className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-300 ease-in-out cursor-pointer 
+                    className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-300 ease-in-out
                                 ${isCurrent ? 'bg-slate-800/80 border-l-4 border-purple-500 shadow-lg shadow-purple-500/20 scale-[1.02]' : 'border-l-4 border-transparent hover:bg-slate-800/50 hover:border-purple-500/30 hover:scale-[1.01]'}`}
-                    onClick={() => hasPreview && (isPlaying ? onPause() : onPlaySong(song))}
+                    // onClick removed in revert
                   >
                     {/* Artwork & Play Button (Fixed Anchor: Always Left) */}
                     <div className="relative flex-shrink-0 w-12 h-12 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-800 shadow-lg">
@@ -163,11 +143,26 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
                       )}
                     </div>
                     
-                    {/* Track Info (Text Alignment conditional on language, no truncate) */}
+                    {/* Track Info (Text Alignment conditional on language, now truncated again) */}
                     <div className={`flex-grow min-w-0 ${songTextAlign}`} dir={songDir}>
-                      <h3 className={`font-semibold ${isCurrent ? 'text-purple-300' : 'text-white'} ${songFont}`}>{song.title}</h3>
-                      <p className={`text-sm text-slate-400 ${songFont}`}>{song.artist} • {song.album}</p>
+                      <h3 className={`font-semibold ${isCurrent ? 'text-purple-300' : 'text-white'} truncate ${songFont}`}>{song.title}</h3>
+                      <p className={`text-sm text-slate-400 truncate ${songFont}`}>{song.artist} • {song.album}</p>
                     </div>
+
+                    {/* Spotify Link (Re-added in revert) */}
+                    {song.spotifyUri && (
+                        <a 
+                            href={song.spotifyUri} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            onClick={(e) => e.stopPropagation()} // Prevent row click from activating
+                            className="flex-shrink-0 text-slate-400 hover:text-white transition-colors flex items-center gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                            aria-label={`Play ${song.title} on Spotify`}
+                        >
+                            <SpotifyIcon className="w-5 h-5 text-green-500" />
+                            <span className="text-xs font-semibold hidden md:block">Play on Spotify</span>
+                        </a>
+                    )}
                   </div>
                 );
               })}
