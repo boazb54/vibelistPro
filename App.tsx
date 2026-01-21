@@ -286,6 +286,8 @@ const App: React.FC = () => {
     localStorage.removeItem('spotify_token');
     localStorage.removeItem('spotify_refresh_token');
     setShowSettings(false);
+    authProcessedGlobal = false;
+    handleReset();
     addLog("User signed out.");
   };
 
@@ -668,7 +670,11 @@ const App: React.FC = () => {
           playerState={playerState}
           onPlaySong={handlePlaySong}
           onPause={handlePause}
+          onReset={handleReset}
           onExport={handleExportToSpotify}
+          onDownloadCsv={() => {}}
+          onYouTubeExport={() => {}}
+          onRemix={handleRemix}
           onShare={handleShare}
           exporting={exporting}
         />
