@@ -30,6 +30,7 @@ import {
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
 import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure, fetchVibeById } from './services/historyService';
 import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
+// import { openExternalLink } from './utils/linkUtils'; // Removed NEW import
 
 interface TeaserPlaylist {
   id: string;
@@ -267,14 +268,14 @@ const App: React.FC = () => {
       addLog("Preview environment detected. Using top-level redirect for Spotify login.");
       const currentUrl = window.location.href.split('#')[0];
       const url = getLoginUrl(spotifyClientId, currentUrl);
-      window.top.location.href = url;
+      window.open(url, '_top'); // Use _top target to ensure full page redirect
     } else {
       addLog("Production environment detected. Using PKCE flow for Spotify login.");
       const verifier = generateRandomString(128);
       const challenge = await generateCodeChallenge(verifier);
       localStorage.setItem('code_verifier', verifier);
       const url = getPkceLoginUrl(spotifyClientId, DEFAULT_REDIRECT_URI, challenge);
-      window.location.href = url;
+      window.open(url, '_blank'); // Use default _blank target
     }
   };
 
@@ -626,7 +627,7 @@ const App: React.FC = () => {
       if (playlist.id) {
           await markVibeAsExported(playlist.id);
       }
-      window.open(url, '_blank');
+      window.open(url, '_blank'); // Original line
       addLog(`Playlist "${playlist.title}" successfully exported to Spotify: ${url}`);
     } catch (e: any) {
       alert(`Failed to export: ${e.message}`);
@@ -671,9 +672,6 @@ const App: React.FC = () => {
           onPause={handlePause}
           onReset={handleReset}
           onExport={handleExportToSpotify}
-          onDownloadCsv={() => {}}
-          onYouTubeExport={() => {}}
-          onRemix={handleRemix}
           onShare={handleShare}
           exporting={exporting}
         />
