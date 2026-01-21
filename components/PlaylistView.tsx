@@ -1,7 +1,8 @@
 import React from 'react';
 import { Playlist, Song, PlayerState } from '../types';
-import { PlayIcon, PauseIcon, SparklesIcon, SpotifyIcon, BookmarkIcon, RefreshIcon, ShareIcon } from './Icons';
+import { PlayIcon, PauseIcon, SparklesIcon, SpotifyIcon, ShareIcon } from './Icons';
 import { isRtl } from '../utils/textUtils';
+// import { openExternalLink } from '../utils/linkUtils'; // Removed NEW import
 
 interface PlaylistViewProps {
   playlist: Playlist;
@@ -11,9 +12,6 @@ interface PlaylistViewProps {
   onPause: () => void;
   onReset: () => void;
   onExport: () => void;
-  onDownloadCsv: () => void;
-  onYouTubeExport: () => void;
-  onRemix: () => void;
   onShare: () => void;
   exporting: boolean;
 }
@@ -26,7 +24,6 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
   onPause,
   onReset,
   onExport,
-  onRemix,
   onShare,
   exporting
 }) => {
@@ -51,12 +48,8 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
   const contentDir = isRightToLeft ? 'rtl' : 'ltr';
   const fontClass = isRightToLeft ? "font-['Heebo']" : "";
 
-  const handleSaveVibe = () => {
-    console.log("Save Vibe clicked - functionality placeholder");
-  };
-
   // 1. UNIFIED BUTTON CLASSES
-  const secondaryBtnClass = "bg-white/5 border border-white/10 hover:bg-white/20 text-white p-2 md:px-4 md:py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors duration-200 group h-full";
+  const secondaryActionBtnClass = "bg-white/5 border border-white/10 hover:bg-white/20 text-white p-2 md:px-4 md:py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors duration-200 group h-full";
   const primaryBtnClass = "bg-[#1DB954] text-black font-bold rounded-full px-8 py-3.5 flex items-center justify-center gap-2 hover:scale-105 transition-transform shadow-lg shadow-green-500/20 w-full md:w-auto";
   const iconClass = "w-5 h-5 flex-shrink-0";
 
@@ -66,6 +59,17 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
         <div className="glass-panel rounded-3xl p-6 md:p-10 mb-6 relative overflow-hidden">
           {/* Background Ambient Glow */}
           <div className="absolute top-0 right-0 w-96 h-96 bg-purple-600 rounded-full filter blur-[120px] opacity-20 -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+
+          {/* NEW: Exit Button (X) */}
+          <button 
+            onClick={onReset}
+            className="absolute top-6 left-6 text-slate-400 hover:text-white transition-colors z-10"
+            aria-label="Exit playlist view"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
 
           <div className="relative z-10 flex flex-col">
             
@@ -99,29 +103,12 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
             {/* LAYER 3: ACTION LAYER (Always LTR, Right Anchored) */}
             <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-4 md:gap-6 w-full border-t border-white/10 pt-6" dir="ltr">
                 
-                {/* Secondary Actions Grid */}
-                <div className="grid grid-cols-4 gap-2 w-full md:w-auto md:flex md:gap-3">
-                    
-                    <button onClick={onReset} title="New Vibe" className={secondaryBtnClass}>
-                      <SparklesIcon className={iconClass} />
-                      <span className="text-[10px] md:text-sm font-medium">New</span>
-                    </button>
-
-                    <button onClick={handleSaveVibe} title="Save Vibe" className={secondaryBtnClass}>
-                      <BookmarkIcon className={iconClass} />
-                      <span className="text-[10px] md:text-sm font-medium">Save</span>
-                    </button>
-
-                    <button onClick={onRemix} title="Remix Vibe" className={secondaryBtnClass}>
-                      <RefreshIcon className={iconClass} />
-                      <span className="text-[10px] md:text-sm font-medium">Remix</span>
-                    </button>
-                    
-                    <button onClick={onShare} title="Share Vibe" className={secondaryBtnClass}>
+                {/* Secondary Actions - Now only "Share Playlist" */}
+                <div className="flex md:block w-full md:w-auto"> {/* Adjusted for standalone desktop share button */}
+                    <button onClick={onShare} title="Share Playlist" className={`${secondaryActionBtnClass} w-full`}>
                       <ShareIcon className={iconClass} />
-                      <span className="text-[10px] md:text-sm font-medium">Share</span>
+                      <span className="text-[10px] md:text-sm font-medium whitespace-nowrap">Share Playlist</span>
                     </button>
-
                 </div>
 
                 {/* Primary Action */}
@@ -146,18 +133,19 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
                 const songDir = isSongRtl ? 'rtl' : 'ltr';
                 const songFont = isSongRtl ? "font-['Heebo']" : "";
 
-                const spotifyLink = song.spotifyUri 
-                  ? `https://open.spotify.com/track/${song.id}` 
-                  : `https://open.spotify.com/search/${encodeURIComponent(song.title + " " + song.artist)}`;
-
                 return (
-                  <div key={song.id} className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-300 ease-in-out ${isCurrent ? 'bg-slate-800/80 border-l-4 border-purple-500 shadow-lg shadow-purple-500/20 scale-[1.02]' : 'border-l-4 border-transparent hover:bg-slate-800/50 hover:border-purple-500/30 hover:scale-[1.01]'}`}>
+                  <div 
+                    key={song.id} 
+                    className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-300 ease-in-out cursor-pointer 
+                                ${isCurrent ? 'bg-slate-800/80 border-l-4 border-purple-500 shadow-lg shadow-purple-500/20 scale-[1.02]' : 'border-l-4 border-transparent hover:bg-slate-800/50 hover:border-purple-500/30 hover:scale-[1.01]'}`}
+                    onClick={() => hasPreview && (isPlaying ? onPause() : onPlaySong(song))}
+                  >
                     {/* Artwork & Play Button (Fixed Anchor: Always Left) */}
                     <div className="relative flex-shrink-0 w-12 h-12 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-800 shadow-lg">
                       {song.artworkUrl ? <img src={song.artworkUrl} alt={song.album} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-600 bg-slate-900"><span className="text-xs">No Art</span></div>}
                       
                       {hasPreview ? (
-                          <button onClick={() => isPlaying ? onPause() : onPlaySong(song)} className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity opacity-100`}>
+                          <button onClick={(e) => { e.stopPropagation(); isPlaying ? onPause() : onPlaySong(song); }} className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity opacity-100`}>
                           {isPlaying ? <PauseIcon className="w-6 h-6 text-white" /> : <PlayIcon className="w-6 h-6 text-white" />}
                           </button>
                       ) : (
@@ -175,23 +163,10 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
                       )}
                     </div>
                     
-                    {/* Track Info (Text Alignment conditional on language) */}
+                    {/* Track Info (Text Alignment conditional on language, no truncate) */}
                     <div className={`flex-grow min-w-0 ${songTextAlign}`} dir={songDir}>
-                      <h3 className={`font-semibold truncate ${isCurrent ? 'text-purple-300' : 'text-white'} ${songFont}`}>{song.title}</h3>
-                      <p className={`text-sm text-slate-400 truncate ${songFont}`}>{song.artist} • {song.album}</p>
-                    </div>
-                    
-                    {/* Spotify Link (Fixed Anchor: Always Right) */}
-                    <div className="flex-shrink-0 flex gap-2">
-                      <a 
-                        href={spotifyLink} 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors border bg-[#1DB954]/10 text-[#1DB954] border-[#1DB954]/30 hover:bg-[#1DB954] hover:text-black"
-                      >
-                        <SpotifyIcon className="w-3.5 h-3.5" />
-                        <span className="font-medium hidden md:inline">Play on Spotify</span>
-                      </a>
+                      <h3 className={`font-semibold ${isCurrent ? 'text-purple-300' : 'text-white'} ${songFont}`}>{song.title}</h3>
+                      <p className={`text-sm text-slate-400 ${songFont}`}>{song.artist} • {song.album}</p>
                     </div>
                   </div>
                 );
