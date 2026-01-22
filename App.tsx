@@ -54,8 +54,6 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<SpotifyUserProfile | null>(null);
   const [userTaste, setUserTaste] = useState<UserTasteProfile | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [hasExported, setHasExported] = useState(false);
-  const [lastExportedUrl, setLastExportedUrl] = useState<string | null>(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -360,8 +358,6 @@ const App: React.FC = () => {
     setCurrentSong(null);
     setPlayerState(PlayerState.STOPPED);
     setIsConfirmationStep(false);
-    setHasExported(false);
-    setLastExportedUrl(null);
 
     const currentSessionId = ++generationSessionId.current;
     const ipPromise = fetch('https://api.ipify.org?format=json').then(res => res.json()).then(data => data.ip).catch(() => 'unknown');
@@ -593,8 +589,6 @@ const App: React.FC = () => {
     setPlayerState(PlayerState.STOPPED);
     setIsConfirmationStep(false);
     setValidationError(null);
-    setHasExported(false);
-    setLastExportedUrl(null);
     addLog("App state reset.");
   };
 
@@ -667,8 +661,6 @@ const App: React.FC = () => {
       if (playlist.id) {
           await markVibeAsExported(playlist.id);
       }
-      setHasExported(true);
-      setLastExportedUrl(url);
       if (isNative()) {
         await Browser.open({ url });
       } else {
@@ -723,8 +715,6 @@ const App: React.FC = () => {
           onRemix={handleRemix}
           onShare={handleShare}
           exporting={exporting}
-          hasExported={hasExported}
-          lastExportedUrl={lastExportedUrl}
         />
       );
     }
