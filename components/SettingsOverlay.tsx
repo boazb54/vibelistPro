@@ -1,5 +1,7 @@
+
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { Browser } from '@capacitor/browser';
 import { SpotifyUserProfile } from '../types';
 import { isRtl } from '../utils/textUtils';
 import { fetchUserProfile } from '../services/historyService';
@@ -37,29 +39,23 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({ isOpen, onClose, user
 
   if (!isOpen) return null;
 
-  const handleExternalLink = (url: string) => {
-    window.open(url, '_blank');
+  const handleExternalLink = async (url: string) => {
+    // V2.1.0: Use native Browser overlay for better UX continuity
+    await Browser.open({ url });
     onClose(); // Auto-close menu on link tap
   };
 
   const handleContactSupport = () => {
-    window.open('mailto:boazb54@gmail.com?subject=VibeList Support', '_self');
+    window.open('mailto:support@vibelist.app?subject=VibeList Support', '_self');
     onClose(); // Auto-close menu on link tap
   };
 
-  const menuItems = isAuthenticated ? 
-    [
-      { label: 'Privacy Policy', action: () => handleExternalLink('/doc/privacy-policy.html') },
-      { label: 'Terms of Use', action: () => handleExternalLink('/doc/terms-of-use.html') },
-      { label: 'About VibeList', action: () => handleExternalLink('/doc/about-vibelist-Pro.html') },
-      { label: 'Contact Support', action: handleContactSupport },
-    ] : 
-    [
-      { label: 'Privacy Policy', action: () => handleExternalLink('/doc/privacy-policy.html') },
-      { label: 'Terms of Use', action: () => handleExternalLink('/doc/terms-of-use.html') },
-      { label: 'About VibeList', action: () => handleExternalLink('/doc/about-vibelist-Pro.html') },
-      { label: 'Contact Support', action: handleContactSupport },
-    ];
+  const menuItems = [
+    { label: 'Privacy Policy', action: () => handleExternalLink('public/doc/privacy-policy.html') },
+    { label: 'Terms of Use', action: () => handleExternalLink('public/doc/terms-of-use.html') },
+    { label: 'About VibeList', action: () => handleExternalLink('public/doc/about-vibelist-Pro.html') },
+    { label: 'Contact Support', action: handleContactSupport },
+  ];
 
 
   const overlayClasses = `fixed inset-0 z-[100] flex ${isMobile ? 'items-end' : 'items-center justify-center'} bg-black/60 backdrop-blur-sm animate-fade-in`;
