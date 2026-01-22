@@ -46,14 +46,14 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({ isOpen, onClose, user
   };
 
   const handleContactSupport = () => {
-    window.open('mailto:support@vibelist.app?subject=VibeList Support', '_self');
+    window.open('mailto:support@vibelistpro.app?subject=VibeList Support', '_self');
     onClose(); // Auto-close menu on link tap
   };
 
   const menuItems = [
-    { label: 'Privacy Policy', action: () => handleExternalLink('public/doc/privacy-policy.html') },
-    { label: 'Terms of Use', action: () => handleExternalLink('public/doc/terms-of-use.html') },
-    { label: 'About VibeList', action: () => handleExternalLink('public/doc/about-vibelist-Pro.html') },
+    { label: 'Privacy Policy', action: () => handleExternalLink('/doc/privacy-policy.html') },
+    { label: 'Terms of Use', action: () => handleExternalLink('/doc/terms-of-use.html') },
+    { label: 'About VibeList', action: () => handleExternalLink('/doc/about-vibelist-Pro.html') },
     { label: 'Contact Support', action: handleContactSupport },
   ];
 
