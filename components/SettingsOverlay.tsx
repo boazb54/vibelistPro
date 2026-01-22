@@ -39,10 +39,18 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({ isOpen, onClose, user
 
   if (!isOpen) return null;
 
-  const handleExternalLink = async (url: string) => {
-    // V2.1.0: Use native Browser overlay for better UX continuity
-    await Browser.open({ url });
-    onClose(); // Auto-close menu on link tap
+  const handleExternalLink = async (path: string) => {
+    // V2.1.1: Convert relative doc paths into valid absolute URLs for the native Browser plugin 
+    // and prevent UI freeze caused by unhandled promise rejections.
+    try {
+      const url = new URL(path, window.location.origin).toString();
+      await Browser.open({ url });
+    } catch (e) {
+      console.error('Failed to open external link', e);
+      if ((window as any).addLog) (window as any).addLog(`Browser.open error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      onClose(); // Always close menu to ensure UI responsiveness
+    }
   };
 
   const handleContactSupport = () => {
