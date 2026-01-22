@@ -1,3 +1,4 @@
+
 import { SPOTIFY_AUTH_ENDPOINT, SPOTIFY_SCOPES } from "../constants";
 import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, SpotifyTrack, UserTasteProfile, AggregatedPlaylist } from "../types";
 import { fetchSongMetadata } from "./itunesService";
@@ -15,13 +16,13 @@ export const getLoginUrl = (clientId: string, redirectUri: string, showDialog: b
 
 // --- PKCE ADDITIONS ---
 
-export const getPkceLoginUrl = (clientId: string, redirectUri: string, codeChallenge: string, showDialog: boolean = false): string => {
+export const getPkceLoginUrl = (clientId: string, redirectUri: string, codeChallenge: string, state: string, showDialog: boolean = false): string => {
   const scopes = SPOTIFY_SCOPES.join("%20");
   const cleanId = clientId.replace(/[^a-zA-Z0-9]/g, '');
   const cleanUri = redirectUri.trim();
   
   // Note: response_type is 'code' for PKCE
-  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}${showDialog ? '&show_dialog=true' : ''}`;
+  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}&state=${state}${showDialog ? '&show_dialog=true' : ''}`;
 };
 
 export const exchangeCodeForToken = async (clientId: string, redirectUri: string, code: string, codeVerifier: string, signal?: AbortSignal) => {
