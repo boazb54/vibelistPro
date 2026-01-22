@@ -1,3 +1,4 @@
+
 export const MOODS = [
   { id: 'chill', label: 'Chill', emoji: '☕', color: 'from-blue-500 to-cyan-400' },
   { id: 'workout', label: 'Workout', emoji: '💪', color: 'from-red-500 to-orange-400' },
@@ -27,6 +28,10 @@ export const DEFAULT_SPOTIFY_CLIENT_ID = "b292c19608a44142990530a7e9595b8a";
 export const DEFAULT_REDIRECT_URI = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
   ? `${window.location.origin}/` 
   : "https://example.com/";
+
+// Android Native Redirect Config
+export const ANDROID_REDIRECT_URI = "vibelistpro://callback";
+export const APP_SCHEME = "vibelistpro";
 
 /**
  * SYSTEM STABILITY LOCK (V1.1.0)
