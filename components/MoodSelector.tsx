@@ -21,6 +21,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const CHAR_LIMIT = 500;
 
@@ -30,6 +31,15 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
     }
   }, [validationError]);
 
+  // v2.2.0 - Ensure text cursor is blinking on arrival
+  useEffect(() => {
+    if (!isLoading && !isProcessingAudio) {
+      const timer = setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, isProcessingAudio]);
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,43 +70,6 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
           reader.readAsDataURL(blob);
       });
   };
-
-  // --- START: Enhanced Voice Input Validation (v1.2.0) ---
-  // THIS FUNCTION IS NOW DEPRECATED AND WILL BE REMOVED. 
-  // All validation now happens server-side via the Unified Vibe API.
-  const performClientSideTranscriptValidation = (transcript: string): { isValid: boolean, reason?: string } => {
-    const cleanTranscript = transcript ? transcript.trim() : "";
-    const words = cleanTranscript.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
-
-    // Basic length check (similar to text input's minimum length)
-    if (words.length < 3 || cleanTranscript.length < 10) {
-      return { isValid: false, reason: "Please describe the vibe in a bit more detail. It sounds too short." };
-    }
-
-    // Existing artifact/noise word filter
-    const hasArtifacts = /^\*.*\*/.test(cleanTranscript) || /^\[.*\]/.test(cleanTranscript) || /^\d{2}:\d{2}/.test(cleanTranscript);
-    const noiseWords = new Set(['thwack', 'thump', 'tap', 'shh', 'shhhhh', 'shhhhhh', 'click', 'clack', 'whack', 'knock']);
-    const isOnlyNoiseWords = words.length > 0 && words.every(word => noiseWords.has(word));
-    if (hasArtifacts || isOnlyNoiseWords) {
-      return { isValid: false, reason: "I hear you, but that doesn't sound like a vibe. Please try again with clearer speech." };
-    }
-
-    // Heuristic check for gibberish patterns
-    // Example: repeated characters, very few unique characters in a long string, too many non-alphanumeric
-    const uniqueChars = new Set(cleanTranscript.replace(/\s/g, '')).size;
-    if (cleanTranscript.length > 20 && uniqueChars < (cleanTranscript.length / 5)) { // If fewer than 1/5 unique chars for long string
-        return { isValid: false, reason: "That sounds like gibberish. Can you please describe your mood clearly?" };
-    }
-
-    // Simple check for common non-vibe topics (off-topic)
-    const offTopicKeywords = ['what is the weather', 'tell me a joke', 'what time is it', 'how are you', 'do you exist', 'who made you', 'what is your name', 'recipe for', 'tell me a story', 'who won the game'];
-    if (offTopicKeywords.some(keyword => cleanTranscript.toLowerCase().includes(keyword))) {
-      return { isValid: false, reason: "I'm designed to create music playlists, not answer general questions. Please describe your desired vibe." };
-    }
-
-    return { isValid: true };
-  };
-  // --- END: Enhanced Voice Input Validation (v1.2.0) ---
 
   const handleVoiceToggle = async () => {
     if (isRecording) {
@@ -135,27 +108,11 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                 const base64Data = base64Full.split(',')[1];
                 const transcript = await transcribeAudio(base64Data, audioBlob.type);
                 
-                // --- START: Client-side Enhanced Transcript Validation (v1.2.0) ---
-                // [DELETED by v1.2.1 - BypassClientAudioValidation]
-                // if ((window as any).addLog) (window as any).addLog(`Raw transcript received: "${transcript}"`);
-                // const validationResult = performClientSideTranscriptValidation(transcript);
-
-                // if (!validationResult.isValid) {
-                //     if ((window as any).addLog) (window as any).addLog(`Client-side voice validation failed: "${validationResult.reason}". Original transcript: "${transcript}"`);
-                //     setVisibleError({ message: validationResult.reason || "I couldn't quite understand that as a music vibe. Please try again.", key: Date.now() });
-                //     setIsProcessingAudio(false);
-                //     return; // STOP here, do NOT call onSelectMood
-                // }
-                // --- END: Client-side Enhanced Transcript Validation ---
-
-                // If passes (or bypasses) client-side validation, proceed to App.tsx's onSelectMood
                 if ((window as any).addLog) (window as any).addLog(`Client-side voice input processed. Transcript: "${transcript}"`);
                 const newValue = customMood ? `${customMood} ${transcript}` : transcript;
                 if (newValue.length <= CHAR_LIMIT) {
                     setCustomMood(newValue);
                     setInputModality('voice');
-                    // Removed automatic call to onSelectMood to allow user review and explicit generation.
-                    // onSelectMood(newValue, 'voice'); // Immediately trigger mood selection with voice input
                 } else {
                     setVisibleError({ message: `Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`, key: Date.now() });
                 }
@@ -192,16 +149,15 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   const fontClass = isRightToLeft ? "font-['Heebo']" : "";
 
   return (
-    <div className="flex flex-col w-full max-w-5xl mx-auto px-4 animate-fade-in-up pb-24"> {/* Adjusted pb-40 to pb-24 */}
+    <div className="flex flex-col w-full max-w-5xl mx-auto px-4 animate-fade-in-up pb-24">
       
-      {/* V1.3.1: MODAL ERROR DISPLAY */}
       {visibleError && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4"
           onClick={handleCloseErrorModal}
           aria-modal="true"
           role="dialog"
-          key={visibleError.key} // Use key to force re-render on new error, even if message is same
+          key={visibleError.key}
         >
           <div
             className="relative bg-indigo-950/80 border border-cyan-500/30 rounded-2xl shadow-2xl w-full max-w-md p-6 text-center animate-fade-in-up"
@@ -221,11 +177,11 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
         </div>
       )}
 
-      <div className="flex-none pt-2 md:pt-4 pb-0"> {/* Adjusted pt-4 md:pt-6 pb-2 to pt-2 md:pt-4 pb-0 */}
-          <div className="text-center mb-2 md:mb-4"> {/* Adjusted mb-4 md:mb-6 to mb-2 md:mb-4 */}
+      <div className="flex-none pt-2 md:pt-4 pb-0">
+          <div className="text-center mb-2 md:mb-4">
               <h2 className="text-3xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500 pb-1 leading-tight">
-                <span className="md:hidden">How are you feeling?</span> {/* Mobile-specific text */}
-                <span className="hidden md:inline">How are you feeling today?</span> {/* Desktop-specific text */}
+                <span className="md:hidden">How are you feeling?</span>
+                <span className="hidden md:inline">How are you feeling today?</span>
               </h2>
           </div>
 
@@ -239,6 +195,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                     <div className="relative bg-slate-900 border border-white/10 rounded-3xl p-1.5 shadow-2xl">
                         <div className="relative">
                             <textarea
+                                ref={textareaRef}
                                 value={customMood}
                                 onChange={handleChange}
                                 onKeyDown={handleKeyDown}
@@ -252,7 +209,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
                                 disabled={isLoading || isProcessingAudio}
                                 rows={3}
                                 className={`w-full bg-slate-800/60 text-white placeholder-slate-400/70 rounded-2xl py-8 md:py-12 pl-6 pr-14 focus:outline-none resize-none align-top text-base md:text-lg leading-relaxed transition-colors ${isRecording ? 'placeholder-red-400/70 text-red-200' : ''}`}
-                            /> {/* Adjusted py-6 md:py-10 to py-8 md:py-12 */}
+                            />
                             <button 
                                 type="button"
                                 onClick={handleVoiceToggle}
@@ -289,7 +246,7 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
           </div>
       </div>
 
-      <div className="mt-2 md:mt-4"> {/* Adjusted mt-4 md:mt-6 to mt-2 md:mt-4 */}
+      <div className="mt-2 md:mt-4">
           <div className="flex items-center justify-center gap-4 mb-6 opacity-100">
               <div className="h-px bg-slate-800 flex-grow max-w-[60px]"></div>
               <span className="text-slate-500 text-[10px] uppercase tracking-[0.4em] font-bold">Or Choose A Quick Vibe</span>
