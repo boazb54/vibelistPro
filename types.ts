@@ -1,3 +1,4 @@
+
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -229,4 +230,13 @@ export interface UnifiedVibeResponse {
 
   promptText?: string; // Only returned from client-side `generatePlaylistFromMood` in preview env
   metrics?: GeminiResponseMetrics; // Optional, server might provide
+}
+
+// NEW: Transcription Contract Hard Stop (v2.2.2)
+export type TranscriptionStatus = 'ok' | 'no_speech' | 'error';
+
+export interface TranscriptionResult {
+  status: TranscriptionStatus;
+  text?: string;
+  reason?: string;
 }
