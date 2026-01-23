@@ -10,9 +10,10 @@ interface MoodSelectorProps {
   onSelectMood: (mood: string, modality: 'text' | 'voice') => void;
   isLoading: boolean;
   validationError: { message: string; key: number } | null;
+  autoFocus?: boolean; // V.2.1.2 NEW
 }
 
-const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, validationError }) => {
+const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, validationError, autoFocus }) => {
   const [customMood, setCustomMood] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
@@ -21,21 +22,26 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const CHAR_LIMIT = 500;
 
   useEffect(() => {
-    if (validationError) {
-      setVisibleError(validationError);
-    }
+    if (validationError) setVisibleError(validationError);
   }, [validationError]);
 
+  // V.2.1.2: Handle auto-focus and glow effect
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 500);
+    }
+  }, [autoFocus]);
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (customMood.trim()) {
-      onSelectMood(customMood.trim(), inputModality);
-    }
+    if (customMood.trim()) onSelectMood(customMood.trim(), inputModality);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -52,180 +58,62 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
     }
   };
 
-  const blobToBase64 = (blob: Blob): Promise<string> => {
-      return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-      });
-  };
-
-  // --- START: Enhanced Voice Input Validation (v1.2.0) ---
-  // THIS FUNCTION IS NOW DEPRECATED AND WILL BE REMOVED. 
-  // All validation now happens server-side via the Unified Vibe API.
-  const performClientSideTranscriptValidation = (transcript: string): { isValid: boolean, reason?: string } => {
-    const cleanTranscript = transcript ? transcript.trim() : "";
-    const words = cleanTranscript.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
-
-    // Basic length check (similar to text input's minimum length)
-    if (words.length < 3 || cleanTranscript.length < 10) {
-      return { isValid: false, reason: "Please describe the vibe in a bit more detail. It sounds too short." };
-    }
-
-    // Existing artifact/noise word filter
-    const hasArtifacts = /^\*.*\*/.test(cleanTranscript) || /^\[.*\]/.test(cleanTranscript) || /^\d{2}:\d{2}/.test(cleanTranscript);
-    const noiseWords = new Set(['thwack', 'thump', 'tap', 'shh', 'shhhhh', 'shhhhhh', 'click', 'clack', 'whack', 'knock']);
-    const isOnlyNoiseWords = words.length > 0 && words.every(word => noiseWords.has(word));
-    if (hasArtifacts || isOnlyNoiseWords) {
-      return { isValid: false, reason: "I hear you, but that doesn't sound like a vibe. Please try again with clearer speech." };
-    }
-
-    // Heuristic check for gibberish patterns
-    // Example: repeated characters, very few unique characters in a long string, too many non-alphanumeric
-    const uniqueChars = new Set(cleanTranscript.replace(/\s/g, '')).size;
-    if (cleanTranscript.length > 20 && uniqueChars < (cleanTranscript.length / 5)) { // If fewer than 1/5 unique chars for long string
-        return { isValid: false, reason: "That sounds like gibberish. Can you please describe your mood clearly?" };
-    }
-
-    // Simple check for common non-vibe topics (off-topic)
-    const offTopicKeywords = ['what is the weather', 'tell me a joke', 'what time is it', 'how are you', 'do you exist', 'who made you', 'what is your name', 'recipe for', 'tell me a story', 'who won the game'];
-    if (offTopicKeywords.some(keyword => cleanTranscript.toLowerCase().includes(keyword))) {
-      return { isValid: false, reason: "I'm designed to create music playlists, not answer general questions. Please describe your desired vibe." };
-    }
-
-    return { isValid: true };
-  };
-  // --- END: Enhanced Voice Input Validation (v1.2.0) ---
-
   const handleVoiceToggle = async () => {
     if (isRecording) {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            mediaRecorderRef.current.stop();
-        }
+        mediaRecorderRef.current?.stop();
         return;
     }
-
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
         mediaRecorderRef.current = mediaRecorder;
         audioChunksRef.current = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                audioChunksRef.current.push(event.data);
-            }
-        };
-
+        mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
         mediaRecorder.onstop = async () => {
             setIsRecording(false);
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             stream.getTracks().forEach(track => track.stop());
-
-            if (audioBlob.size === 0) {
-                setVisibleError({ message: "No audio detected. Please ensure your microphone is working and try speaking again.", key: Date.now() });
-                setIsProcessingAudio(false);
-                return;
-            }
-
+            if (audioBlob.size === 0) return;
             setIsProcessingAudio(true);
             try {
-                const base64Full = await blobToBase64(audioBlob);
-                const base64Data = base64Full.split(',')[1];
-                const transcript = await transcribeAudio(base64Data, audioBlob.type);
-                
-                // --- START: Client-side Enhanced Transcript Validation (v1.2.0) ---
-                // [DELETED by v1.2.1 - BypassClientAudioValidation]
-                // if ((window as any).addLog) (window as any).addLog(`Raw transcript received: "${transcript}"`);
-                // const validationResult = performClientSideTranscriptValidation(transcript);
-
-                // if (!validationResult.isValid) {
-                //     if ((window as any).addLog) (window as any).addLog(`Client-side voice validation failed: "${validationResult.reason}". Original transcript: "${transcript}"`);
-                //     setVisibleError({ message: validationResult.reason || "I couldn't quite understand that as a music vibe. Please try again.", key: Date.now() });
-                //     setIsProcessingAudio(false);
-                //     return; // STOP here, do NOT call onSelectMood
-                // }
-                // --- END: Client-side Enhanced Transcript Validation ---
-
-                // If passes (or bypasses) client-side validation, proceed to App.tsx's onSelectMood
-                if ((window as any).addLog) (window as any).addLog(`Client-side voice input processed. Transcript: "${transcript}"`);
+                const base64Full = await new Promise<string>((res) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => res(reader.result as string);
+                    reader.readAsDataURL(audioBlob);
+                });
+                const transcript = await transcribeAudio(base64Full.split(',')[1], audioBlob.type);
                 const newValue = customMood ? `${customMood} ${transcript}` : transcript;
                 if (newValue.length <= CHAR_LIMIT) {
                     setCustomMood(newValue);
                     setInputModality('voice');
-                    // Removed automatic call to onSelectMood to allow user review and explicit generation.
-                    // onSelectMood(newValue, 'voice'); // Immediately trigger mood selection with voice input
-                } else {
-                    setVisibleError({ message: `Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`, key: Date.now() });
                 }
-
-            } catch (error: any) {
-                console.error("Audio transcription failed", error);
-                if ((window as any).addLog) (window as any).addLog(`Audio transcription failed: ${error.message}`);
-                setVisibleError({ message: `Voice processing failed: ${error.message}`, key: Date.now() });
-            } finally {
-                setIsProcessingAudio(false);
-            }
+            } catch (error) { console.error(error); } finally { setIsProcessingAudio(false); }
         };
-
         mediaRecorder.start();
         setIsRecording(true);
-
-    } catch (err) {
-        console.error("Microphone Error:", err);
-        if (err instanceof DOMException && err.name === "NotAllowedError") {
-             setVisibleError({ message: "Microphone access denied. Please allow microphone permissions in your browser settings.", key: Date.now() });
-        } else {
-             setVisibleError({ message: "Could not access microphone.", key: Date.now() });
-        }
-    }
-  };
-
-  const handleCloseErrorModal = () => {
-    setVisibleError(null);
+    } catch (err) { setVisibleError({ message: "Mic access denied.", key: Date.now() }); }
   };
 
   const isRightToLeft = visibleError ? isRtl(visibleError.message) : false;
-  const textAlign = isRightToLeft ? 'text-right' : 'text-left';
-  const contentDir = isRightToLeft ? 'rtl' : 'ltr';
-  const fontClass = isRightToLeft ? "font-['Heebo']" : "";
 
   return (
-    <div className="flex flex-col w-full max-w-5xl mx-auto px-4 animate-fade-in-up pb-24"> {/* Adjusted pb-40 to pb-24 */}
-      
-      {/* V1.3.1: MODAL ERROR DISPLAY */}
+    <div className="flex flex-col w-full max-w-5xl mx-auto px-4 animate-fade-in-up pb-24">
       {visibleError && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4"
-          onClick={handleCloseErrorModal}
-          aria-modal="true"
-          role="dialog"
-          key={visibleError.key} // Use key to force re-render on new error, even if message is same
-        >
-          <div
-            className="relative bg-indigo-950/80 border border-cyan-500/30 rounded-2xl shadow-2xl w-full max-w-md p-6 text-center animate-fade-in-up"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-bold text-purple-200 mb-2">Hold on a sec...</h3>
-            <div className={`text-lg text-cyan-300 mb-6 ${textAlign} ${fontClass}`} dir={contentDir}>
-              <span className="font-bold">AI Curator:</span> {visibleError.message}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setVisibleError(null)}>
+          <div className="bg-indigo-950/80 border border-cyan-500/30 rounded-2xl p-6 text-center animate-fade-in-up" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-purple-200 mb-2">Wait a second...</h3>
+            <div className={`text-lg text-cyan-300 mb-6 ${isRightToLeft ? 'font-["Heebo"]' : ''}`} dir={isRightToLeft ? 'rtl' : 'ltr'}>
+              {visibleError.message}
             </div>
-            <button
-              onClick={handleCloseErrorModal}
-              className="bg-blue-600/90 text-white font-extrabold rounded-xl px-8 py-3 text-sm uppercase tracking-widest transition-all hover:bg-blue-700 active:scale-95"
-            >
-              Try Again
-            </button>
+            <button onClick={() => setVisibleError(null)} className="bg-blue-600/90 text-white font-bold px-8 py-3 rounded-xl uppercase tracking-widest">Try Again</button>
           </div>
         </div>
       )}
 
-      <div className="flex-none pt-2 md:pt-4 pb-0"> {/* Adjusted pt-4 md:pt-6 pb-2 to pt-2 md:pt-4 pb-0 */}
-          <div className="text-center mb-2 md:mb-4"> {/* Adjusted mb-4 md:mb-6 to mb-2 md:mb-4 */}
-              <h2 className="text-3xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500 pb-1 leading-tight">
-                <span className="md:hidden">How are you feeling?</span> {/* Mobile-specific text */}
-                <span className="hidden md:inline">How are you feeling today?</span> {/* Desktop-specific text */}
+      <div className="flex-none pt-2 md:pt-4">
+          <div className="text-center mb-2 md:mb-4">
+              <h2 className="text-3xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500 leading-tight">
+                How are you feeling today?
               </h2>
           </div>
 
@@ -234,53 +122,44 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
               
               <form onSubmit={handleCustomSubmit} className="relative w-full">
                 <div className="relative group">
-                    <div className={`absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-3xl opacity-30 group-focus-within:opacity-70 transition duration-500 blur-lg ${isRecording ? 'animate-pulse opacity-90' : ''}`}></div>
+                    {/* V.2.1.2: Glow Effect logic */}
+                    <div className={`absolute -inset-1 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-3xl blur-lg transition-all duration-700 
+                      ${autoFocus ? 'opacity-80 animate-pulse' : 'opacity-20 group-focus-within:opacity-70'}
+                      ${isRecording ? 'opacity-90 animate-pulse' : ''}`}>
+                    </div>
                     
                     <div className="relative bg-slate-900 border border-white/10 rounded-3xl p-1.5 shadow-2xl">
                         <div className="relative">
                             <textarea
+                                ref={textareaRef}
                                 value={customMood}
                                 onChange={handleChange}
                                 onKeyDown={handleKeyDown}
-                                placeholder={
-                                    isRecording 
-                                    ? "Listening... (Tap mic to stop)" 
-                                    : (isProcessingAudio 
-                                        ? "AI is processing your voice..." 
-                                        : "Describe a moment, a memory, or a dream. E.g., 'I just finished a marathon' or 'Driving at 2AM'...")
-                                }
+                                placeholder={isRecording ? "Listening..." : "Describe a moment, a memory, or a dream..."}
                                 disabled={isLoading || isProcessingAudio}
                                 rows={3}
-                                className={`w-full bg-slate-800/60 text-white placeholder-slate-400/70 rounded-2xl py-8 md:py-12 pl-6 pr-14 focus:outline-none resize-none align-top text-base md:text-lg leading-relaxed transition-colors ${isRecording ? 'placeholder-red-400/70 text-red-200' : ''}`}
-                            /> {/* Adjusted py-6 md:py-10 to py-8 md:py-12 */}
+                                className={`w-full bg-slate-800/60 text-white placeholder-slate-400/70 rounded-2xl py-8 md:py-12 pl-6 pr-14 focus:outline-none resize-none text-base md:text-lg leading-relaxed ${isRecording ? 'text-red-200' : ''}`}
+                            />
                             <button 
                                 type="button"
                                 onClick={handleVoiceToggle}
                                 disabled={isLoading || isProcessingAudio}
-                                className={`absolute top-4 right-4 p-2 rounded-full transition-all 
-                                    ${isRecording 
-                                        ? 'bg-red-500 text-white animate-pulse scale-110 shadow-lg' 
-                                        : (isProcessingAudio 
-                                            ? 'bg-purple-500/50 text-white animate-bounce' 
-                                            : 'text-slate-500 hover:text-white hover:bg-slate-700/50')}`}
+                                className={`absolute top-4 right-4 p-2 rounded-full transition-all ${isRecording ? 'bg-red-500 animate-pulse' : 'text-slate-500 hover:text-white'}`}
                             >
                                 <MicIcon className="w-5 h-5" />
                             </button>
                         </div>
                         
                         <div className="flex justify-between items-center px-4 pb-2 pt-1">
-                            <div className="bg-slate-700/50 px-2.5 py-1 rounded-md">
-                                <span className={`text-[10px] font-bold tracking-widest uppercase ${customMood.length > 400 ? 'text-yellow-400' : 'text-slate-400'}`}>
-                                    {customMood.length} / {CHAR_LIMIT}
-                                </span>
-                            </div>
-                            
+                            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">
+                                {customMood.length} / {CHAR_LIMIT}
+                            </span>
                             <button
                                 type="submit"
                                 disabled={!customMood.trim() || isLoading || isRecording || isProcessingAudio}
-                                className="bg-white/90 text-black font-extrabold rounded-xl px-6 py-2 md:px-8 md:py-3 text-[11px] md:text-xs uppercase tracking-[0.2em] transition-all hover:bg-white hover:scale-105 active:scale-95 disabled:opacity-20 disabled:scale-100"
+                                className="bg-white/90 text-black font-extrabold rounded-xl px-6 py-2 md:px-8 md:py-3 text-[11px] uppercase tracking-[0.2em] transition-all hover:scale-105 active:scale-95 disabled:opacity-20"
                             >
-                                {isLoading ? 'Creating' : isProcessingAudio ? 'Thinking' : 'Generate'}
+                                {isLoading ? 'Creating' : 'Generate'}
                             </button>
                         </div>
                     </div>
@@ -289,26 +168,24 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
           </div>
       </div>
 
-      <div className="mt-2 md:mt-4"> {/* Adjusted mt-4 md:mt-6 to mt-2 md:mt-4 */}
-          <div className="flex items-center justify-center gap-4 mb-6 opacity-100">
+      <div className="mt-6">
+          <div className="flex items-center justify-center gap-4 mb-6 opacity-60">
               <div className="h-px bg-slate-800 flex-grow max-w-[60px]"></div>
-              <span className="text-slate-500 text-[10px] uppercase tracking-[0.4em] font-bold">Or Choose A Quick Vibe</span>
+              <span className="text-slate-500 text-[10px] uppercase tracking-[0.4em] font-bold">Quick Vibes</span>
               <div className="h-px bg-slate-800 flex-grow max-w-[60px]"></div>
           </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 md:gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {MOODS.map((m) => (
                 <button
                     key={m.id}
                     disabled={isLoading || isRecording || isProcessingAudio}
                     onClick={() => onSelectMood(m.id, 'text')}
-                    className={`group relative overflow-hidden rounded-xl p-2.5 md:p-5 transition-all duration-300 hover:scale-[1.03] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
-                    bg-gradient-to-br ${m.color} bg-opacity-5 border border-white/5 hover:border-white/10`}
+                    className={`group relative overflow-hidden rounded-xl p-3 md:p-5 transition-all bg-gradient-to-br ${m.color} bg-opacity-5 border border-white/5`}
                 >
-                    <div className="absolute inset-0 bg-slate-900/60 group-hover:bg-slate-900/40 transition-colors"></div>
-                    <div className="relative z-10 flex flex-col items-center text-center">
-                        <span className="text-base md:text-2xl mb-1 transform group-hover:scale-110 transition-transform duration-300">{m.emoji}</span>
-                        <span className="font-bold text-white tracking-wider text-[9px] md:text-xs uppercase opacity-90">{m.label}</span>
+                    <div className="absolute inset-0 bg-slate-900/60 group-hover:bg-slate-900/40"></div>
+                    <div className="relative z-10 flex flex-col items-center">
+                        <span className="text-xl md:text-2xl mb-1">{m.emoji}</span>
+                        <span className="font-bold text-white tracking-wider text-[10px] uppercase">{m.label}</span>
                     </div>
                 </button>
               ))}
