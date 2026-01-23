@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 
 // --- START: VERY EARLY DIAGNOSTIC LOGS (v1.2.7) ---
@@ -24,6 +23,9 @@ export default async function handler(req, res) {
     console.warn(`[API/VIBE] Method not allowed: ${req.method}`);
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // [DEBUG LOG][api/vibe.mjs] Point 1: Log Incoming Request Body
+  console.log("[DEBUG LOG][api/vibe.mjs] Incoming request body:", JSON.stringify(req.body, null, 2));
 
   // --- API KEY VALIDATION ---
   const API_KEY = process.env.API_KEY; // Capture it here
@@ -67,6 +69,8 @@ RULES:
 
     console.log("[API/VIBE] Performing mood validation...");
     const t_validation_api_start = Date.now();
+    // [DEBUG LOG][api/vibe.mjs] Point 2: Log Gemini `contents` Payload (Validation Stage)
+    console.log("[DEBUG LOG][api/vibe.mjs] Gemini 'contents' for validation:", `Validate the following user input: "${mood}"`);
     const validationResponse = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: `Validate the following user input: "${mood}"`,
@@ -91,7 +95,11 @@ RULES:
         }
     });
     const t_validation_api_end = Date.now();
+    // [DEBUG LOG][api/vibe.mjs] Point 3: Log Raw Gemini Response Text (Validation Stage)
+    console.log("[DEBUG LOG][api/vibe.mjs] Raw Gemini response text (validation):", validationResponse.text);
     const validationData = JSON.parse(validationResponse.text);
+    // [DEBUG LOG][api/vibe.mjs] Point 4: Log Parsed Gemini Data (Validation Stage)
+    console.log("[DEBUG LOG][api/vibe.mjs] Parsed Gemini data (validation):", JSON.stringify(validationData, null, 2));
     console.log(`[API/VIBE] Validation status: ${validationData.validation_status}`);
 
     if (validationData.validation_status !== 'VIBE_VALID') {
@@ -164,6 +172,8 @@ RULES:
     }
 
     const t_gemini_api_start = Date.now();
+    // [DEBUG LOG][api/vibe.mjs] Point 5: Log Gemini `contents` Payload (Teaser/Full Generation Stage)
+    console.log("[DEBUG LOG][api/vibe.mjs] Gemini 'contents' for generation:", geminiContent);
     let geminiModelResponse;
     try {
         geminiModelResponse = await ai.models.generateContent({
@@ -193,7 +203,11 @@ RULES:
     }
     const t_gemini_api_end = Date.now();
 
+    // [DEBUG LOG][api/vibe.mjs] Point 6: Log Raw Gemini Response Text (Teaser/Full Generation Stage)
+    console.log("[DEBUG LOG][api/vibe.mjs] Raw Gemini response text (generation):", geminiModelResponse.text);
     const rawData = JSON.parse(geminiModelResponse.text);
+    // [DEBUG LOG][api/vibe.mjs] Point 7: Log Parsed Gemini Data (Teaser/Full Generation Stage)
+    console.log("[DEBUG LOG][api/vibe.mjs] Parsed Gemini data (generation):", JSON.stringify(rawData, null, 2));
     console.log(`[API/VIBE] Gemini generation successful. Is Full Playlist: ${isFullPlaylistGeneration}`);
 
     const t_handler_end = Date.now();
