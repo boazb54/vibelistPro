@@ -4,8 +4,9 @@ import {
   GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis, GeneratedTeaserRaw, VibeValidationResponse, UnifiedVibeResponse, GeminiResponseMetrics,
   UnifiedTasteAnalysis,
   UnifiedTasteGeminiResponse,
-  TranscriptionResult, // NEW: Import TranscriptionResult
-  TranscriptionStatus // NEW: Import TranscriptionStatus
+  TranscriptionResult, 
+  TranscriptionStatus,
+  TranscriptionRequestMeta // NEW: Import TranscriptionRequestMeta
 } from "../types";
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { GEMINI_MODEL } from "../constants"; // Use the global model constant
@@ -14,6 +15,7 @@ declare const addLog: (message: string) => void;
 
 const API_REQUEST_TIMEOUT_MS = 60 * 1000;
 const BILLING_DOCS_URL = "ai.google.dev/gemini-api/docs/billing";
+const ACOUSTIC_DURATION_THRESHOLD_MS = 800; // Minimum duration for valid speech signal
 
 // NEW: Constant for transcription prompt text, consistent with server.
 const TRANSCRIPTION_PROMPT_TEXT = "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble.";
@@ -59,17 +61,28 @@ async function handleApiKeyMissingError(responseStatus: number, errorData: any) 
 /**
  * Classifies raw Gemini transcription output into 'ok', 'no_speech', or 'error'.
  * This function enforces the transcription contract on the client-side for preview environment.
+ * It now includes a two-factor gate: acoustic signals (duration, speech detected) and text quality.
  * @param {string} rawText - The raw text received from the Gemini API.
  * @param {string} promptTextSentToModel - The exact prompt text that was sent to the Gemini API for transcription.
+ * @param {TranscriptionRequestMeta} acousticMetadata - Acoustic signals from the client.
  * @returns {TranscriptionResult} - Structured transcription result.
  */
-function classifyTranscription(rawText: string, promptTextSentToModel: string): TranscriptionResult {
+function classifyTranscription(rawText: string, promptTextSentToModel: string, acousticMetadata: TranscriptionRequestMeta): TranscriptionResult {
   const trimmedText = rawText.trim();
   const lowerCaseTrimmedText = trimmedText.toLowerCase();
 
+  // v2.2.4 - FACTOR A: ACOUSTIC SIGNAL CHECK
+  const acousticFactorA_pass = acousticMetadata.speechDetected && acousticMetadata.durationMs >= ACOUSTIC_DURATION_THRESHOLD_MS;
+
+  if (!acousticFactorA_pass) {
+    addLog(`[Client-classify] Acoustic Factor A failed. Speech detected: ${acousticMetadata.speechDetected}, Duration: ${acousticMetadata.durationMs}ms (Threshold: ${ACOUSTIC_DURATION_THRESHOLD_MS}ms). Returning 'no_speech'.`);
+    return { status: 'no_speech', reason: "No sufficient speech signal detected in the audio." };
+  }
+
+  // If Acoustic Factor A passes, proceed to FACTOR B (Text Quality Checks)
   // Condition 1: Empty or whitespace
   if (trimmedText === "") {
-    addLog("Transcription classified as 'no_speech': Empty or whitespace output.");
+    addLog("[Client-classify] Text Factor B failed: Empty or whitespace output. Returning 'no_speech'.");
     return { status: 'no_speech', reason: "No discernible speech detected in the audio." };
   }
 
@@ -85,7 +98,7 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string): 
       lowerCaseTrimmedText.includes("i could not understand the audio") ||
       lowerCaseTrimmedText.includes("no audio input received")
   ) {
-    addLog(`Transcription classified as 'no_speech': Model output includes instruction-like or 'no speech' patterns. Raw output: "${rawText.substring(0, 100)}..."`);
+    addLog(`[Client-classify] Text Factor B failed: Model output includes instruction-like or 'no speech' patterns. Raw output: "${rawText.substring(0, 100)}...". Returning 'no_speech'.`);
     return { status: 'no_speech', reason: "No clear speech detected in the audio." };
   }
 
@@ -96,7 +109,7 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string): 
 
   // Check 3.1: Output consists ONLY of event markers
   if (trimmedText.length > 0 && textWithoutEventTokens.length === 0 && hasEventTokens) {
-      addLog("Transcription classified as 'no_speech': Output consists only of event markers.");
+      addLog("[Client-classify] Text Factor B failed: Output consists only of event markers. Returning 'no_speech'.");
       return { status: 'no_speech', reason: "No speech detected. Only environmental sounds or non-linguistic events." };
   }
 
@@ -106,14 +119,14 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string): 
   const lengthOfEventTokens = allNonWhitespaceLength - eventTokenStrippedLength;
 
   if (allNonWhitespaceLength > 0 && (lengthOfEventTokens / allNonWhitespaceLength) > 0.5) {
-      addLog("Transcription classified as 'no_speech': Output dominated by bracketed event tokens.");
+      addLog("[Client-classify] Text Factor B failed: Output dominated by bracketed event tokens. Returning 'no_speech'.");
       return { status: 'no_speech', reason: "No clear speech detected. Input appears to be mostly environmental sounds or non-linguistic events." };
   }
 
   // Check 3.3: Repetitive non-lexical markers (e.g., "uh uh uh", "mmm mmm")
   const repetitiveNonLexicalRegex = /(uh|um|mm|ah|oh)\s*(\1\s*){1,}/i; // Detects "uh uh uh", "um um um", etc.
   if (repetitiveNonLexicalRegex.test(lowerCaseTrimmedText)) {
-      addLog("Transcription classified as 'no_speech': Repetitive non-lexical markers detected.");
+      addLog("[Client-classify] Text Factor B failed: Repetitive non-lexical markers detected. Returning 'no_speech'.");
       return { status: 'no_speech', reason: "No clear speech detected. Input contains repetitive non-linguistic sounds." };
   }
 
@@ -124,13 +137,13 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string): 
     const commonFillers = ['uh', 'um', 'mm', 'oh', 'ah', 'er', 'hm'];
     // If all detected 'words' are common fillers, or the text without event tokens is extremely short
     if (words.every(word => commonFillers.includes(word.toLowerCase())) || textWithoutEventTokens.length < 3) {
-        addLog("Transcription classified as 'no_speech': Very short non-linguistic input detected.");
+        addLog("[Client-classify] Text Factor B failed: Very short non-linguistic input detected. Returning 'no_speech'.");
         return { status: 'no_speech', reason: "No discernible speech detected in the audio." };
     }
   }
 
-  // Final Condition: Otherwise, it's valid speech
-  addLog("Transcription classified as 'ok'.");
+  // Final Condition: Otherwise, it's valid speech (both Factor A and Factor B passed)
+  addLog("[Client-classify] Transcription classified as 'ok'.");
   return { status: 'ok', text: rawText };
 }
 
@@ -317,11 +330,13 @@ RULES:
     }
 };
 
-export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<TranscriptionResult> => { // NEW: Return TranscriptionResult
+export const transcribeAudio = async (base64Audio: string, mimeType: string, acousticMetadata?: TranscriptionRequestMeta): Promise<TranscriptionResult> => { // NEW: Add acousticMetadata
     if (!base64Audio) {
       addLog("No audio data provided for transcription.");
       return { status: 'no_speech', reason: "No audio data provided." }; // Handle early for empty input
     }
+    // Ensure acousticMetadata is always provided for classification
+    const effectiveAcousticMetadata: TranscriptionRequestMeta = acousticMetadata || { durationMs: 0, speechDetected: false };
 
     if (isPreviewEnvironment()) {
         addLog(`[PREVIEW MODE] Transcribing audio directly (type: ${mimeType})...`);
@@ -339,8 +354,8 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
             const rawTranscript = response.text || "";
             addLog(`[PREVIEW MODE] Transcription raw output: "${rawTranscript.substring(0, 50)}..."`);
             
-            // Classify the transcription result client-side for preview
-            const result = classifyTranscription(rawTranscript, TRANSCRIPTION_PROMPT_TEXT);
+            // Classify the transcription result client-side for preview with acoustic metadata
+            const result = classifyTranscription(rawTranscript, TRANSCRIPTION_PROMPT_TEXT, effectiveAcousticMetadata); // NEW: Pass acousticMetadata
             if (result.status === 'ok') {
               addLog(`[PREVIEW MODE] Transcription successful. Text: "${result.text?.substring(0, 50)}..."`);
             } else {
@@ -363,7 +378,7 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
             const response = await fetch('/api/transcribe.mjs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base64Audio, mimeType }),
+                body: JSON.stringify({ base64Audio, mimeType, acousticMetadata: effectiveAcousticMetadata }), // NEW: Pass acousticMetadata
                 signal: controller.signal,
             });
             clearTimeout(timeoutId);
