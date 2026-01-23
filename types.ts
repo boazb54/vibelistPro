@@ -1,4 +1,5 @@
 
+
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -217,19 +218,16 @@ export interface VibeValidationResponse {
   reason: string;
 }
 
-// V1.2.0: Unified response for the /api/vibe.mjs endpoint
-// This type combines possible outcomes: validation, teaser, or full playlist
+// NEW: Unified response from generatePlaylistFromMood, combining validation, teaser, and full playlist data
 export interface UnifiedVibeResponse {
-  validation_status?: VibeValidationStatus; // Present for all responses, optional as server might omit if always valid
-  reason?: string; // Reason for validation status
-
-  playlist_title?: string; // Present for teasers and full playlists
-  mood?: string; // Present for full playlists
-  description?: string; // Present for teasers and full playlists
-  songs?: GeneratedSongRaw[]; // Present only for full playlists
-
-  promptText?: string; // Only returned from client-side `generatePlaylistFromMood` in preview env
-  metrics?: GeminiResponseMetrics; // Optional, server might provide
+  validation_status: VibeValidationStatus;
+  reason: string;
+  playlist_title?: string;
+  description?: string;
+  mood?: string;
+  songs?: GeneratedSongRaw[];
+  promptText?: string;
+  metrics?: GeminiResponseMetrics;
 }
 
 // NEW: Transcription Contract Hard Stop (v2.2.2)
@@ -239,4 +237,11 @@ export interface TranscriptionResult {
   status: TranscriptionStatus;
   text?: string;
   reason?: string;
+}
+
+// NEW (v2.2.4): Metadata for transcription request with acoustic signals
+export interface TranscriptionRequestMeta {
+  durationMs: number;
+  speechDetected: boolean;
+  speechConfidence?: number; // 0-1, optional (not used in v2.2.4, but for future extensibility)
 }
