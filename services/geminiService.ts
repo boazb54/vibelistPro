@@ -1,7 +1,11 @@
+
+
 import { 
   GeneratedPlaylistRaw, AnalyzedTrack, ContextualSignals, UserTasteProfile, UserPlaylistMoodAnalysis, GeneratedTeaserRaw, VibeValidationResponse, UnifiedVibeResponse, GeminiResponseMetrics,
   UnifiedTasteAnalysis,
-  UnifiedTasteGeminiResponse
+  UnifiedTasteGeminiResponse,
+  TranscriptionResult, // NEW: Import TranscriptionResult
+  TranscriptionStatus // NEW: Import TranscriptionStatus
 } from "../types";
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { GEMINI_MODEL } from "../constants"; // Use the global model constant
@@ -10,6 +14,9 @@ declare const addLog: (message: string) => void;
 
 const API_REQUEST_TIMEOUT_MS = 60 * 1000;
 const BILLING_DOCS_URL = "ai.google.dev/gemini-api/docs/billing";
+
+// NEW: Constant for transcription prompt text, consistent with server.
+const TRANSCRIPTION_PROMPT_TEXT = "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble.";
 
 // --- START: PREVIEW MODE IMPLEMENTATION (v1.1.1 FIX) ---
 
@@ -48,6 +55,84 @@ async function handleApiKeyMissingError(responseStatus: number, errorData: any) 
 }
 
 // --- END: PREVIEW MODE IMPLEMENTATION ---
+
+/**
+ * Classifies raw Gemini transcription output into 'ok', 'no_speech', or 'error'.
+ * This function enforces the transcription contract on the client-side for preview environment.
+ * @param {string} rawText - The raw text received from the Gemini API.
+ * @param {string} promptTextSentToModel - The exact prompt text that was sent to the Gemini API for transcription.
+ * @returns {TranscriptionResult} - Structured transcription result.
+ */
+function classifyTranscription(rawText: string, promptTextSentToModel: string): TranscriptionResult {
+  const trimmedText = rawText.trim();
+  const lowerCaseTrimmedText = trimmedText.toLowerCase();
+
+  // Condition 1: Empty or whitespace
+  if (trimmedText === "") {
+    addLog("Transcription classified as 'no_speech': Empty or whitespace output.");
+    return { status: 'no_speech', reason: "No discernible speech detected in the audio." };
+  }
+
+  // Condition 2: Prompt-echoing or explicit 'no speech' phrases from Gemini
+  const lowerCasePrompt = promptTextSentToModel.toLowerCase().trim();
+
+  if (lowerCaseTrimmedText === lowerCasePrompt || // Exact echo of the prompt
+      lowerCaseTrimmedText.includes("i cannot transcribe") ||
+      lowerCaseTrimmedText.includes("no discernible speech") ||
+      lowerCaseTrimmedText.includes("there was no speech detected") ||
+      lowerCaseTrimmedText.includes("no speech was detected") ||
+      lowerCaseTrimmedText.includes("the audio was silent") ||
+      lowerCaseTrimmedText.includes("i could not understand the audio") ||
+      lowerCaseTrimmedText.includes("no audio input received")
+  ) {
+    addLog(`Transcription classified as 'no_speech': Model output includes instruction-like or 'no speech' patterns. Raw output: "${rawText.substring(0, 100)}..."`);
+    return { status: 'no_speech', reason: "No clear speech detected in the audio." };
+  }
+
+  // NEW Condition 3 (v2.2.3): Non-speech event filtering
+  const eventTokenRegex = /\[.*?\]/g;
+  const hasEventTokens = eventTokenRegex.test(trimmedText);
+  const textWithoutEventTokens = trimmedText.replace(eventTokenRegex, '').trim();
+
+  // Check 3.1: Output consists ONLY of event markers
+  if (trimmedText.length > 0 && textWithoutEventTokens.length === 0 && hasEventTokens) {
+      addLog("Transcription classified as 'no_speech': Output consists only of event markers.");
+      return { status: 'no_speech', reason: "No speech detected. Only environmental sounds or non-linguistic events." };
+  }
+
+  // Check 3.2: Output is dominated by bracketed tokens (more than 50% of non-whitespace characters)
+  const allNonWhitespaceLength = trimmedText.replace(/\s/g, '').length;
+  const eventTokenStrippedLength = textWithoutEventTokens.replace(/\s/g, '').length;
+  const lengthOfEventTokens = allNonWhitespaceLength - eventTokenStrippedLength;
+
+  if (allNonWhitespaceLength > 0 && (lengthOfEventTokens / allNonWhitespaceLength) > 0.5) {
+      addLog("Transcription classified as 'no_speech': Output dominated by bracketed event tokens.");
+      return { status: 'no_speech', reason: "No clear speech detected. Input appears to be mostly environmental sounds or non-linguistic events." };
+  }
+
+  // Check 3.3: Repetitive non-lexical markers (e.g., "uh uh uh", "mmm mmm")
+  const repetitiveNonLexicalRegex = /(uh|um|mm|ah|oh)\s*(\1\s*){1,}/i; // Detects "uh uh uh", "um um um", etc.
+  if (repetitiveNonLexicalRegex.test(lowerCaseTrimmedText)) {
+      addLog("Transcription classified as 'no_speech': Repetitive non-lexical markers detected.");
+      return { status: 'no_speech', reason: "No clear speech detected. Input contains repetitive non-linguistic sounds." };
+  }
+
+  // Check 3.4: Very short, non-linguistic input (e.g., just "uh", "mm", or single sounds)
+  // This covers "Output length is below a meaningful speech threshold" and "No linguistic sentence structure" if combined with other checks
+  const words = textWithoutEventTokens.split(/\s+/).filter(Boolean); // Get actual words after removing events
+  if (trimmedText.length < 5 && words.length < 2) { // Short raw text, very few actual words
+    const commonFillers = ['uh', 'um', 'mm', 'oh', 'ah', 'er', 'hm'];
+    // If all detected 'words' are common fillers, or the text without event tokens is extremely short
+    if (words.every(word => commonFillers.includes(word.toLowerCase())) || textWithoutEventTokens.length < 3) {
+        addLog("Transcription classified as 'no_speech': Very short non-linguistic input detected.");
+        return { status: 'no_speech', reason: "No discernible speech detected in the audio." };
+    }
+  }
+
+  // Final Condition: Otherwise, it's valid speech
+  addLog("Transcription classified as 'ok'.");
+  return { status: 'ok', text: rawText };
+}
 
 export const generatePlaylistFromMood = async (
   mood: string, 
@@ -218,8 +303,9 @@ RULES:
             return {
                 ...rawData,
                 promptText: promptText,
+                // Fix: Include promptBuildTimeMs as required by GeminiResponseMetrics
                 metrics: {
-                    promptBuildTimeMs,
+                    promptBuildTimeMs: promptBuildTimeMs,
                     geminiApiTimeMs: rawData.metrics?.geminiApiTimeMs || 0 // Ensure metrics exists
                 }
             };
@@ -231,27 +317,42 @@ RULES:
     }
 };
 
-export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<string> => {
-    if (!base64Audio) return "";
+export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<TranscriptionResult> => { // NEW: Return TranscriptionResult
+    if (!base64Audio) {
+      addLog("No audio data provided for transcription.");
+      return { status: 'no_speech', reason: "No audio data provided." }; // Handle early for empty input
+    }
 
     if (isPreviewEnvironment()) {
         addLog(`[PREVIEW MODE] Transcribing audio directly (type: ${mimeType})...`);
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const promptText = "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble.";
+            
+            // Use the defined constant prompt text
             const response = await ai.models.generateContent({
                 model: GEMINI_MODEL,
                 contents: [
                     { inlineData: { mimeType: mimeType, data: base64Audio } },
-                    { text: promptText }
+                    { text: TRANSCRIPTION_PROMPT_TEXT }
                 ]
             });
-            const transcript = response.text || "";
-            addLog(`[PREVIEW MODE] Transcription successful. Text: "${transcript.substring(0, 50)}..."`);
-            return transcript;
-        } catch (error) {
+            const rawTranscript = response.text || "";
+            addLog(`[PREVIEW MODE] Transcription raw output: "${rawTranscript.substring(0, 50)}..."`);
+            
+            // Classify the transcription result client-side for preview
+            const result = classifyTranscription(rawTranscript, TRANSCRIPTION_PROMPT_TEXT);
+            if (result.status === 'ok') {
+              addLog(`[PREVIEW MODE] Transcription successful. Text: "${result.text?.substring(0, 50)}..."`);
+            } else {
+              addLog(`[PREVIEW MODE] Transcription classified as '${result.status}'. Reason: ${result.reason}`);
+            }
+            return result;
+
+        } catch (error: any) {
             console.error("[PREVIEW MODE] Direct Gemini call failed (transcribe):", error);
-            throw error;
+            addLog(`[PREVIEW MODE] Transcription failed: ${error.message}`);
+            // Map errors to structured error response
+            return { status: 'error', reason: `Voice processing failed: ${error.message}` };
         }
     } else {
         // --- PRODUCTION MODE: SECURE PROXY CALL (Existing Logic) ---
@@ -267,16 +368,36 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string): Pr
             });
             clearTimeout(timeoutId);
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
+                const errorBody = await response.text();
+                let errorData: any = {};
+                try {
+                    errorData = JSON.parse(errorBody);
+                } catch (e) {
+                    addLog(`Server response was not JSON for status ${response.status}, falling back to raw text. Raw body: "${errorBody.substring(0, 200)}..."`);
+                    errorData.reason = `Non-JSON response from server: ${errorBody.substring(0, 500)}`;
+                    errorData.status = 'error'; // Assume error if not JSON
+                }
+
                 await handleApiKeyMissingError(response.status, errorData);
-                throw new Error(`Server error: ${errorData.error || response.statusText}`);
+                
+                // If the server returns a structured error, use it. Otherwise, create a generic one.
+                if (errorData.status && (errorData.status === 'error' || errorData.status === 'no_speech')) {
+                  addLog(`Transcription proxy returned classified status '${errorData.status}': ${errorData.reason || errorData.error}`);
+                  return { status: errorData.status, reason: errorData.reason || errorData.error };
+                } else {
+                  addLog(`Transcription proxy returned generic error (${response.status}): ${errorData.reason || response.statusText}`);
+                  return { status: 'error', reason: `Server error: ${errorData.reason || response.statusText}` };
+                }
             }
-            const data = await response.json();
-            return data.text || "";
-        } catch (error) {
+            const data: TranscriptionResult = await response.json(); // NEW: Expect TranscriptionResult
+            addLog(`Transcription proxy returned status '${data.status}'. Text: "${data.text?.substring(0, 50)}...". Reason: ${data.reason}`);
+            return data;
+        } catch (error: any) {
             clearTimeout(timeoutId);
             console.error("Audio transcription failed through proxy:", error);
-            throw error;
+            addLog(`Audio transcription failed through proxy: ${error.message}`);
+            // Map network/fetch errors to structured error response
+            return { status: 'error', reason: `Voice processing failed: ${error.message}` };
         }
     }
 };
@@ -391,7 +512,7 @@ OUTPUT FORMAT:
                 },
               },
             },
-            required: ["playlist_mood_analysis", "analyized_tracks"],
+            required: ["playlist_mood_analysis", "analyzed_tracks"],
           },
           thinkingConfig: { thinkingBudget: 0 }
         }
