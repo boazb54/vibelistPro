@@ -6,7 +6,7 @@ import { MicIcon } from './Icons';
 import { transcribeAudio } from '../services/geminiService';
 import HowItWorks from './HowItWorks';
 import { isRtl } from '../utils/textUtils';
-import { TranscriptionResult } from '../types'; // NEW: Import TranscriptionResult
+import { TranscriptionResult, TranscriptionRequestMeta } from '../types'; // NEW: Import TranscriptionRequestMeta
 
 interface MoodSelectorProps {
   onSelectMood: (mood: string, modality: 'text' | 'voice') => void;
@@ -168,20 +168,32 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
 
             const currentRecordingDuration = Date.now() - recordingStartTimeRef.current;
 
+            // Prepare acoustic metadata for transcription service
+            const acousticMetadata: TranscriptionRequestMeta = {
+                durationMs: currentRecordingDuration,
+                speechDetected: speechDetectedRef.current,
+                // speechConfidence is optional, not computed client-side in v2.2.4, so omit.
+            };
+
             // V2.2.1: Client-side Silence Detection (Remains for immediate feedback)
+            // NOTE: These are *pre-transcription* client-side checks for immediate UX feedback.
+            // The full two-factor gate will be applied by the `transcribeAudio` function itself.
             if (audioBlob.size === 0) {
+                if ((window as any).addLog) (window as any).addLog("Client-side: No audio recorded (blob size 0).");
                 setVisibleError({ message: "No audio was recorded. Please ensure your microphone is active.", key: Date.now() });
                 setIsProcessingAudio(false);
                 return;
             }
             
             if (currentRecordingDuration < MIN_RECORDING_DURATION_MS) {
+                if ((window as any).addLog) (window as any).addLog(`Client-side: Recording too short (${currentRecordingDuration}ms).`);
                 setVisibleError({ message: `Recording too short (${currentRecordingDuration}ms). Please speak for at least ${MIN_RECORDING_DURATION_MS / 1000} seconds.`, key: Date.now() });
                 setIsProcessingAudio(false);
                 return;
             }
             
             if (!speechDetectedRef.current) {
+                if ((window as any).addLog) (window as any).addLog("Client-side: Silence detected (RMS threshold not met).");
                 setVisibleError({ message: "Silence detected. Please speak clearly into the microphone.", key: Date.now() });
                 setIsProcessingAudio(false);
                 return;
@@ -192,7 +204,11 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
             try {
                 const base64Full = await blobToBase64(audioBlob);
                 const base64Data = base64Full.split(',')[1];
-                const transcriptionResult: TranscriptionResult = await transcribeAudio(base64Data, audioBlob.type); // NEW: Expect TranscriptionResult
+                const transcriptionResult: TranscriptionResult = await transcribeAudio(
+                    base64Data, 
+                    audioBlob.type, 
+                    acousticMetadata // NEW: Pass acoustic metadata to transcription service
+                );
                 
                 // NEW: Handle structured transcription result
                 if (transcriptionResult.status === 'ok') {
