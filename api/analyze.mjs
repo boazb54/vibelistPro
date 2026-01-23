@@ -11,6 +11,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // [DEBUG LOG][api/analyze.mjs] Point 1: Log Incoming Request Body
+  console.log("[DEBUG LOG][api/analyze.mjs] Incoming request body:", JSON.stringify(req.body, null, 2));
+
   const API_KEY = process.env.API_KEY;
   if (!API_KEY) {
     console.error("[API/ANALYZE] API_KEY environment variable is not set or is empty.");
@@ -82,6 +85,8 @@ OUTPUT FORMAT:
       }, null, 2);
       
       console.log("[API/ANALYZE] Unified Taste Analysis Prompt (first 500 chars):", prompt.substring(0, 500));
+      // [DEBUG LOG][api/analyze.mjs] Point 2: Log Gemini `contents` Payload (Unified Taste)
+      console.log("[DEBUG LOG][api/analyze.mjs] Gemini 'contents' for unified taste:", prompt);
 
       let geminiResponseText = "";
       try {
@@ -152,9 +157,13 @@ OUTPUT FORMAT:
       }
 
       console.log("[API/ANALYZE] Raw Gemini Response Text (Unified Taste - first 500 chars):", geminiResponseText ? geminiResponseText.substring(0, 500) : "No text received.");
+      // [DEBUG LOG][api/analyze.mjs] Point 3: Log Raw Gemini Response Text (Unified Taste)
+      console.log("[DEBUG LOG][api/analyze.mjs] Raw Gemini response text (unified taste):", geminiResponseText);
       const cleanText = geminiResponseText.replace(/```json|```/g, '').trim();
       try {
         const parsedData = JSON.parse(cleanText);
+        // [DEBUG LOG][api/analyze.mjs] Point 4: Log Parsed Gemini Data (Unified Taste)
+        console.log("[DEBUG LOG][api/analyze.mjs] Parsed Gemini data (unified taste):", JSON.stringify(parsedData, null, 2));
         console.log("[API/ANALYZE] Successfully parsed unified taste response.");
 
         const t_handler_end = Date.now();
