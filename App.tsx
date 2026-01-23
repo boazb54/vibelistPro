@@ -7,6 +7,7 @@ import PlaylistView from './components/PlaylistView';
 import TeaserPlaylistView from './components/TeaserPlaylistView';
 import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
+import PostSavePopup from './components/PostSavePopup';
 import { BurgerIcon } from './components/Icons'; 
 import AdminDataInspector from './components/AdminDataInspector';
 import { 
@@ -61,6 +62,10 @@ const App: React.FC = () => {
   const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]);
   const [isConfirmationStep, setIsConfirmationStep] = useState(false);
   const [validationError, setValidationError] = useState<{ message: string; key: number } | null>(null);
+  
+  // v2.2.0 - Post-Save States
+  const [showPostSavePopup, setShowPostSavePopup] = useState(false);
+  const [exportedPlaylistUrl, setExportedPlaylistUrl] = useState<string | null>(null);
 
   const isProcessingAuth = useRef(false);
   const generationSessionId = useRef(0);
@@ -661,18 +666,36 @@ const App: React.FC = () => {
       if (playlist.id) {
           await markVibeAsExported(playlist.id);
       }
-      if (isNative()) {
-        await Browser.open({ url });
-      } else {
-        window.open(url, '_blank');
-      }
-      addLog(`Playlist "${playlist.title}" successfully exported to Spotify: ${url}`);
+      // v2.2.0 - Decouple export from redirect. Trigger Decision Popup.
+      setExportedPlaylistUrl(url);
+      setShowPostSavePopup(true);
+      addLog(`Playlist "${playlist.title}" successfully exported to Spotify. Waiting for user decision.`);
     } catch (e: any) {
       alert(`Failed to export: ${e.message}`);
       addLog(`Failed to export playlist to Spotify: ${e.message || e}`);
     } finally {
       setExporting(false);
     }
+  };
+
+  const handlePostSaveDecision = async (choice: 'play' | 'new') => {
+    const url = exportedPlaylistUrl;
+    setShowPostSavePopup(false);
+    setExportedPlaylistUrl(null);
+
+    if (choice === 'play' && url) {
+      addLog(`User chose "Play on Spotify". Initiating handoff to ${url}`);
+      if (isNative()) {
+        await Browser.open({ url });
+      } else {
+        window.open(url, '_blank');
+      }
+    } else {
+      addLog('User chose "Create new vibe". Returning to Home.');
+    }
+
+    // In both scenarios, the nav stack is reset to Home state.
+    handleReset();
   };
 
   const handleClosePlayer = () => {
@@ -841,6 +864,11 @@ const App: React.FC = () => {
         userProfile={userProfile}
         onSignOut={handleSignOut}
         isAuthenticated={!!spotifyToken}
+      />
+
+      <PostSavePopup 
+        isOpen={showPostSavePopup}
+        onDecision={handlePostSaveDecision}
       />
     </div>
   );
