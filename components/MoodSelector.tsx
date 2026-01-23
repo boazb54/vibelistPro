@@ -1,16 +1,22 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import { MOODS } from '../constants';
 import { MicIcon } from './Icons';
 import { transcribeAudio } from '../services/geminiService';
 import HowItWorks from './HowItWorks';
 import { isRtl } from '../utils/textUtils';
+import { TranscriptionResult } from '../types'; // NEW: Import TranscriptionResult
 
 interface MoodSelectorProps {
   onSelectMood: (mood: string, modality: 'text' | 'voice') => void;
   isLoading: boolean;
   validationError: { message: string; key: number } | null;
 }
+
+// Constants for silence detection logic
+const MIN_RECORDING_DURATION_MS = 800; // Minimum duration for a valid recording
+const SPEECH_THRESHOLD = 0.02; // RMS threshold for detecting speech (adjust as needed)
 
 const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, validationError }) => {
   const [customMood, setCustomMood] = useState('');
@@ -22,6 +28,13 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Refs for audio processing (silence detection)
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
+  const scriptProcessorNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const speechDetectedRef = useRef(false);
+  const recordingStartTimeRef = useRef<number>(0);
 
   const CHAR_LIMIT = 500;
 
@@ -85,6 +98,46 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
         mediaRecorderRef.current = mediaRecorder;
         audioChunksRef.current = [];
 
+        // Setup AudioContext for real-time analysis
+        audioContextRef.current = new window.AudioContext();
+        const source = audioContextRef.current.createMediaStreamSource(stream);
+        analyserNodeRef.current = audioContextRef.current.createAnalyser();
+        analyserNodeRef.current.fftSize = 2048; 
+
+        // ScriptProcessorNode is deprecated but used here for compatibility with existing patterns
+        scriptProcessorNodeRef.current = audioContextRef.current.createScriptProcessor(2048, 1, 1);
+
+        // Connect nodes: source -> analyser -> scriptProcessor -> destination (silent output)
+        source.connect(analyserNodeRef.current);
+        analyserNodeRef.current.connect(scriptProcessorNodeRef.current);
+        scriptProcessorNodeRef.current.connect(audioContextRef.current.destination); 
+        
+        // Reset speech detection flag and record start time
+        speechDetectedRef.current = false;
+        recordingStartTimeRef.current = Date.now();
+
+        // Data array for time domain data (waveform)
+        const bufferLength = analyserNodeRef.current.fftSize; // Same size as FFT for time domain
+        const dataArray = new Float32Array(bufferLength); // Using Float32Array for getFloatTimeDomainData
+
+        scriptProcessorNodeRef.current.onaudioprocess = (event) => {
+            // Get the audio data from the input buffer
+            if (analyserNodeRef.current) {
+              analyserNodeRef.current.getFloatTimeDomainData(dataArray); 
+            }
+
+            // Calculate RMS (Root Mean Square) for energy detection
+            let sumSquares = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sumSquares += dataArray[i] * dataArray[i];
+            }
+            const rms = Math.sqrt(sumSquares / dataArray.length);
+
+            if (rms > SPEECH_THRESHOLD) {
+                speechDetectedRef.current = true;
+            }
+        };
+
         mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0) {
                 audioChunksRef.current.push(event.data);
@@ -94,32 +147,77 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
         mediaRecorder.onstop = async () => {
             setIsRecording(false);
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            stream.getTracks().forEach(track => track.stop());
+            
+            // Disconnect and close audio graph components to release resources
+            if (scriptProcessorNodeRef.current) {
+                scriptProcessorNodeRef.current.disconnect();
+                scriptProcessorNodeRef.current.onaudioprocess = null; // Important to nullify handler
+                scriptProcessorNodeRef.current = null;
+            }
+            if (analyserNodeRef.current) {
+                analyserNodeRef.current.disconnect();
+                analyserNodeRef.current = null;
+            }
+            if (audioContextRef.current) {
+                audioContextRef.current.close(); 
+                audioContextRef.current = null;
+            }
+            
+            // Stop the actual microphone stream after all processing for this recording is done
+            stream.getTracks().forEach(track => track.stop()); 
 
+            const currentRecordingDuration = Date.now() - recordingStartTimeRef.current;
+
+            // V2.2.1: Client-side Silence Detection (Remains for immediate feedback)
             if (audioBlob.size === 0) {
-                setVisibleError({ message: "No audio detected. Please ensure your microphone is working and try speaking again.", key: Date.now() });
+                setVisibleError({ message: "No audio was recorded. Please ensure your microphone is active.", key: Date.now() });
                 setIsProcessingAudio(false);
                 return;
             }
-
+            
+            if (currentRecordingDuration < MIN_RECORDING_DURATION_MS) {
+                setVisibleError({ message: `Recording too short (${currentRecordingDuration}ms). Please speak for at least ${MIN_RECORDING_DURATION_MS / 1000} seconds.`, key: Date.now() });
+                setIsProcessingAudio(false);
+                return;
+            }
+            
+            if (!speechDetectedRef.current) {
+                setVisibleError({ message: "Silence detected. Please speak clearly into the microphone.", key: Date.now() });
+                setIsProcessingAudio(false);
+                return;
+            }
+            
+            // If all client-side checks pass, proceed with transcription
             setIsProcessingAudio(true);
             try {
                 const base64Full = await blobToBase64(audioBlob);
                 const base64Data = base64Full.split(',')[1];
-                const transcript = await transcribeAudio(base64Data, audioBlob.type);
+                const transcriptionResult: TranscriptionResult = await transcribeAudio(base64Data, audioBlob.type); // NEW: Expect TranscriptionResult
                 
-                if ((window as any).addLog) (window as any).addLog(`Client-side voice input processed. Transcript: "${transcript}"`);
-                const newValue = customMood ? `${customMood} ${transcript}` : transcript;
-                if (newValue.length <= CHAR_LIMIT) {
-                    setCustomMood(newValue);
-                    setInputModality('voice');
-                } else {
-                    setVisibleError({ message: `Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`, key: Date.now() });
+                // NEW: Handle structured transcription result
+                if (transcriptionResult.status === 'ok') {
+                    if ((window as any).addLog) (window as any).addLog(`Client-side voice input processed. Transcript: "${transcriptionResult.text}"`);
+                    const newValue = customMood ? `${customMood} ${transcriptionResult.text}` : transcriptionResult.text;
+                    if (newValue && newValue.length <= CHAR_LIMIT) { // Check newValue for null/undefined if text is optional
+                        setCustomMood(newValue);
+                        setInputModality('voice');
+                    } else {
+                        setVisibleError({ message: `Your voice input made the total mood description too long (max ${CHAR_LIMIT} chars). Please keep it concise.`, key: Date.now() });
+                    }
+                } else if (transcriptionResult.status === 'no_speech') {
+                    // Treat as silence for UX - same retry modal logic
+                    if ((window as any).addLog) (window as any).addLog(`Server/Preview classified as 'no_speech'. Reason: ${transcriptionResult.reason}`);
+                    setVisibleError({ message: transcriptionResult.reason || "Silence detected. Please speak clearly into the microphone.", key: Date.now() });
+                } else if (transcriptionResult.status === 'error') {
+                    // Generic voice processing failed message for technical errors
+                    if ((window as any).addLog) (window as any).addLog(`Audio transcription failed: ${transcriptionResult.reason}`);
+                    setVisibleError({ message: transcriptionResult.reason || "Voice processing failed due to a technical error.", key: Date.now() });
                 }
 
             } catch (error: any) {
                 console.error("Audio transcription failed", error);
                 if ((window as any).addLog) (window as any).addLog(`Audio transcription failed: ${error.message}`);
+                // Fallback for unexpected errors not covered by TranscriptionResult
                 setVisibleError({ message: `Voice processing failed: ${error.message}`, key: Date.now() });
             } finally {
                 setIsProcessingAudio(false);
@@ -135,6 +233,22 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ onSelectMood, isLoading, va
              setVisibleError({ message: "Microphone access denied. Please allow microphone permissions in your browser settings.", key: Date.now() });
         } else {
              setVisibleError({ message: "Could not access microphone.", key: Date.now() });
+        }
+        setIsRecording(false); // Ensure recording state is reset on error
+        setIsProcessingAudio(false); // Ensure processing state is reset on error
+        // Clean up audio graph if it was partially initialized
+        if (scriptProcessorNodeRef.current) {
+            scriptProcessorNodeRef.current.disconnect();
+            scriptProcessorNodeRef.current.onaudioprocess = null;
+            scriptProcessorNodeRef.current = null;
+        }
+        if (analyserNodeRef.current) {
+            analyserNodeRef.current.disconnect();
+            analyserNodeRef.current = null;
+        }
+        if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
         }
     }
   };
