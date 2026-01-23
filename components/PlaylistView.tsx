@@ -29,22 +29,37 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
   onExport,
   exporting
 }) => {
+  // Calculate duration in "X hr Y min" format
   const totalDurationMs = playlist.songs.reduce((acc, song) => acc + (song.durationMs || 0), 0);
   const hours = Math.floor(totalDurationMs / 3600000);
   const minutes = Math.floor((totalDurationMs % 3600000) / 60000);
+  
+  // Format: "1 hr 03 min" or "45 min"
   const formattedDuration = hours > 0 
     ? `${hours} hr ${minutes.toString().padStart(2, '0')} min`
     : `${minutes} min`;
 
+  // Dynamic RTL Detection for Playlist Meta
   const isRightToLeft = isRtl(playlist.title) || isRtl(playlist.description);
+  
+  // Logic: 
+  // 1. Meta Container uses Flex-Align (End vs Start)
+  // 2. Text Content uses Dir attribute (RTL vs LTR)
+  const containerAlign = isRightToLeft ? 'items-end' : 'items-start';
+  const textAlign = isRightToLeft ? 'text-right' : 'text-left';
+  const contentDir = isRightToLeft ? 'rtl' : 'ltr';
   const fontClass = isRightToLeft ? "font-['Heebo']" : "";
+
+  // 1. UNIFIED BUTTON CLASSES
+  const primaryBtnClass = "bg-[#1DB954] text-black font-bold rounded-full px-8 py-3.5 flex items-center justify-center gap-2 hover:scale-105 transition-transform shadow-lg shadow-green-500/20 w-full md:w-auto";
+  const iconClass = "w-5 h-5 flex-shrink-0";
 
   return (
     <div className="h-full w-full overflow-y-auto custom-scrollbar">
       <div className="w-full max-w-4xl mx-auto p-4 pb-32 animate-fade-in">
         <div className="glass-panel rounded-3xl p-6 md:p-10 mb-6 relative overflow-hidden">
           
-          {/* Version 2.1.2: Top Left Close Button */}
+          {/* Version 2.1.2: Top Left Close Button - Functional replacement for "New" */}
           <button 
             onClick={onReset}
             className="absolute top-6 left-6 md:top-8 md:left-8 text-slate-400 hover:text-white transition-colors z-20 p-2 rounded-full hover:bg-white/5"
@@ -55,72 +70,95 @@ const PlaylistView: React.FC<PlaylistViewProps> = ({
             </svg>
           </button>
 
+          {/* Background Ambient Glow */}
           <div className="absolute top-0 right-0 w-96 h-96 bg-purple-600 rounded-full filter blur-[120px] opacity-20 -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
           <div className="relative z-10 flex flex-col">
+            
+            {/* Header Label: Adjusted for X-button spacing on both mobile and desktop */}
             <div className={`flex items-center gap-2 text-purple-300 uppercase tracking-wider text-xs font-bold mb-4 mt-10 md:mt-0 ${isRightToLeft ? 'justify-end' : 'justify-start md:ml-12 ml-0'}`}>
                 <SparklesIcon className="w-4 h-4" />
                 <span>Mood-driven playlists</span>
             </div>
 
-            <div className={`flex flex-col gap-2 mb-4 ${isRightToLeft ? 'items-end' : 'items-start'}`}> 
-                <h1 className={`text-3xl md:text-5xl font-bold text-white leading-tight ${isRightToLeft ? 'text-right' : 'text-left'} ${fontClass}`} dir={isRightToLeft ? 'rtl' : 'ltr'}>
+            {/* LAYER 1: META (Hybrid Alignment) - Now only contains title and duration */}
+            <div className={`flex flex-col gap-2 mb-4 ${containerAlign}`}> 
+                <h1 className={`text-3xl md:text-5xl font-bold text-white leading-tight ${textAlign} ${fontClass}`} dir={contentDir}>
                   {playlist.title}
                 </h1>
-                <div className={`text-sm text-slate-400 font-medium ${fontClass}`} dir="ltr">
-                  {playlist.songs.length} Songs • {formattedDuration}
+                
+                {/* Hybrid Meta Line: Flex-End (Layout) + Dir LTR (Text Integrity) */}
+                <div className={`w-full flex ${isRightToLeft ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`text-sm text-slate-400 font-medium ${fontClass}`} dir="ltr">
+                    {playlist.songs.length} Songs • {formattedDuration}
+                  </div>
                 </div>
             </div>
 
-            <div className={`mb-8 w-full ${isRightToLeft ? 'text-right' : 'text-left'}`} dir={isRightToLeft ? 'rtl' : 'ltr'}>
+            {/* LAYER 2: CONTENT (Description - Mirrored) */}
+            <div className={`mb-8 w-full ${textAlign}`} dir={contentDir}>
                 <p className={`text-slate-300 text-base md:text-lg leading-relaxed max-w-3xl ${isRightToLeft ? 'ml-auto' : ''} ${fontClass}`}>
                   {playlist.description}
                 </p>
             </div>
               
-            {/* Action Area: Single CTA focus */}
-            <div className="flex items-center justify-end w-full border-t border-white/10 pt-6">
-                <button 
-                  onClick={onExport} 
-                  disabled={exporting} 
-                  className="bg-[#1DB954] text-black font-bold rounded-full px-12 py-4 flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-lg shadow-green-500/20 w-full md:w-auto active:scale-95 disabled:opacity-50"
-                >
-                  <SpotifyIcon className="w-5 h-5" />
+            {/* LAYER 3: ACTION LAYER (V.2.1.2: Secondary grid removed entirely) */}
+            <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-4 md:gap-6 w-full border-t border-white/10 pt-6" dir="ltr">
+                {/* Primary Action is now the sole footer focus */}
+                <button onClick={onExport} disabled={exporting} className={primaryBtnClass}>
+                  <SpotifyIcon className={iconClass} />
                   <span>{exporting ? 'Saving...' : 'Save to Spotify'}</span>
                 </button>
+              </div>
             </div>
-          </div>
 
-          <div className="mt-8 space-y-3">
-            {playlist.songs.map((song) => {
-              const isPlaying = currentSong?.id === song.id && playerState === PlayerState.PLAYING;
-              const isCurrent = currentSong?.id === song.id;
-              const hasPreview = !!song.previewUrl;
-              const isSongRtl = isRtl(song.title) || isRtl(song.artist);
+            {/* Track List */}
+            <div className="mt-8 space-y-3">
+              {playlist.songs.map((song) => {
+                const isPlaying = currentSong?.id === song.id && playerState === PlayerState.PLAYING;
+                const isCurrent = currentSong?.id === song.id;
+                const hasPreview = !!song.previewUrl;
 
-              return (
-                <div key={song.id} className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-300 ${isCurrent ? 'bg-slate-800/80 border-l-4 border-purple-500 shadow-lg' : 'border-l-4 border-transparent hover:bg-slate-800/50'}`}>
-                  <div className="relative flex-shrink-0 w-12 h-12 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-800">
-                    {song.artworkUrl && <img src={song.artworkUrl} alt={song.album} className="w-full h-full object-cover" />}
-                    {hasPreview ? (
-                        <button onClick={() => isPlaying ? onPause() : onPlaySong(song)} className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                // Row-Level RTL Detection
+                const isSongRtl = isRtl(song.title) || isRtl(song.artist);
+                const songTextAlign = isSongRtl ? 'text-right' : 'text-left';
+                const songDir = isSongRtl ? 'rtl' : 'ltr';
+                const songFont = isSongRtl ? "font-['Heebo']" : "";
+
+                return (
+                  <div key={song.id} className={`group flex items-center gap-4 p-3 rounded-xl transition-all duration-300 ease-in-out ${isCurrent ? 'bg-slate-800/80 border-l-4 border-purple-500 shadow-lg shadow-purple-500/20 scale-[1.02]' : 'border-l-4 border-transparent hover:bg-slate-800/50 hover:border-purple-500/30 hover:scale-[1.01]'}`}>
+                    {/* Artwork & Play Button (Fixed Anchor: Always Left) */}
+                    <div className="relative flex-shrink-0 w-12 h-12 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-800 shadow-lg">
+                      {song.artworkUrl ? <img src={song.artworkUrl} alt={song.album} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-600 bg-slate-900"><span className="text-xs">No Art</span></div>}
+                      
+                      {hasPreview ? (
+                          <button onClick={() => isPlaying ? onPause() : onPlaySong(song)} className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity opacity-100`}>
                           {isPlaying ? <PauseIcon className="w-6 h-6 text-white" /> : <PlayIcon className="w-6 h-6 text-white" />}
-                        </button>
-                    ) : (
-                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                            <span className="text-[10px] text-slate-300">No Preview</span>
+                          </button>
+                      ) : (
+                          <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-100">
+                              <span className="text-[10px] text-slate-300 text-center px-1">No Preview</span>
+                          </div>
+                      )}
+
+                      {isPlaying && (
+                        <div className="absolute bottom-0 left-0 right-0 h-4 flex items-end justify-center gap-0.5 pb-1 pointer-events-none">
+                          <div className="w-1 bg-green-400 audio-wave-bar" style={{animationDelay: '0s'}}></div>
+                          <div className="w-1 bg-green-400 audio-wave-bar" style={{animationDelay: '0.1s'}}></div>
+                          <div className="w-1 bg-green-400 audio-wave-bar" style={{animationDelay: '0.2s'}}></div>
                         </div>
-                    )}
+                      )}
+                    </div>
+                    
+                    {/* Track Info (V.2.1.2: Now takes up all remaining space, no Spotify link on right) */}
+                    <div className={`flex-grow min-w-0 ${songTextAlign}`} dir={songDir}>
+                      <h3 className={`font-semibold truncate ${isCurrent ? 'text-purple-300' : 'text-white'} ${songFont}`}>{song.title}</h3>
+                      <p className={`text-sm text-slate-400 truncate ${songFont}`}>{song.artist} • {song.album}</p>
+                    </div>
                   </div>
-                  
-                  <div className={`flex-grow min-w-0 ${isSongRtl ? 'text-right' : 'text-left'}`} dir={isSongRtl ? 'rtl' : 'ltr'}>
-                    <h3 className={`font-semibold truncate ${isCurrent ? 'text-purple-300' : 'text-white'}`}>{song.title}</h3>
-                    <p className="text-sm text-slate-400 truncate">{song.artist}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
         </div>
       </div>
     </div>
