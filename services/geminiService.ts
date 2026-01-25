@@ -551,21 +551,14 @@ export const analyzeFullTasteProfile = async (
     return { error: "No tracks or playlist tracks to analyze" };
   }
 
-  // Combine playlistTracks and topTracks into a single array with origin hints
-  const tracksToAnalyze = [];
-  if (playlistTracks && playlistTracks.length > 0) {
-    playlistTracks.forEach(track => tracksToAnalyze.push({ track_name: track, origin: 'playlist' }));
-  }
-  if (topTracks && topTracks.length > 0) {
-    topTracks.forEach(track => tracksToAnalyze.push({ track_name: track, origin: 'top_50' }));
-  }
-
   const systemInstruction = `You are an expert music psychologist and an advanced music analysis engine.
-Your task is to perform a "Semantic Synthesis" of a user's musical taste by analyzing a unified list of tracks, each explicitly marked with its origin (from "personal playlists" or "top 50 tracks").
+Your task is to perform a "Semantic Synthesis" of a user's musical taste by analyzing two distinct sets of data:
+1.  A list of song titles and artists from the user's personal playlists.
+2.  A list of the user's top 50 individual tracks.
 
 Based on this combined input, you must:
 A. Infer the overarching, most dominant "playlist mood category" that the user's playlists collectively represent, along with a confidence score.
-B. For each individual song from the unified list, generate detailed semantic tags and echo its 'origin' back.
+B. For each individual song from the "top 50 tracks" list, generate detailed semantic tags.
 
 RULES FOR OUTPUT:
 1.  Return ONLY raw, valid JSON matching the specified schema.
@@ -586,21 +579,12 @@ RULES FOR OUTPUT:
         "texture": "organic" | "electric" | "synthetic" ,
         "language": ["language1" , "language2"] 
       },
-      "confidence": "low" | "medium" | "high",
-      "origin": "'playlist' | 'top_50'" // NEW: explicitly echo the origin from the input
+      "confidence": "low" | "medium" | "high"
     }
     a. Split the input string (e.g. "Song by Artist") into "song_name" and "artist_name".
     b. Normalize values: Use lowercase, controlled vocabulary only.
     c. Use arrays for attributes that can be multiple (mood, secondary_genres, language).
     d. Interpret attributes as soft signals, not absolute facts.
-
-INPUT FORMAT:
-{
-  "tracks_to_analyze": [
-    { "track_name": "Song by Artist", "origin": "'playlist' | 'top_50'" },
-    // ...
-  ]
-}
 
 OUTPUT FORMAT:
 {
@@ -614,7 +598,8 @@ OUTPUT FORMAT:
 }
 `;
       const promptInput = JSON.stringify({
-        tracks_to_analyze: tracksToAnalyze
+        playlist_tracks: playlistTracks,
+        top_tracks: topTracks
       }, null, 2);
 
       if (isPreviewEnvironment()) {
@@ -660,9 +645,8 @@ OUTPUT FORMAT:
                           required: ["primary_genre", "energy", "mood", "tempo", "vocals", "texture"],
                         },
                         confidence: { type: Type.STRING },
-                        origin: { type: Type.STRING }, // NEW: Added origin to response schema
                       },
-                      required: ["song_name", "artist_name", "semantic_tags", "confidence", "origin"], // NEW: Origin is now required
+                      required: ["song_name", "artist_name", "semantic_tags", "confidence"],
                     },
                   },
                 },
