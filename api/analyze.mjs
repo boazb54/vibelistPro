@@ -20,7 +20,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'API_KEY environment variable is missing from serverless function. Please ensure it is correctly configured in your deployment environment (e.g., Vercel environment variables or AI Studio settings).' });
   }
 
-  const { type, tracks, playlistTracks } = req.body;
+  // FIX: Change 'tracks' to 'topTracks' to correctly destructure the incoming request body
+  const { type, topTracks, playlistTracks } = req.body;
   
   console.log(`[API/ANALYZE] Incoming request type: "${type}"`);
   console.log(`[API/ANALYZE] Using GEMINI_MODEL: ${GEMINI_MODEL}`);
@@ -31,7 +32,8 @@ export default async function handler(req, res) {
 
     // --- NEW: Unified Taste Analysis ---
     if (type === 'unified_taste') {
-      console.log(`[API/ANALYZE] Performing unified taste analysis for ${playlistTracks?.length || 0} playlist tracks and ${tracks?.length || 0} top tracks.`);
+      // FIX: Use 'topTracks' in log message
+      console.log(`[API/ANALYZE] Performing unified taste analysis for ${playlistTracks?.length || 0} playlist tracks and ${topTracks?.length || 0} top tracks.`);
 
       const systemInstruction = `You are an expert music psychologist and an advanced music analysis engine.
 Your task is to perform a "Semantic Synthesis" of a user's musical taste by analyzing two distinct sets of data:
@@ -81,7 +83,8 @@ OUTPUT FORMAT:
 `;
       const prompt = JSON.stringify({
         playlist_tracks: playlistTracks,
-        top_tracks: tracks // 'tracks' variable from req.body now holds top tracks for unified analysis
+        // FIX: Use 'topTracks' instead of 'tracks' in the Gemini prompt payload
+        top_tracks: topTracks 
       }, null, 2);
       
       console.log("[API/ANALYZE] Unified Taste Analysis Prompt (first 500 chars):", prompt.substring(0, 500));
