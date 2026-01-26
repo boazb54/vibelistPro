@@ -1,4 +1,5 @@
 
+
 import { SPOTIFY_AUTH_ENDPOINT, SPOTIFY_SCOPES } from "../constants";
 import { Playlist, Song, GeneratedSongRaw, SpotifyArtist, SpotifyTrack, UserTasteProfile, AggregatedPlaylist } from "../types";
 import { fetchSongMetadata } from "./itunesService";
@@ -243,7 +244,7 @@ export const fetchUserTasteProfile = async (token: string): Promise<UserTastePro
 };
 
 // NEW: Fetches user's playlists and their tracks, aggregating them into a single list of "Song by Artist" strings.
-export const fetchUserPlaylistsAndTracks = async (token: string): Promise<AggregatedPlaylist[]> => {
+export const fetchUserPlaylistsAndTracks = async (token: string, currentUserId: string): Promise<AggregatedPlaylist[]> => { // MODIFIED: Added currentUserId
   const aggregatedPlaylists: AggregatedPlaylist[] = [];
   try {
     // 1. Fetch user playlists (limit 50)
@@ -286,7 +287,17 @@ export const fetchUserPlaylistsAndTracks = async (token: string): Promise<Aggreg
             playlistTracks.push(`${item.track.name} by ${item.track.artists.map((a: any) => a.name).join(', ')}`);
           }
         });
-        return { playlistName: playlist.name, tracks: playlistTracks };
+
+        // NEW: Extract playlist creator and track count
+        const creator = playlist.owner.id === currentUserId ? 'user' : playlist.owner.display_name;
+        const trackCount = playlist.tracks.total;
+
+        return { 
+          playlistName: playlist.name, 
+          playlistCreator: creator, // NEW
+          playlistTrackCount: trackCount, // NEW
+          tracks: playlistTracks 
+        };
       } catch (error: any) {
         // Log individual playlist fetch errors but don't re-throw to allow others to succeed
         console.warn(`Error fetching tracks for playlist ${playlist.name} (ID: ${playlist.id}): ${error.message}`);
