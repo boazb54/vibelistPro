@@ -579,19 +579,12 @@ RULES FOR OUTPUT:
         "texture": "organic" | "electric" | "synthetic" ,
         "language": ["language1" , "language2"] 
       },
-      "confidence": "low" | "medium" | "high",
-      "origin": "top_50_tracks" | "playlist_tracks" // NEW FIELD
+      "confidence": "low" | "medium" | "high"
     }
     a. Split the input string (e.g. "Song by Artist") into "song_name" and "artist_name".
     b. Normalize values: Use lowercase, controlled vocabulary only.
     c. Use arrays for attributes that can be multiple (mood, secondary_genres, language).
     d. Interpret attributes as soft signals, not absolute facts.
-    // NEW RULE for 'origin':
-    // You MUST include an 'origin' field for each analyzed track.
-    // This 'origin' field indicates which of the input lists the song primarily came from.
-    // - If the song was provided in the 'top_tracks' input array, set 'origin' to 'top_50_tracks'.
-    // - If the song was provided in the 'playlist_tracks' input array, set 'origin' to 'playlist_tracks'.
-    // - If a song is present in BOTH 'top_tracks' and 'playlist_tracks' input arrays, prioritize and set 'origin' to 'top_50_tracks'.
 
 OUTPUT FORMAT:
 {
@@ -652,9 +645,8 @@ OUTPUT FORMAT:
                           required: ["primary_genre", "energy", "mood", "tempo", "vocals", "texture"],
                         },
                         confidence: { type: Type.STRING },
-                        origin: { type: Type.STRING }, // NEW: Added origin to response schema
                       },
-                      required: ["song_name", "artist_name", "semantic_tags", "confidence", "origin"], // NEW: origin is required
+                      required: ["song_name", "artist_name", "semantic_tags", "confidence"],
                     },
                   },
                 },
