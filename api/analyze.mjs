@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -50,7 +49,7 @@ For each individual song from the "top 50 tracks" list, generate detailed semant
 ## OUTPUT FORMAT:
 Return ONLY raw JSON matching schema:
 { 
- "analyized_50_top_tracks": [
+ "analyzed_50_top_tracks": [
     {
       "origin": "TOP_50_TRACKS_LIST",
       "song_name": "...",
@@ -178,6 +177,7 @@ Return ONLY raw JSON matching schema:
                   playlist_emotional_direction: { type: Type.STRING },
                   playlist_language_distribution: {
                     type: Type.OBJECT,
+                    properties: {}, // THIS IS THE CRITICAL ADDITION
                     additionalProperties: { type: Type.NUMBER },
                   },
                   confidence: { type: Type.STRING },
