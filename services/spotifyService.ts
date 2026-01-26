@@ -257,39 +257,57 @@ export const fetchUserPlaylistsAndTracks = async (token: string): Promise<Aggreg
     const playlistsData = await playlistsRes.json();
     const userPlaylists = playlistsData.items || [];
 
-    let playlistsProcessed = 0;
+    const playlistsToFetchTracksFor: any[] = [];
+    let playlistsCount = 0;
     for (const playlist of userPlaylists) {
-      if (playlistsProcessed >= 5) break; // Limit to first 5 non-empty playlists
+      if (playlistsCount >= 5) break; // Limit to first 5 non-empty playlists
 
-      // Check if playlist is not empty before fetching tracks
       if (playlist.tracks.total > 0) {
-        const playlistTracks: string[] = []; // Tracks for current playlist
-        // 2. Fetch tracks for each playlist (limit 20 per playlist as per scope)
+        playlistsToFetchTracksFor.push(playlist);
+        playlistsCount++;
+      }
+    }
+
+    const trackFetchPromises = playlistsToFetchTracksFor.map(async (playlist) => {
+      try {
         const tracksRes = await fetch(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks?limit=20`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!tracksRes.ok) {
           const errorText = await tracksRes.text();
-          console.warn(`Failed to fetch tracks for playlist ${playlist.name} (ID: ${playlist.id}): ${errorText}`);
-          continue; // Skip to next playlist if this one fails
+          throw new Error(`Failed to fetch tracks for playlist ${playlist.name} (ID: ${playlist.id}): ${errorText}`);
         }
         const tracksData = await tracksRes.json();
         const items = tracksData.items || [];
 
+        const playlistTracks: string[] = [];
         items.forEach((item: any) => {
           if (item.track && item.track.name && item.track.artists && item.track.artists.length > 0) {
             playlistTracks.push(`${item.track.name} by ${item.track.artists.map((a: any) => a.name).join(', ')}`);
           }
         });
-        if (playlistTracks.length > 0) {
-            aggregatedPlaylists.push({ playlistName: playlist.name, tracks: playlistTracks });
-        }
-        playlistsProcessed++;
+        return { playlistName: playlist.name, tracks: playlistTracks };
+      } catch (error: any) {
+        // Log individual playlist fetch errors but don't re-throw to allow others to succeed
+        console.warn(`Error fetching tracks for playlist ${playlist.name} (ID: ${playlist.id}): ${error.message}`);
+        return null; // Return null to indicate failure for this specific playlist
       }
-    }
+    });
+
+    const results = await Promise.allSettled(trackFetchPromises);
+
+    results.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value !== null) {
+        if (result.value.tracks.length > 0) { // Only add if the playlist actually has tracks after processing
+          aggregatedPlaylists.push(result.value);
+        }
+      }
+      // Rejected promises are already logged by the individual catch block in the map function
+    });
+
   } catch (e: any) {
     console.error("Critical error during Spotify playlist/track fetching:", e.message);
-    throw e; // Re-throw to be handled by App.tsx
+    throw e; // Re-throw the initial fetch error or any unhandled critical errors
   }
   return aggregatedPlaylists;
 };
