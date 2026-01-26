@@ -23,6 +23,7 @@ export interface AnalyzedTrack {
   artist_name: string;
   semantic_tags: SemanticTags;
   confidence: string; // "low" | "medium" | "high"
+  origin?: 'top_50_tracks' | 'playlist_tracks'; // NEW: Added origin field
 }
 
 // NEW: Aggregated Session Profile (Deterministically calculated)
