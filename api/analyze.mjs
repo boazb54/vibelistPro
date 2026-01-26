@@ -23,6 +23,9 @@ export default async function handler(req, res) {
   // FIX: Change 'tracks' to 'topTracks' to correctly destructure the incoming request body
   const { type, topTracks, playlistTracks } = req.body;
   
+  // [DEBUG LOG][api/analyze.mjs] Point 1.5: Log Destructured Track Origins
+  console.log(`[DEBUG LOG][api/analyze.mjs] Destructured data: type="${type}", topTracks.length=${topTracks?.length || 0}, playlistTracks.length=${playlistTracks?.length || 0}`);
+
   console.log(`[API/ANALYZE] Incoming request type: "${type}"`);
   console.log(`[API/ANALYZE] Using GEMINI_MODEL: ${GEMINI_MODEL}`);
 
