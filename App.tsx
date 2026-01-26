@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -12,7 +13,7 @@ import { BurgerIcon } from './components/Icons';
 import AdminDataInspector from './components/AdminDataInspector';
 import { 
   Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse,
-  UnifiedTasteAnalysis 
+  UnifiedTasteAnalysis, UnifiedTasteGeminiResponse 
 } from './types';
 import { 
   generatePlaylistFromMood, 
@@ -232,7 +233,7 @@ const App: React.FC = () => {
           
           const [tasteResult, playlistsResult] = await Promise.allSettled([
             fetchUserTasteProfile(token),
-            fetchUserPlaylistsAndTracks(token)
+            fetchUserPlaylistsAndTracks(token, profile.id) // MODIFIED: Pass profile.id
           ]);
 
           let taste: UserTasteProfile | null = null;
@@ -257,11 +258,13 @@ const App: React.FC = () => {
           }
 
           addLog("[Wave 2: Gemini] Initiating unified AI taste analysis...");
-          const rawAggregatedPlaylistTracks = aggregatedPlaylists.flatMap(p => p.tracks);
+          // Removed rawAggregatedPlaylistTracks as analyzeFullTasteProfile now takes AggregatedPlaylist[]
+          // const rawAggregatedPlaylistTracks = aggregatedPlaylists.flatMap(p => p.tracks);
 
-          if (taste.topTracks.length > 0 || rawAggregatedPlaylistTracks.length > 0) {
+          if (taste.topTracks.length > 0 || aggregatedPlaylists.length > 0) { // MODIFIED: Check aggregatedPlaylists length
             try {
-              const unifiedGeminiResponse = await analyzeFullTasteProfile(rawAggregatedPlaylistTracks, taste.topTracks);
+              // MODIFIED: Pass aggregatedPlaylists (full objects) to analyzeFullTasteProfile
+              const unifiedGeminiResponse: UnifiedTasteGeminiResponse | { error: string } = await analyzeFullTasteProfile(aggregatedPlaylists, taste.topTracks);
               
               if ('error' in unifiedGeminiResponse) {
                 throw new Error(unifiedGeminiResponse.error);
