@@ -1,6 +1,8 @@
+
+
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { AdminDataInspectorProps } from '../types';
+import { AdminDataInspectorProps, AnalyzedPlaylistContextItem } from '../types';
 
 // Helper for collapsible sections
 const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => {
@@ -60,10 +62,25 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
               <div className="space-y-3">
                 <p><strong>Overall Mood Category:</strong> {userTaste.unified_analysis.overall_mood_category} (Confidence: {userTaste.unified_analysis.overall_mood_confidence.toFixed(2)})</p>
                 
-                <h4 className="font-semibold text-white mt-4 mb-2">Session Semantic Profile:</h4>
+                <h4 className="font-semibold text-white mt-4 mb-2">Session Semantic Profile (Top 50 Tracks):</h4>
                 <pre className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
                   {JSON.stringify(userTaste.unified_analysis.session_semantic_profile, null, 2)}
                 </pre>
+
+                {/* NEW: Display Analyzed Playlist Context */}
+                {userTaste.unified_analysis.playlist_contexts && userTaste.unified_analysis.playlist_contexts.length > 0 && (
+                    <>
+                        <h4 className="font-semibold text-white mt-4 mb-2">Analyzed Playlist Contexts:</h4>
+                        <div className="space-y-3">
+                            {userTaste.unified_analysis.playlist_contexts.map((context: AnalyzedPlaylistContextItem, index: number) => (
+                                <pre key={index} className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
+                                    {JSON.stringify(context, null, 2)}
+                                </pre>
+                            ))}
+                        </div>
+                    </>
+                )}
+
               </div>
             ) : (
               <p>No unified taste analysis data available.</p>
@@ -102,7 +119,9 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
               <div className="space-y-4">
                 {aggregatedPlaylists.map((playlistGroup, i) => (
                   <div key={i} className="bg-slate-800/50 p-3 rounded-md">
-                    <h4 className="font-semibold text-white mb-2">{playlistGroup.playlistName} ({playlistGroup.tracks.length} tracks)</h4>
+                    <h4 className="font-semibold text-white mb-2">
+                        {playlistGroup.playlistName} ({playlistGroup.playlistTrackCount} tracks) - Creator: {playlistGroup.playlistCreator}
+                    </h4>
                     <ol className="list-decimal list-inside space-y-0.5 text-slate-400">
                       {playlistGroup.tracks.map((track, j) => (
                         <li key={j}>{track}</li>
