@@ -331,7 +331,7 @@ RULES:
           - **Rule 3 (Track-Level Focus):** Gemini MUST see and use the track-level text of these anchors, not abstractions.
           
           ### 2. TEMPORAL + LINGUISTIC POLARITY & INTENT DECODING (CRITICAL LOGIC) Determine whether the user describes a **PROBLEM** (needs fixing) or a **GOAL** (needs matching). **SCENARIO: User expresses fatigue ("tired", "low energy", "חסר אנרגיות")** *   **IF user explicitly requests sleep/relaxation:** *   → GOAL: Matching (Sleep/Calm) *   → Ignore time. *   **ELSE IF local_time is Morning/Afternoon (06:00–17:00):** *   → GOAL: Gentle Energy Lift (Compensation). *   → AUDIO PHYSICS: - Energy: Low → Medium. - Tempo: Slow → Mid. - Rhythm: Present but soft. - No ambient drones. No heavy drops. *   **ELSE IF local_time is Evening/Night (20:00–05:00):** *   → GOAL: Relaxation / Sleep. *   → AUDIO PHYSICS: - Constant low energy. - Slow tempo. - Ambient / minimal. - No drums. **RULE: "Waking up" ≠ "Sleep"** *   Waking up requires dynamic rising energy. *   Sleep requires static low energy. ### 3. "TITLE BIAS" WARNING **NEVER** infer a song's vibe from its title. - A song named "Pure Bliss" might be a high-energy Trance track (Bad for sleep). - A song named "Violent" might be a slow ballad (Good for sleep). - **Judge the Audio, Not the Metadata.** ### 4. LANGUAGE & FORMATTING RULES (NEW & CRITICAL) 1. **Language Mirroring:** If the user types in Hebrew/Spanish/etc., write the 'playlist_title' and 'description' in that **SAME LANGUAGE**. 2. **Metadata Exception:** Keep 'songs' metadata (Song Titles and Artist Names) in their original language (English/International). Do not translate them. 3. **Conciseness:** The 'description' must be **under 20 words**. Short, punchy, and evocative. ### 5. NEGATIVE EXAMPLES (LEARN FROM THESE ERRORS) *   **User Intent:** Sleep / Waking Up *   **User Taste:** Pop, EDM (e.g., Alan Walker, Calvin Harris) *   🔴 **BAD SELECTION:** "Alone" by Alan Walker. *   *Why:* Lyrically sad, but physically high energy (EDM drops, synth leads). *   🟢 **GOOD SELECTION:** "Faded (Restrung)" by Alan Walker or "Ambient Mix" by similar artists. *   *Why:* Matches taste but strips away the drums/energy to fit the physics of sleep. ### OUTPUT FORMAT Return the result as raw, valid JSON only. Do not use Markdown formatting. Use this exact JSON structure for your output: { "playlist_title": "Creative Title (Localized)", "mood": "The mood requested", "description": "Short description (<20 words, Localized)", "songs": [ { "title": "Song Title (Original Language)", "artist": "Artist Name (Original Language)", "estimated_vibe": { "energy": "Low" | "Medium" | "High" | "Explosive", "mood": "Adjective (e.g. Uplifting, Melancholic)", "genre_hint": "Specific Sub-genre" } } ] } CRITICAL RULES: 1. Pick 15 songs. 2. The songs must be real and findable on Spotify/iTunes. 3. If "Exclusion List" is provided: Do NOT include any of the songs listed. 4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel.`;
-
+            
             // --- STAGE 1.1: Validation (Preview) ---
             const validation_t_api_start = performance.now();
             const validationResponse = await ai.models.generateContent({
@@ -579,12 +579,19 @@ RULES FOR OUTPUT:
         "texture": "organic" | "electric" | "synthetic" ,
         "language": ["language1" , "language2"] 
       },
-      "confidence": "low" | "medium" | "high"
+      "confidence": "low" | "medium" | "high",
+      "origin": "top_50_tracks" | "playlist_tracks" // NEW FIELD
     }
     a. Split the input string (e.g. "Song by Artist") into "song_name" and "artist_name".
     b. Normalize values: Use lowercase, controlled vocabulary only.
     c. Use arrays for attributes that can be multiple (mood, secondary_genres, language).
     d. Interpret attributes as soft signals, not absolute facts.
+    // NEW RULE for 'origin':
+    // You MUST include an 'origin' field for each analyzed track.
+    // This 'origin' field indicates which of the input lists the song primarily came from.
+    // - If the song was provided in the 'top_tracks' input array, set 'origin' to 'top_50_tracks'.
+    // - If the song was provided in the 'playlist_tracks' input array, set 'origin' to 'playlist_tracks'.
+    // - If a song is present in BOTH 'top_tracks' and 'playlist_tracks' input arrays, prioritize and set 'origin' to 'top_50_tracks'.
 
 OUTPUT FORMAT:
 {
@@ -645,8 +652,9 @@ OUTPUT FORMAT:
                           required: ["primary_genre", "energy", "mood", "tempo", "vocals", "texture"],
                         },
                         confidence: { type: Type.STRING },
+                        origin: { type: Type.STRING }, // NEW: Added origin to response schema
                       },
-                      required: ["song_name", "artist_name", "semantic_tags", "confidence"],
+                      required: ["song_name", "artist_name", "semantic_tags", "confidence", "origin"], // NEW: origin is required
                     },
                   },
                 },
