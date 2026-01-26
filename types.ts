@@ -18,11 +18,24 @@ export interface SemanticTags {
   language?: string[]; // NEW: ISO 639-1 language codes (e.g., ['en', 'he'])
 }
 
-export interface AnalyzedTrack {
+export interface AnalyzedTopTrack { // Renamed from AnalyzedTrack
+  origin: "TOP_50_TRACKS_LIST"; // NEW
   song_name: string;
   artist_name: string;
   semantic_tags: SemanticTags;
   confidence: string; // "low" | "medium" | "high"
+}
+
+// NEW: Analyzed playlist context item for TASK B
+export interface AnalyzedPlaylistContextItem {
+  origin: "PLAYLISTS";
+  playlist_name: string;
+  playlist_creator: string;
+  playlist_track_count: number;
+  playlist_primary_function: "focus" | "workout" | "relax" | "sleep" | "commute" | "study" | "party" | "background" | "other";
+  playlist_emotional_direction: "calming" | "energizing" | "uplifting" | "melancholic" | "romantic" | "dark" | "nostalgic" | "other";
+  playlist_language_distribution: Record<string, number>;
+  confidence: "low" | "medium" | "high";
 }
 
 // NEW: Aggregated Session Profile (Deterministically calculated)
@@ -149,23 +162,24 @@ export interface SpotifyTrack {
   artists: { name: string }[];
 }
 
-// NEW: User Playlist Mood Analysis
-export interface UserPlaylistMoodAnalysis {
-  playlist_mood_category: string;
-  confidence_score: number; // 0.0 to 1.0
-}
+// REMOVED: User Playlist Mood Analysis
+// export interface UserPlaylistMoodAnalysis {
+//   playlist_mood_category: string;
+//   confidence_score: number; // 0.0 to 1.0
+// }
 
-// NEW: Unified Taste Analysis (combines SessionSemanticProfile and UserPlaylistMoodAnalysis)
+// NEW: Unified Taste Analysis (combines SessionSemanticProfile and AnalyzedPlaylistContextItem[])
 export interface UnifiedTasteAnalysis {
   overall_mood_category: string;
   overall_mood_confidence: number;
   session_semantic_profile: SessionSemanticProfile;
+  playlist_contexts: AnalyzedPlaylistContextItem[]; // NEW
 }
 
-// NEW: Gemini's raw unified response for taste analysis
+// NEW: Gemini's raw unified response for taste analysis (for two parallel calls)
 export interface UnifiedTasteGeminiResponse {
-  playlist_mood_analysis: UserPlaylistMoodAnalysis;
-  analyzed_tracks: AnalyzedTrack[];
+  analyzed_50_top_tracks: AnalyzedTopTrack[];
+  analyzed_playlist_context: AnalyzedPlaylistContextItem[];
 }
 
 export interface UserTasteProfile {
@@ -198,6 +212,8 @@ export interface VibeGenerationStats {
 // NEW: Interface for structured aggregated playlist data
 export interface AggregatedPlaylist {
   playlistName: string;
+  playlistCreator: string; // NEW
+  playlistTrackCount: number; // NEW
   tracks: string[]; // Array of "Song by Artist" strings
 }
 
