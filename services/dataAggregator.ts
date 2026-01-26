@@ -1,4 +1,5 @@
-import { AnalyzedTrack, SessionSemanticProfile, UserPlaylistMoodAnalysis, UnifiedTasteAnalysis, UnifiedTasteGeminiResponse } from '../types';
+
+import { AnalyzedTopTrack, SessionSemanticProfile, UnifiedTasteAnalysis, UnifiedTasteGeminiResponse, AnalyzedPlaylistContextItem } from '../types';
 
 const CONFIDENCE_WEIGHTS: Record<string, number> = {
   'high': 1.0,
@@ -10,8 +11,8 @@ function getWeight(confidence: string): number {
   return CONFIDENCE_WEIGHTS[confidence?.toLowerCase()] || 0.3;
 }
 
-// Renamed and now extracts SessionSemanticProfile from AnalyzedTrack[]
-const createSessionSemanticProfile = (tracks: AnalyzedTrack[]): SessionSemanticProfile => {
+// Renamed and now extracts SessionSemanticProfile from AnalyzedTopTrack[]
+const createSessionSemanticProfile = (tracks: AnalyzedTopTrack[]): SessionSemanticProfile => {
   if (!tracks || tracks.length === 0) {
     return {
       taste_profile_type: 'diverse',
@@ -166,7 +167,7 @@ const createSessionSemanticProfile = (tracks: AnalyzedTrack[]): SessionSemanticP
 
 
   // 5. TEMPO / VOCALS / TEXTURE (Weighted Majority Vote)
-  const calculateBias = (extractor: (t: AnalyzedTrack) => string | undefined): string => {
+  const calculateBias = (extractor: (t: AnalyzedTopTrack) => string | undefined): string => { // MODIFIED: input type
       const scores: Record<string, number> = {};
       let maxScore = -1;
       let bias = 'unknown';
@@ -233,15 +234,31 @@ const createSessionSemanticProfile = (tracks: AnalyzedTrack[]): SessionSemanticP
 };
 
 // NEW: Main aggregation function that takes the unified Gemini response
-export const aggregateSessionData = (unifiedGeminiResponse: UnifiedTasteGeminiResponse): UnifiedTasteAnalysis => {
-  const { playlist_mood_analysis, analyzed_tracks } = unifiedGeminiResponse;
+export const aggregateSessionData = (unifiedGeminiResponse: UnifiedTasteGeminiResponse): UnifiedTasteAnalysis => { // MODIFIED: input type
+  const { analyzed_50_top_tracks, analyzed_playlist_context } = unifiedGeminiResponse; // MODIFIED: destructure new fields
 
   // Use the helper function to get the session semantic profile
-  const sessionSemanticProfile = createSessionSemanticProfile(analyzed_tracks);
+  const sessionSemanticProfile = createSessionSemanticProfile(analyzed_50_top_tracks); // MODIFIED: use analyzed_50_top_tracks
+
+  // Placeholder logic for overall_mood_category and overall_mood_confidence
+  // as per clarification: "prioritize the mood category and confidence from the first available
+  // AnalyzedPlaylistContextItem, or a simple concatenation/average if multiple are present."
+  let overallMoodCategory: string = "Mixed Moods";
+  let overallMoodConfidence: number = 0.5;
+
+  if (analyzed_playlist_context && analyzed_playlist_context.length > 0) {
+    // Simple placeholder: take from the first playlist context
+    const firstContext = analyzed_playlist_context[0];
+    overallMoodCategory = firstContext.playlist_emotional_direction;
+    // Convert confidence from string "low"|"medium"|"high" to number for overall_mood_confidence
+    overallMoodConfidence = CONFIDENCE_WEIGHTS[firstContext.confidence?.toLowerCase()] || 0.5;
+    // Further refinement for multiple contexts will be in future versions
+  }
 
   return {
-    overall_mood_category: playlist_mood_analysis.playlist_mood_category,
-    overall_mood_confidence: playlist_mood_analysis.confidence_score,
+    overall_mood_category: overallMoodCategory, // MODIFIED
+    overall_mood_confidence: overallMoodConfidence, // MODIFIED
     session_semantic_profile: sessionSemanticProfile,
+    playlist_contexts: analyzed_playlist_context, // NEW
   };
 };
