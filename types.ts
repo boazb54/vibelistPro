@@ -174,6 +174,7 @@ export interface UnifiedTasteAnalysis {
   overall_mood_confidence: number;
   session_semantic_profile: SessionSemanticProfile;
   playlist_contexts: AnalyzedPlaylistContextItem[]; // NEW
+  analyzed_top_tracks?: AnalyzedTopTrack[]; // NEW: Added for itemized top track analysis
 }
 
 // NEW: Gemini's raw unified response for taste analysis (for two parallel calls)
