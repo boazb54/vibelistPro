@@ -56,13 +56,13 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
         {/* Content Area */}
         <div className="flex-grow overflow-y-auto custom-scrollbar pr-2">
           
-          {/* NEW: Unified Taste Analysis Results */}
+          {/* NEW: Unified Taste Analysis Results (Gemini-derived insights first) */}
           <CollapsibleSection title="Unified Taste Analysis (Gemini)">
             {userTaste?.unified_analysis ? (
               <div className="space-y-3">
                 <p><strong>Overall Mood Category:</strong> {userTaste.unified_analysis.overall_mood_category} (Confidence: {userTaste.unified_analysis.overall_mood_confidence.toFixed(2)})</p>
                 
-                <h4 className="font-semibold text-white mt-4 mb-2">Session Semantic Profile (Top 50 Tracks):</h4>
+                <h4 className="font-semibold text-white mt-4 mb-2">Session Semantic Profile (Derived):</h4>
                 <pre className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
                   {JSON.stringify(userTaste.unified_analysis.session_semantic_profile, null, 2)}
                 </pre>
@@ -70,11 +70,25 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
                 {/* NEW: Display Analyzed Playlist Context */}
                 {userTaste.unified_analysis.playlist_contexts && userTaste.unified_analysis.playlist_contexts.length > 0 && (
                     <>
-                        <h4 className="font-semibold text-white mt-4 mb-2">Analyzed Playlist Contexts:</h4>
+                        <h4 className="font-semibold text-white mt-4 mb-2">Analyzed Playlist Contexts (Itemized):</h4>
                         <div className="space-y-3">
                             {userTaste.unified_analysis.playlist_contexts.map((context: AnalyzedPlaylistContextItem, index: number) => (
                                 <pre key={index} className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
                                     {JSON.stringify(context, null, 2)}
+                                </pre>
+                            ))}
+                        </div>
+                    </>
+                )}
+
+                {/* NEW: Display Analyzed Top 50 Tracks (Itemized) */}
+                {userTaste.unified_analysis.analyzed_top_tracks && userTaste.unified_analysis.analyzed_top_tracks.length > 0 && (
+                    <>
+                        <h4 className="font-semibold text-white mt-4 mb-2">Analyzed Top 50 Tracks (Itemized):</h4>
+                        <div className="space-y-3">
+                            {userTaste.unified_analysis.analyzed_top_tracks.map((track, index) => (
+                                <pre key={index} className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
+                                    {JSON.stringify(track, null, 2)}
                                 </pre>
                             ))}
                         </div>
