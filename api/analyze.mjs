@@ -318,6 +318,8 @@ Return ONLY raw JSON matching schema:
           jsonParseDuration = t_after_json_parse - t_before_json_parse;
           // Removed redundant debug log for parsed Gemini data
           console.log("[API/ANALYZE] Successfully parsed unified taste response.");
+          // NEW LOGGING FOR QA PURPOSES
+          console.log("[API/ANALYZE] Final Aggregated Unified Taste Response:", JSON.stringify(unifiedResponse, null, 2));
 
           const t_handler_end = Date.now();
           const totalHandlerDuration = t_handler_end - t_handler_start;
