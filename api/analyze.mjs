@@ -14,8 +14,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // [DEBUG LOG][api/analyze.mjs] Point 1: Log Incoming Request Body
-  console.log("[DEBUG LOG][api/analyze.mjs] Incoming request body:", JSON.stringify(req.body, null, 2));
+  // Removed redundant debug log for incoming request body
   console.log(`[API/ANALYZE] Incoming request body size (chars): ${JSON.stringify(req.body).length}`);
 
   const API_KEY = process.env.API_KEY;
@@ -26,16 +25,20 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'API_KEY environment variable is missing from serverless function. Please ensure it is correctly configured in your deployment environment (e.g., Vercel environment variables or AI Studio settings).' });
   }
 
-  const { type, topTracks, playlists } = req.body; // MODIFIED: changed playlistTracks to playlists
+  const { type, topTracks, playlists } = req.body;
   
   console.log(`[API/ANALYZE] Incoming request type: "${type}"`);
   console.log(`[API/ANALYZE] Using GEMINI_MODEL: ${GEMINI_MODEL}`);
+
+  let promptBuildTimeMsA = 0;
+  let promptBuildTimeMsB = 0;
+  let geminiApiDurationA = 0;
+  let geminiApiDurationB = 0;
 
   try {
     const ai = new GoogleGenAI({ apiKey: API_KEY });
     console.log("[API/ANALYZE] DEBUG: GoogleGenAI client initialized.");
 
-    // --- NEW: Unified Taste Analysis ---
     if (type === 'unified_taste') {
       console.log(`[API/ANALYZE] Performing unified taste analysis for ${playlists?.length || 0} playlists and ${topTracks?.length || 0} top tracks.`);
 
@@ -122,8 +125,15 @@ Return ONLY raw JSON matching schema:
   ]
 }
 `;
+        const t_prompt_A_start = Date.now();
         const prompt_taskA = JSON.stringify({ TOP_50_TRACKS: topTracks }, null, 2);
-        const prompt_taskB = JSON.stringify({ PLAYLISTS: playlists }, null, 2); // MODIFIED: pass full playlist objects
+        const t_prompt_A_end = Date.Now();
+        promptBuildTimeMsA = t_prompt_A_end - t_prompt_A_start;
+
+        const t_prompt_B_start = Date.Now();
+        const prompt_taskB = JSON.stringify({ PLAYLISTS: playlists }, null, 2);
+        const t_prompt_B_end = Date.Now();
+        promptBuildTimeMsB = t_prompt_B_end - t_prompt_B_start;
       
         // Response schema for TASK A
         const responseSchema_taskA = {
@@ -177,7 +187,7 @@ Return ONLY raw JSON matching schema:
                   playlist_emotional_direction: { type: Type.STRING },
                   playlist_language_distribution: {
                     type: Type.OBJECT,
-                    properties: { _schema_placeholder: { type: Type.NUMBER } }, // THIS IS THE CRITICAL ADDITION
+                    properties: { _schema_placeholder: { type: Type.NUMBER } },
                     additionalProperties: { type: Type.NUMBER },
                   },
                   confidence: { type: Type.STRING },
@@ -200,25 +210,26 @@ Return ONLY raw JSON matching schema:
 
 
         console.log("[API/ANALYZE] Unified Taste Analysis Prompt A (first 500 chars):", prompt_taskA.substring(0, 500));
-        // [DEBUG LOG][api/analyze.mjs] Point 2: Log Gemini `contents` Payload (Unified Taste TASK A)
-        console.log("[DEBUG LOG][api/analyze.mjs] Gemini 'contents' for unified taste TASK A:", prompt_taskA);
+        // Removed redundant debug log for prompt contents
         console.log(`[API/ANALYZE] Gemini prompt A payload size (chars): ${prompt_taskA.length}`);
 
         console.log("[API/ANALYZE] Unified Taste Analysis Prompt B (first 500 chars):", prompt_taskB.substring(0, 500));
-        // [DEBUG LOG][api/analyze.mjs] Point 2: Log Gemini `contents` Payload (Unified Taste TASK B)
-        console.log("[DEBUG LOG][api/analyze.mjs] Gemini 'contents' for unified taste TASK B:", prompt_taskB);
+        // Removed redundant debug log for prompt contents
         console.log(`[API/ANALYZE] Gemini prompt B payload size (chars): ${prompt_taskB.length}`);
 
 
         let geminiResponseTextA = "";
         let geminiResponseTextB = "";
-        let t_gemini_api_start;
-        let t_gemini_api_end;
+        
+        let t_gemini_api_start_A;
+        let t_gemini_api_end_A;
+        let t_gemini_api_start_B;
+        let t_gemini_api_end_B;
 
         try {
-          t_gemini_api_start = Date.now();
-          const [responseA, responseB] = await Promise.all([
-            ai.models.generateContent({
+          const taskA_promise = (async () => {
+            t_gemini_api_start_A = Date.Now();
+            const response = await ai.models.generateContent({
               model: GEMINI_MODEL,
               contents: prompt_taskA,
               config: {
@@ -233,8 +244,15 @@ Return ONLY raw JSON matching schema:
                   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
                 ],
               }
-            }),
-            ai.models.generateContent({
+            });
+            t_gemini_api_end_A = Date.Now();
+            geminiApiDurationA = t_gemini_api_end_A - t_gemini_api_start_A;
+            return response;
+          })();
+
+          const taskB_promise = (async () => {
+            t_gemini_api_start_B = Date.Now();
+            const response = await ai.models.generateContent({
               model: GEMINI_MODEL,
               contents: prompt_taskB,
               config: {
@@ -249,40 +267,46 @@ Return ONLY raw JSON matching schema:
                   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
                 ],
               }
-            })
+            });
+            t_gemini_api_end_B = Date.Now();
+            geminiApiDurationB = t_gemini_api_end_B - t_gemini_api_start_B;
+            return response;
+          })();
+
+          const [responseA, responseB] = await Promise.all([
+            taskA_promise, 
+            taskB_promise
           ]);
-          t_gemini_api_end = Date.now();
+
           geminiResponseTextA = responseA.text;
           geminiResponseTextB = responseB.text;
+
         } catch (geminiError) {
-          t_gemini_api_end = Date.now(); // Ensure end time is captured even on error
           console.error("[API/ANALYZE] Error calling Gemini API for unified taste analysis (parallel):", geminiError);
           console.error(`[API/ANALYZE] Gemini Error Details (unified_taste): Name=${geminiError.name}, Message=${geminiError.message}`);
           if (geminiError.stack) {
             console.error("[API/ANALYZE] Gemini Error Stack (unified_taste):", geminiError.stack);
           }
-          const t_handler_end_gemini_error = Date.now();
+          const t_handler_end_gemini_error = Date.Now();
           const totalDuration = t_handler_end_gemini_error - t_handler_start;
-          const geminiApiDuration = t_gemini_api_end - (t_gemini_api_start || t_handler_start); // Fallback if start wasn't captured
-          console.log(`[API/ANALYZE] Handler finished (Gemini API error) in ${totalDuration}ms. Gemini API took ${geminiApiDuration}ms.`);
+          console.log(`[API/ANALYZE] Handler finished (Gemini API error) in ${totalDuration}ms. Prompt Build A=${promptBuildTimeMsA}ms, Prompt Build B=${promptBuildTimeMsB}ms. Gemini API A=${geminiApiDurationA}ms, Gemini API B=${geminiApiDurationB}ms.`);
           return res.status(500).json({ error: `Gemini API Error (unified_taste): ${geminiError.message || 'Unknown Gemini error'}`, serverErrorName: geminiError.name || 'UnknownGeminiError' });
         }
 
         console.log("[API/ANALYZE] Raw Gemini Response Text (Unified Taste A - first 500 chars):", geminiResponseTextA ? geminiResponseTextA.substring(0, 500) : "No text received.");
-        // [DEBUG LOG][api/analyze.mjs] Point 3: Log Raw Gemini Response Text (Unified Taste A)
-        console.log("[DEBUG LOG][api/analyze.mjs] Raw Gemini response text (unified taste A):", geminiResponseTextA);
+        // Removed redundant debug log for raw Gemini response
         console.log(`[API/ANALYZE] Raw Gemini response A size (chars): ${geminiResponseTextA?.length || 0}`);
         
         console.log("[API/ANALYZE] Raw Gemini Response Text (Unified Taste B - first 500 chars):", geminiResponseTextB ? geminiResponseTextB.substring(0, 500) : "No text received.");
-        // [DEBUG LOG][api/analyze.mjs] Point 3: Log Raw Gemini Response Text (Unified Taste B)
-        console.log("[DEBUG LOG][api/analyze.mjs] Raw Gemini response text (unified taste B):", geminiResponseTextB);
+        // Removed redundant debug log for raw Gemini response
         console.log(`[API/ANALYZE] Raw Gemini response B size (chars): ${geminiResponseTextB?.length || 0}`);
 
 
         let t_before_json_parse;
         let t_after_json_parse;
+        let jsonParseDuration = 0;
         try {
-          t_before_json_parse = Date.now();
+          t_before_json_parse = Date.Now();
           const parsedDataA = JSON.parse(geminiResponseTextA.replace(/```json|```/g, '').trim());
           const parsedDataB = JSON.parse(geminiResponseTextB.replace(/```json|```/g, '').trim());
 
@@ -291,18 +315,16 @@ Return ONLY raw JSON matching schema:
             analyzed_playlist_context: parsedDataB.analyzed_playlist_context,
           };
 
-          t_after_json_parse = Date.now();
-          // [DEBUG LOG][api/analyze.mjs] Point 4: Log Parsed Gemini Data (Unified Taste)
-          console.log("[DEBUG LOG][api/analyze.mjs] Parsed Gemini data (unified taste):", JSON.stringify(unifiedResponse, null, 2));
+          t_after_json_parse = Date.Now();
+          jsonParseDuration = t_after_json_parse - t_before_json_parse;
+          // Removed redundant debug log for parsed Gemini data
           console.log("[API/ANALYZE] Successfully parsed unified taste response.");
 
-          const t_handler_end = Date.now();
-          const geminiApiDuration = t_gemini_api_end - t_gemini_api_start;
-          const jsonParseDuration = t_after_json_parse - t_before_json_parse;
+          const t_handler_end = Date.Now();
           const totalHandlerDuration = t_handler_end - t_handler_start;
 
           console.log(`[API/ANALYZE] Handler finished successfully.`);
-          console.log(`[API/ANALYZE] Durations: Total=${totalHandlerDuration}ms, Gemini API=${geminiApiDuration}ms, JSON Parse=${jsonParseDuration}ms.`);
+          console.log(`[API/ANALYZE] Durations: Total=${totalHandlerDuration}ms, Prompt Build A=${promptBuildTimeMsA}ms, Prompt Build B=${promptBuildTimeMsB}ms, Gemini API A=${geminiApiDurationA}ms, Gemini API B=${geminiApiDurationB}ms, JSON Parse=${jsonParseDuration}ms.`);
           return res.status(200).json(unifiedResponse);
         } catch (parseError) {
           console.error("[API/ANALYZE] Error parsing unified taste JSON (parallel):", parseError);
@@ -313,17 +335,17 @@ Return ONLY raw JSON matching schema:
             console.error("[API/ANALYZE] Parsing Error Stack (unified_taste):", parseError.stack);
           }
 
-          const t_handler_end_parse_error = Date.now();
+          const t_handler_end_parse_error = Date.Now();
           const totalDuration = t_handler_end_parse_error - t_handler_start;
-          const geminiApiDuration = t_gemini_api_end - (t_gemini_api_start || t_handler_start);
-          const jsonParseDuration = t_after_json_parse ? (t_after_json_parse - t_before_json_parse) : 'N/A';
-          console.log(`[API/ANALYZE] Handler finished (parsing error) in ${totalDuration}ms. Gemini API took ${geminiApiDuration}ms, JSON Parse ${jsonParseDuration}ms.`);
+          // Fix: Ensure jsonParseDuration is always a number. If t_after_json_parse is not defined, it means parsing failed before calculation.
+          jsonParseDuration = (t_after_json_parse && t_before_json_parse) ? (t_after_json_parse - t_before_json_parse) : 0;
+          console.log(`[API/ANALYZE] Handler finished (parsing error) in ${totalDuration}ms. Prompt Build A=${promptBuildTimeMsA}ms, Prompt Build B=${promptBuildTimeMsB}ms, Gemini API A=${geminiApiDurationA}ms, Gemini API B=${geminiApiDurationB}ms, JSON Parse=${jsonParseDuration}ms.`);
           return res.status(500).json({ error: `Failed to parse AI response for unified taste: ${parseError.message}`, serverErrorName: parseError.name || 'UnknownParseError' });
         }
       }
 
       console.error(`[API/ANALYZE] Invalid analysis type received: "${type}"`);
-      const t_handler_end_invalid_type = Date.now();
+      const t_handler_end_invalid_type = Date.Now();
       console.log(`[API/ANALYZE] Handler finished (invalid type error) in ${t_handler_end_invalid_type - t_handler_start}ms.`);
       return res.status(400).json({ error: 'Invalid analysis type' });
     } catch (error) {
@@ -333,7 +355,7 @@ Return ONLY raw JSON matching schema:
       console.error("[API/ANALYZE] Uncaught Error Stack:", error.stack);
     }
 
-    const t_handler_end_uncaught_error = Date.now();
+    const t_handler_end_uncaught_error = Date.Now();
     console.log(`[API/ANALYZE] Handler finished (uncaught error) in ${t_handler_end_uncaught_error - t_handler_start}ms.`);
     return res.status(500).json({ error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' });
   }
