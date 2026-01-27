@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -223,17 +222,40 @@ const App: React.FC = () => {
       addLog(`Failed to fetch Spotify profile: ${e instanceof Error ? e.message : String(e)}`);
       console.error("Failed to fetch profile", e);
       await storageService.removeItem('spotify_token');
+      await storageService.removeItem('spotify_refresh_token'); // Clear refresh token as well
+      await storageService.removeItem('user_unified_analysis'); // Clear cached taste profile
+      await storageService.removeItem('user_taste_analyzed_at'); // Clear cached taste profile timestamp
       setSpotifyToken(null);
+      setUserTaste(null); // Clear taste profile from state
     }
   };
 
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
+          addLog("[Client-side Taste Cache] Attempting to load unified analysis from local storage...");
+          const cachedUnifiedAnalysis = await storageService.getItem('user_unified_analysis');
+          const cachedLastAnalyzedAt = await storageService.getItem('user_taste_analyzed_at');
+
+          if (cachedUnifiedAnalysis && cachedLastAnalyzedAt) {
+              const parsedAnalysis: UnifiedTasteAnalysis = JSON.parse(cachedUnifiedAnalysis);
+              const loadedTaste: UserTasteProfile = {
+                  topArtists: [], // These are not stored in unified_analysis
+                  topGenres: [],  // These are not stored in unified_analysis
+                  topTracks: [],  // These are not stored in unified_analysis
+                  unified_analysis: parsedAnalysis,
+                  last_analyzed_at: cachedLastAnalyzedAt,
+              };
+              setUserTaste(loadedTaste);
+              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+              addLog("[Client-side Taste Cache] Unified analysis loaded from local storage. Skipping Gemini API call.");
+              return; // Exit early as we have cached data
+          }
+
           addLog("[Wave 1: Spotify Data Acquisition] Initiating concurrent data acquisition...");
           
           const [tasteResult, playlistsResult] = await Promise.allSettled([
             fetchUserTasteProfile(token),
-            fetchUserPlaylistsAndTracks(token, profile.id) // MODIFIED: Pass profile.id
+            fetchUserPlaylistsAndTracks(token, profile.id)
           ]);
 
           let taste: UserTasteProfile | null = null;
@@ -252,18 +274,15 @@ const App: React.FC = () => {
 
           if (!taste || (taste.topTracks.length === 0 && aggregatedPlaylists.length === 0)) {
              addLog("[Wave 1: Spotify] No meaningful taste data available for AI analysis. Saving profile without analysis.");
-             saveUserProfile(profile, null);
+             saveUserProfile(profile, null); // Only save profile to DB
              setUserTaste(null);
              return;
           }
 
           addLog("[Wave 2: Gemini] Initiating unified AI taste analysis...");
-          // Removed rawAggregatedPlaylistTracks as analyzeFullTasteProfile now takes AggregatedPlaylist[]
-          // const rawAggregatedPlaylistTracks = aggregatedPlaylists.flatMap(p => p.tracks);
-
-          if (taste.topTracks.length > 0 || aggregatedPlaylists.length > 0) { // MODIFIED: Check aggregatedPlaylists length
+          
+          if (taste.topTracks.length > 0 || aggregatedPlaylists.length > 0) {
             try {
-              // MODIFIED: Pass aggregatedPlaylists (full objects) to analyzeFullTasteProfile
               const unifiedGeminiResponse: UnifiedTasteGeminiResponse | { error: string } = await analyzeFullTasteProfile(aggregatedPlaylists, taste.topTracks);
               
               if ('error' in unifiedGeminiResponse) {
@@ -272,25 +291,32 @@ const App: React.FC = () => {
 
               addLog(`[Wave 2: Gemini] Unified Taste Analysis successful. Processing session fingerprint...`);
               const unifiedAnalysis: UnifiedTasteAnalysis = aggregateSessionData(unifiedGeminiResponse);
+              const currentTimestamp = new Date().toISOString();
               
               const enhancedTaste: UserTasteProfile = {
                   ...taste,
-                  unified_analysis: unifiedAnalysis
+                  unified_analysis: unifiedAnalysis,
+                  last_analyzed_at: currentTimestamp, // Store the timestamp
               };
+
+              // Persist to client-side storage
+              await storageService.setItem('user_unified_analysis', JSON.stringify(unifiedAnalysis));
+              await storageService.setItem('user_taste_analyzed_at', currentTimestamp);
+              addLog("[Client-side Taste Cache] Unified analysis saved to local storage.");
 
               addLog(">>> UNIFIED SESSION SEMANTIC PROFILE GENERATED <<<");
               setUserTaste(enhancedTaste);
-              saveUserProfile(profile, enhancedTaste);
+              saveUserProfile(profile, null); // Only save profile to DB, not taste data
             } catch (geminiError: any) {
               addLog(`[Wave 2: Gemini] Unified Taste Analysis failed: ${geminiError.message || 'Unknown error'}`);
               console.warn("Unified Gemini analysis failed", geminiError);
               setUserTaste(taste);
-              saveUserProfile(profile, taste);
+              saveUserProfile(profile, null); // Only save profile to DB, not taste data
             }
           } else {
             addLog("[Wave 2: Gemini] Skipping unified analysis: No track or playlist data available.");
             setUserTaste(taste);
-            saveUserProfile(profile, taste);
+            saveUserProfile(profile, null); // Only save profile to DB, not taste data
           }
 
           addLog(">>> ALL PROFILE DATA REFRESH COMPLETE <<<");
@@ -298,7 +324,7 @@ const App: React.FC = () => {
       } catch (e: any) {
           console.warn("Could not perform parallel profile/taste refresh", e);
           addLog(`Critical Error during Profile Refresh: ${e.message || e}`);
-          saveUserProfile(profile, null);
+          saveUserProfile(profile, null); // Only save profile to DB, not taste data
           setUserTaste(null);
       }
   };
@@ -344,10 +370,12 @@ const App: React.FC = () => {
     setUserTaste(null);
     await storageService.removeItem('spotify_token');
     await storageService.removeItem('spotify_refresh_token');
+    await storageService.removeItem('user_unified_analysis'); // Clear cached taste profile
+    await storageService.removeItem('user_taste_analyzed_at'); // Clear cached taste profile timestamp
     setShowSettings(false);
     isProcessingAuth.current = false;
     handleReset();
-    addLog("User signed out.");
+    addLog("User signed out. Client-side taste profile cleared.");
   };
 
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
