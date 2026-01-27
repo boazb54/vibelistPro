@@ -1,4 +1,5 @@
 
+
 import { AnalyzedTopTrack, SessionSemanticProfile, UnifiedTasteAnalysis, UnifiedTasteGeminiResponse, AnalyzedPlaylistContextItem } from '../types';
 
 const CONFIDENCE_WEIGHTS: Record<string, number> = {
@@ -260,5 +261,6 @@ export const aggregateSessionData = (unifiedGeminiResponse: UnifiedTasteGeminiRe
     overall_mood_confidence: overallMoodConfidence, // MODIFIED
     session_semantic_profile: sessionSemanticProfile,
     playlist_contexts: analyzed_playlist_context, // NEW
+    analyzed_top_tracks: analyzed_50_top_tracks, // NEW: Populate the analyzed top tracks
   };
 };
