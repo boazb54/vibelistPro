@@ -188,6 +188,7 @@ export interface UserTasteProfile {
   topGenres: string[];
   topTracks: string[]; // RESTORED: For Gemini Analysis
   unified_analysis?: UnifiedTasteAnalysis; // NEW: Replaces session_analysis and playlistMoodAnalysis
+  last_analyzed_at?: string; // NEW: Timestamp of when unified_analysis was last performed
 }
 
 export interface VibeGenerationStats {
