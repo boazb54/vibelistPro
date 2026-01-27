@@ -691,7 +691,7 @@ Return ONLY raw JSON matching schema:
                 playlist_emotional_direction: { type: Type.STRING },
                 playlist_language_distribution: {
                   type: Type.OBJECT,
-                  properties: {}, // THIS IS THE CRITICAL ADDITION
+                  properties: { _schema_placeholder: { type: Type.NUMBER } }, // THIS IS THE CRITICAL ADDITION
                   additionalProperties: { type: Type.NUMBER },
                 },
                 confidence: { type: Type.STRING },
