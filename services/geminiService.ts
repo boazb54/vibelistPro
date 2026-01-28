@@ -253,7 +253,7 @@ Reason: Random characters with no semantic meaning or emotional context.
 Reason: Symbols only, no words or interpretable intent related to music or a vibe.
 
 3)User input: qweoiu zmxn
-Reason: Keyboard mashing / invented strings that do not describe a mood, moment, or situation.
+Reason: Keyboard bashing / invented strings that do not describe a mood, moment, or situation.
 
 2) VIBE_INVALID_OFF_TOPIC:
 - coherent text but not a vibe request, e.g.:
@@ -691,7 +691,7 @@ Return ONLY raw JSON matching schema:
                 playlist_emotional_direction: { type: Type.STRING },
                 playlist_language_distribution: {
                   type: Type.OBJECT,
-                  properties: { _schema_placeholder: { type: Type.NUMBER } }, // THIS IS THE CRITICAL ADDITION
+                  // Removed 'properties: { _schema_placeholder: { type: Type.NUMBER } }'
                   additionalProperties: { type: Type.NUMBER },
                 },
                 confidence: { type: Type.STRING },
