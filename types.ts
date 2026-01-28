@@ -1,5 +1,3 @@
-
-
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -34,7 +32,7 @@ export interface AnalyzedPlaylistContextItem {
   playlist_track_count: number;
   playlist_primary_function: "focus" | "workout" | "relax" | "sleep" | "commute" | "study" | "party" | "background" | "other";
   playlist_emotional_direction: "calming" | "energizing" | "uplifting" | "melancholic" | "romantic" | "dark" | "nostalgic" | "other";
-  playlist_language_distribution: Record<string, number>;
+  playlist_language_distribution: Array<{ language: string; percentage: number; }>; // MODIFIED: Changed to array of objects
   confidence: "low" | "medium" | "high";
 }
 
@@ -231,12 +229,12 @@ export interface AdminDataInspectorProps {
 // V1.2.0: Vibe Validation Gate Types
 export type VibeValidationStatus = 'VIBE_VALID' | 'VIBE_INVALID_GIBBERISH' | 'VIBE_INVALID_OFF_TOPIC';
 
+// NEW: Interface for the validation response object
 export interface VibeValidationResponse {
   validation_status: VibeValidationStatus;
   reason: string;
 }
 
-// NEW: Unified response from generatePlaylistFromMood, combining validation, teaser, and full playlist data
 export interface UnifiedVibeResponse {
   validation_status: VibeValidationStatus;
   reason: string;
