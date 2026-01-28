@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -283,7 +284,7 @@ Return ONLY raw JSON matching schema:
                   playlist_emotional_direction: { type: Type.STRING },
                   playlist_language_distribution: {
                     type: Type.OBJECT,
-                    properties: { _schema_placeholder: { type: Type.NUMBER } },
+                    // Removed 'properties: { _schema_placeholder: { type: Type.NUMBER } }', as per solution
                     additionalProperties: { type: Type.NUMBER },
                   },
                   confidence: { type: Type.STRING },
