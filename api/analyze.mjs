@@ -49,6 +49,8 @@ Your job is to infer musical attributes such as semantic tags, by analyzing song
 For each individual song from the "top 50 tracks" list, generate detailed semantic tags, along with a confidence score.
 
 ## OUTPUT FORMAT:
+##RULES:
+Use ISO-639-1 language codes (e.g. en, he, es).
 Return ONLY raw JSON matching schema:
 { 
  "analyzed_50_top_tracks": [
@@ -204,9 +206,7 @@ Return ONLY raw JSON matching schema:
       "playlist_track_count": <number>,
       "playlist_primary_function": "focus | workout | relax | sleep | commute | study | party | background | other",
       "playlist_emotional_direction": "calming | energizing | uplifting | melancholic | romantic | dark | nostalgic | neutral | other",
-      "playlist_language_distribution": {
-        "<iso_639_1>": <number>
-      },
+      "playlist_language_distribution": {"Language1","Language2"},
       "confidence": "low | medium | high"
     }
   ]
