@@ -348,6 +348,7 @@ RULES:
                     thinkingConfig: { thinkingBudget: 0 }
                 }
             });
+            // Fix: Use the correct interface for validationData
             const validationData: VibeValidationResponse = JSON.parse(validationResponse.text);
             const validation_t_api_end = performance.now();
 
@@ -628,7 +629,7 @@ Return ONLY raw JSON matching schema:
       "playlist_track_count": 0,
       "playlist_primary_function": "focus" | "workout" | "relax" | "sleep" | "commute" | "study" | "party" | "background" | "other",
       "playlist_emotional_direction": "calming" | "energizing" | "uplifting" | "melancholic" | "romantic" | "dark" | "nostalgic" | "other",
-      "playlist_language_distribution": { "<iso_639_1>": 0.0 },
+      "playlist_language_distribution": [{"language": "<iso_639_1>", "percentage": 0.0}],
       "confidence": "low" | "medium" | "high"
     }
   ]
@@ -688,11 +689,16 @@ Return ONLY raw JSON matching schema:
                 playlist_track_count: { type: Type.NUMBER },
                 playlist_primary_function: { type: Type.STRING },
                 playlist_emotional_direction: { type: Type.STRING },
-                playlist_language_distribution: {
-                  type: Type.OBJECT,
-                  // Reinstating a placeholder to satisfy the non-empty properties requirement.
-                  properties: { _schema_placeholder: { type: Type.NUMBER } }, 
-                  additionalProperties: { type: Type.NUMBER },
+                playlist_language_distribution: { // MODIFIED: Changed to array of objects
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      language: { type: Type.STRING },
+                      percentage: { type: Type.NUMBER },
+                    },
+                    required: ["language", "percentage"],
+                  },
                 },
                 confidence: { type: Type.STRING },
               },
