@@ -1,5 +1,4 @@
 
-
 import { AnalyzedTopTrack, SessionSemanticProfile, UnifiedTasteAnalysis, UnifiedTasteGeminiResponse, AnalyzedPlaylistContextItem } from '../types';
 
 const CONFIDENCE_WEIGHTS: Record<string, number> = {
@@ -13,8 +12,12 @@ function getWeight(confidence: string): number {
 }
 
 // Renamed and now extracts SessionSemanticProfile from AnalyzedTopTrack[]
-const createSessionSemanticProfile = (tracks: AnalyzedTopTrack[]): SessionSemanticProfile => {
-  if (!tracks || tracks.length === 0) {
+const createSessionSemanticProfile = (
+  tracks: AnalyzedTopTrack[],
+  playlists: AnalyzedPlaylistContextItem[] // NEW: Accept AnalyzedPlaylistContextItem[]
+): SessionSemanticProfile => {
+  // If no tracks and no playlists, return a default empty profile
+  if ((!tracks || tracks.length === 0) && (!playlists || playlists.length === 0)) {
     return {
       taste_profile_type: 'diverse',
       dominant_genres: [],
@@ -25,7 +28,7 @@ const createSessionSemanticProfile = (tracks: AnalyzedTopTrack[]): SessionSemant
       vocals_bias: 'unknown',
       texture_bias: 'unknown',
       artist_examples: [],
-      language_distribution: {}, // Default empty for no tracks
+      language_distribution: {},
     };
   }
   
@@ -193,28 +196,44 @@ const createSessionSemanticProfile = (tracks: AnalyzedTopTrack[]): SessionSemant
   const vocalsBias = calculateBias(t => t.semantic_tags.vocals);
   const textureBias = calculateBias(t => t.semantic_tags.texture);
 
-  // 6. LANGUAGE AGGREGATION (NEW)
+  // 6. LANGUAGE AGGREGATION (NEW & MODIFIED to include playlists)
   const languageCounts: Record<string, number> = {};
-  let totalLanguageScore = 0; // Use 'score' for weighted sum
+  let totalLanguageScore = 0;
 
+  // Aggregate from AnalyzedTopTrack (existing logic)
   tracks.forEach(track => {
-    const w = getWeight(track.confidence); // Apply confidence weight
+    const w = getWeight(track.confidence);
     if (track.semantic_tags.language && Array.isArray(track.semantic_tags.language)) {
       track.semantic_tags.language.forEach(lang => {
-        const normalizedLang = lang.toLowerCase().trim(); // Normalize language string (e.g., 'en', 'he')
+        const normalizedLang = lang.toLowerCase().trim();
         if (normalizedLang) {
           languageCounts[normalizedLang] = (languageCounts[normalizedLang] || 0) + w;
-          totalLanguageScore += w; // Accumulate total weighted score
+          totalLanguageScore += w;
+        }
+      });
+    }
+  });
+
+  // Aggregate from AnalyzedPlaylistContextItem (NEW logic)
+  playlists.forEach(playlistContext => {
+    const w = getWeight(playlistContext.confidence); // Use playlist context confidence
+    if (playlistContext.playlist_language_distribution && Array.isArray(playlistContext.playlist_language_distribution)) {
+      playlistContext.playlist_language_distribution.forEach(langItem => {
+        const normalizedLang = langItem.language.toLowerCase().trim();
+        // Weight the percentage by the playlist's confidence
+        const weightedPercentage = langItem.percentage * w; 
+        if (normalizedLang) {
+          languageCounts[normalizedLang] = (languageCounts[normalizedLang] || 0) + weightedPercentage;
+          totalLanguageScore += weightedPercentage;
         }
       });
     }
   });
 
   const languageDistribution: Record<string, number> = {};
-  // Calculate percentages
   Object.entries(languageCounts).forEach(([lang, score]) => {
     if (totalLanguageScore > 0) {
-      languageDistribution[lang] = Number((score / totalLanguageScore).toFixed(2)); // Round to two decimal places
+      languageDistribution[lang] = Number((score / totalLanguageScore).toFixed(2));
     } else {
       languageDistribution[lang] = 0;
     }
@@ -230,7 +249,7 @@ const createSessionSemanticProfile = (tracks: AnalyzedTopTrack[]): SessionSemant
       vocals_bias: vocalsBias,
       texture_bias: textureBias,
       artist_examples: topArtists,
-      language_distribution: languageDistribution, // NEW: Add to the returned profile
+      language_distribution: languageDistribution,
   };
 };
 
@@ -239,7 +258,8 @@ export const aggregateSessionData = (unifiedGeminiResponse: UnifiedTasteGeminiRe
   const { analyzed_50_top_tracks, analyzed_playlist_context } = unifiedGeminiResponse; // MODIFIED: destructure new fields
 
   // Use the helper function to get the session semantic profile
-  const sessionSemanticProfile = createSessionSemanticProfile(analyzed_50_top_tracks); // MODIFIED: use analyzed_50_top_tracks
+  // MODIFIED: Pass both analyzed_50_top_tracks and analyzed_playlist_context to createSessionSemanticProfile
+  const sessionSemanticProfile = createSessionSemanticProfile(analyzed_50_top_tracks, analyzed_playlist_context);
 
   // Placeholder logic for overall_mood_category and overall_mood_confidence
   // as per clarification: "prioritize the mood category and confidence from the first available
