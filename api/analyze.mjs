@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -227,6 +226,7 @@ Return ONLY raw JSON matching schema:
         const t_prompt_A_end = Date.now();
         promptBuildTimeMsA = t_prompt_A_end - t_prompt_A_start;
 
+        // Fix: Changed Date.Now() to Date.now()
         const t_prompt_B_start = Date.now();
         const prompt_taskB = JSON.stringify({ PLAYLISTS: playlists }, null, 2);
         const t_prompt_B_end = Date.now();
@@ -284,7 +284,8 @@ Return ONLY raw JSON matching schema:
                   playlist_emotional_direction: { type: Type.STRING },
                   playlist_language_distribution: {
                     type: Type.OBJECT,
-                    // Removed 'properties: { _schema_placeholder: { type: Type.NUMBER } }', as per solution
+                    // Reinstating a placeholder to satisfy the non-empty properties requirement.
+                    properties: { _schema_placeholder: { type: Type.NUMBER } }, 
                     additionalProperties: { type: Type.NUMBER },
                   },
                   confidence: { type: Type.STRING },
