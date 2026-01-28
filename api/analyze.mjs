@@ -119,7 +119,6 @@ Rules:
 Never force a function if signals are unclear.
 ────────────────────────────────
 2) playlist_emotional_direction
-
 Choose the dominant emotional direction of the playlist.
 
 Allowed values:
@@ -139,8 +138,20 @@ Rules:
 - Use other only if no category reasonably fits.
 
 ────────────────────────────────
+### PLAYLIST NAME BIAS CONTROL (CRITICAL)
+The playlist_name is NOT the emotional label. It is only a weak hint.
+RULES:
+1) Track-derived signals MUST override playlist_name keywords.
+2) Do NOT classify "playlist_emotional_direction" from name words like: love, sad, happy, chill, party, focus, workout.
+3) If playlist_name suggests an emotion/function but the tracks disagree, choose the track-based emotion/function and LOWER confidence by one level.
+4) Only use playlist_name as a tiebreaker when track signals are genuinely ambiguous.
+────────────────────────────────
+PLAYLIST NAME INTERPRETATION RULE:
+If a playlist_name expresses personal attachment (e.g. "Loved once", "My favorites", "All time classics"),
+treat it as an indicator of playlist importance, NOT emotional direction.
+Do NOT infer romantic, nostalgic, or calming emotions unless supported by track-level signals
 3) playlist_language_distribution
-
+────────────────────────────────
 Estimate the language balance of the playlist.
 
 Rules:
@@ -153,7 +164,6 @@ Examples:
 {"he": 0.8, "en": 0.2}
 ────────────────────────────────
 4) confidence
-
 Indicate overall confidence in your classification.
 
 Allowed values:
@@ -172,7 +182,6 @@ NEVER output high confidence if:
 - The inference relies mainly on assumptions
 
 ────────────────────────────────
-
 GENERAL GUIDELINES
 
 - Do NOT overfit to popular artists or genres.
