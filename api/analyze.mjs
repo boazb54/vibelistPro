@@ -155,13 +155,14 @@ Do NOT infer romantic, nostalgic, or calming emotions unless supported by track-
 Estimate the language balance of the playlist.
 
 Rules:
-- Use ISO-639-1 language codes (e.g. en, he, es).
-- Values should approximately sum to 1.0.
-- If one language dominates, use 1.0.
+- Output as an ARRAY of objects.
+- Each object MUST have "language" (ISO-639-1 code, e.g., "en", "he", "es") and "percentage" (number, 0.0 to 1.0).
+- Percentages in the array should approximately sum to 1.0.
+- If one language dominates, use 1.0 for it.
 
 Examples:
-{"en": 1.0}
-{"he": 0.8, "en": 0.2}
+[{"language": "en", "percentage": 1.0}]
+[{"language": "he", "percentage": 0.8}, {"language": "en", "percentage": 0.2}]
 ────────────────────────────────
 4) confidence
 Indicate overall confidence in your classification.
@@ -215,7 +216,7 @@ Return ONLY raw JSON matching schema:
       "playlist_track_count": <number>,
       "playlist_primary_function": "focus | workout | relax | sleep | commute | study | party | background | other",
       "playlist_emotional_direction": "calming | energizing | uplifting | melancholic | romantic | dark | nostalgic | neutral | other",
-      "playlist_language_distribution": {"Language1","Language2"},
+      "playlist_language_distribution": [{"language": "<iso_639_1>", "percentage": 0.0}],
       "confidence": "low | medium | high"
     }
   ]
@@ -282,11 +283,16 @@ Return ONLY raw JSON matching schema:
                   playlist_track_count: { type: Type.NUMBER },
                   playlist_primary_function: { type: Type.STRING },
                   playlist_emotional_direction: { type: Type.STRING },
-                  playlist_language_distribution: {
-                    type: Type.OBJECT,
-                    // Reinstating a placeholder to satisfy the non-empty properties requirement.
-                    properties: { _schema_placeholder: { type: Type.NUMBER } }, 
-                    additionalProperties: { type: Type.NUMBER },
+                  playlist_language_distribution: { // MODIFIED: Changed to array of objects
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        language: { type: Type.STRING },
+                        percentage: { type: Type.NUMBER },
+                      },
+                      required: ["language", "percentage"],
+                    },
                   },
                   confidence: { type: Type.STRING },
                 },
@@ -435,6 +441,7 @@ Return ONLY raw JSON matching schema:
             console.error("[API/ANALYZE] Parsing Error Stack (unified_taste):", parseError.stack);
           }
 
+          // Fix: Changed Date.Now() to Date.now()
           const t_handler_end_parse_error = Date.now();
           const totalDuration = t_handler_end_parse_error - t_handler_start;
           // Fix: Ensure jsonParseDuration is always a number. If t_after_json_parse is not defined, it means parsing failed before calculation.
@@ -445,6 +452,7 @@ Return ONLY raw JSON matching schema:
       }
 
       console.error(`[API/ANALYZE] Invalid analysis type received: "${type}"`);
+      // Fix: Changed Date.Now() to Date.now()
       const t_handler_end_invalid_type = Date.now();
       console.log(`[API/ANALYZE] Handler finished (invalid type error) in ${t_handler_end_invalid_type - t_handler_start}ms.`);
       return res.status(400).json({ error: 'Invalid analysis type' });
@@ -455,6 +463,7 @@ Return ONLY raw JSON matching schema:
       console.error("[API/ANALYZE] Uncaught Error Stack:", error.stack);
     }
 
+    // Fix: Changed Date.Now() to Date.now()
     const t_handler_end_uncaught_error = Date.now();
     console.log(`[API/ANALYZE] Handler finished (uncaught error) in ${t_handler_end_uncaught_error - t_handler_start}ms.`);
     return res.status(500).json({ error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' });
