@@ -1,4 +1,3 @@
-
 import { 
   GeneratedPlaylistRaw, AnalyzedTopTrack, ContextualSignals, UserTasteProfile, GeneratedTeaserRaw, VibeValidationResponse, UnifiedVibeResponse, GeminiResponseMetrics,
   UnifiedTasteAnalysis,
@@ -691,7 +690,8 @@ Return ONLY raw JSON matching schema:
                 playlist_emotional_direction: { type: Type.STRING },
                 playlist_language_distribution: {
                   type: Type.OBJECT,
-                  // Removed 'properties: { _schema_placeholder: { type: Type.NUMBER } }'
+                  // Reinstating a placeholder to satisfy the non-empty properties requirement.
+                  properties: { _schema_placeholder: { type: Type.NUMBER } }, 
                   additionalProperties: { type: Type.NUMBER },
                 },
                 confidence: { type: Type.STRING },
