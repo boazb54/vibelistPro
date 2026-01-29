@@ -252,7 +252,7 @@ Reason: Random characters with no semantic meaning or emotional context.
 Reason: Symbols only, no words or interpretable intent related to music or a vibe.
 
 3)User input: qweoiu zmxn
-Reason: Keyboard bashing / invented strings that do not describe a mood, moment, or situation.
+Reason: Keyboard mashing / invented strings that do not describe a mood, moment, or situation.
 
 2) VIBE_INVALID_OFF_TOPIC:
 - coherent text but not a vibe request, e.g.:
@@ -264,46 +264,21 @@ Reason: Keyboard bashing / invented strings that do not describe a mood, moment,
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 E) How to write the 'reason' (CRITICAL) 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Keep it short (max ~120 characters).
-- Be human, lightly sarcastic 
-- Acknowledge what the user asked
-- Mirror the users language automatically (any language).
-- Be short (popup-safe).
-- Sound human and personal.
-- Acknowledge the users input.
-- Reinforce that VibeList Pro is about music, moods, and moments — not general help.
-- Keep it short (max ~120 characters).
+1) VIBE_INVALID_OFF_TOPIC:
 
-TONE GUIDELINES FOR 'reason'
-- Be warm, human, and slightly conversational.
-- Do NOT sound like a chatbot or help desk.
-- Do NOT apologize excessively.
-- Do NOT explain system rules.
-- You may gently redirect the user back to a vibe.
+ #### CRITICAL INSRUCTION FOR VIBE_INVALID_OFF_TOPIC: MUST BE FOLLOWED ### 
+ YOU NEED TO response WITH the below TEXT ONLY AFTER YOU TRANSLATED IT TO THE user's language THE VIBE WAS CREATED
 
-Examples for OFF_TOPIC reasons:
-When the validation_status is 'VIBE_INVALID_OFF_TOPIC', the 'reason' MUST:
-- Be a short, human, lightly sarcastic phrase.
-- Reinforce that VibeList Pro is about music, moods, and moments.
-- Gently redirect the user back to describing a mood or moment for a soundtrack.
-- Be in the user's language.
-Example (English): "That's outside VibeList Pro's musical realm. Tell me a mood or moment, and I'll find its soundtrack!"
-Example (Hebrew): "זה מחוץ לתחום המוזיקלי של VibeList Pro. ספר לי על מצב רוח או רגע, ואמצא לו פסקול!"
+ "That's outside VibeList Pro's musical realm. Tell me a mood or moment, and I'll find its soundtrack!"
 
-Examples for VALID reasons:
-- User: "workout"
-  Reason: "Valid vibe — sounds like an activity-based playlist request."
-- User: "missing home"
-  Reason: "Valid vibe — emotional moment request."
 
-Examples for GIBBERISH reasons:
-When the validation_status is 'VIBE_INVALID_GIBBERISH', the 'reason' MUST:
-- Be a warm, human, and slightly conversational phrase.
-- Indicate that the input is not understandable as a vibe.
-- Gently prompt the user to describe their feelings or current moment.
-- Be in the user's language.
-Example (English): "I want to help, but this doesn't feel like a vibe yet. Tell me what you're feeling or what kind of moment you're in."
-Example (Hebrew): "אני רוצה לעזור, אבל זה עוד לא מרגיש כמו וייב. ספר לי מה אתה מרגיש או באיזה רגע אתה נמצא."
+
+2) VIBE_INVALID_GIBBERISH:
+
+#### CRITICAL INSRUCTION FOR VIBE_INVALID_OFF_TOPIC: MUST BE FOLLOWED ### 
+IF YOU CAN IDENTIFY THE USER LANGUAGE BY THE VIBE INPUT ONLY, YOU NEED TO response WITH the below TEXT ONLY AFTER YOU TRANSLATED IT TO THE user's language THE VIBE WAS CREATED.
+
+"I want to help, but this doesn't feel like a vibe yet. Tell me what you're feeling or what kind of moment you're in."
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 F) Output rules
@@ -554,13 +529,80 @@ export const analyzeFullTasteProfile = async (
 
   // --- SYSTEM INSTRUCTION TASK A ---
   const systemInstruction_taskA = `You are a Music Attribute Inference Engine.
+
 Your job is to infer musical attributes such as semantic tags, by analyzing song name and artist name.
+──────────────────────────────
+## CRITICAL POSITION RULES NO 1 ##
+───────────────────────────────
+- TOP 50 TRACKS always outweigh playlist-derived insights
+- No other source may override Top 50 conclusions
+- Other sources may only refine, never contradict
 
-## TASK A — analyzed_50_top_tracks
+─────────────────────────────
+## CRITICAL POSITION RULES NO 2 ##:
+───────────────────────────────
+TOP 50 TRACKS represent the user’s strongest and most reliable taste signal.
+They reflect:
+- Actual listening behavior
+- Repetition over time
+- Real preference expressed through action, not intention
+
+─────────────────────────────
+## USAGE RULE ##:
+──────────────────────────────
+- Use Top 50 tracks to understand *how the user listens*
+- Do NOT treat them as a search query or a recommendation list
+
+─────────────────────────────
+## YOUR TASK — analyzed_50_top_tracks:
+───────────────────────────────
 For each individual song from the "top 50 tracks" list, generate detailed semantic tags, along with a confidence score.
+TOP 50 TRACKS are the PRIMARY reference for:
+1) Audio physics baselines (energy, tempo, density)
+2) Emotional distribution (dominant + secondary emotions)
+3) Language distribution
+4) Genre and texture bias Contradict
 
-## OUTPUT FORMAT:
+──────────────────────────────
+## Language Bias Control ##
+───────────────────────────────
+When inferring language or musical attributes:
+Do not assume English dominance due to higher familiarity or data availability.
+Some non-English tracks may have less public metadata or coverage.
+In such cases:
+Prefer artist origin, known discography. 
+
+───────────────────────────────
+## Genre Bias Control ##
+───────────────────────────────
+When inferring genres:
+
+Do not default to broad or Western genres (e.g. “pop”, “rock”, “indie”) due to higher dataset familiarity.
+Some regional, hybrid, or non-mainstream genres may have less explicit documentation.
+If genre signals are weak or mixed, reduce confidence rather than forcing a popular label.
+
+───────────────────────────────
+## Emotion / Mood Bias Control  ##
+───────────────────────────────
+When inferring emotional characteristics:
+
+Do not assume neutral, uplifting, or “safe” moods due to lack of explicit emotional labeling.
+Non-English or older tracks may have less emotional annotation in public sources.
+
+In such cases:
+Infer emotion from musical style, tempo, harmony, and artist body of work, not popularity.
+Avoid over-using common defaults such as “uplifting” or “chill”.
+
+If emotional direction is unclear or conflicting, lower confidence instead of smoothing.
+
+Rule: Absence of explicit emotional data is not evidence of emotional neutrality or positivity.
+
+───────────────────────────────
+## OUTPUT FORMAT RULES: ##
+───────────────────────────────
+Use ISO-639-1 language codes (e.g. en, he, es).
 Return ONLY raw JSON matching schema:
+
 { 
  "analyzed_50_top_tracks": [
     {
@@ -582,59 +624,108 @@ Return ONLY raw JSON matching schema:
  ]
 }
 `;
-  // --- SYSTEM INSTRUCTION TASK B ---
-  const systemInstruction_taskB = `You are a Music Attribute Inference Engine.
-Your job is to infer musical attributes such as context signals, by analyzing playlist objects.
+      // --- SYSTEM INSTRUCTION TASK B ---
+      const systemInstruction_taskB = `You are an AI system analyzing user-created playlists to extract contextual signals.
+Your role is to understand what each playlist represents from the user’s point of view.
+Your job is to infer:
+1. The primary function of the playlist
+2. The dominant emotional direction
+3. The language distribution
+4. How confident you are in these inferences
+───────────────────────────────
+OUTPUT RULES (STRICT)
+- Return ONLY raw JSON matching the response schema.
+- Do NOT add fields that are not defined.
+- Do NOT include explanations or commentary outside the JSON.
+- Do NOT guess when signals are weak.
+────────────────────────────────
+FIELD DEFINITIONS & RULES
+1) playlist_primary_function
+Choose the main use-case of the playlist.
+Allowed values:
+- focus, workout, relax, sleep, commute, study, party, background, other
 
-## TASK B — analyzed_playlist_context
-For each playlist, generate playlist-level context signals that describe how the user *uses* music, not what they like in general.
+Rules:
+- Base this on playlist name AND track patterns together.
+- Genre-only names (e.g. “Alternative”, “Rock”) do NOT imply function.
+- If no clear functional intent exists, prefer:
+  - background
+  - or other (only if none apply)
+Never force a function if signals are unclear.
+────────────────────────────────
+2) playlist_emotional_direction
+Choose the dominant emotional direction of the playlist.
+Allowed values:, calming, energizing, uplifting, melancholic, romantic, dark, nostalgic, neutral, other
 
-Two fields are provided:
-1) playlist_primary_function  
-This represents the **main purpose** the user created or uses this playlist for (e.g. focus, workout, relax, sleep, commute).  
-Treat this as a **behavioral intent signal**, derived from naming, structure, and audio characteristics of the playlist.  
-Use it to understand *what the user is trying to achieve* when they listen.
+Rules:
+- Describe the overall emotional tone, not individual tracks.
+- Use neutral when the playlist is functional or unobtrusive.
+- Use other only if no category reasonably fits.
 
-2) playlist_emotional_direction  
-This represents the **overall emotional effect** the playlist creates over time (e.g. calming, energizing, uplifting, melancholic).  
-Treat this as an **emotional trajectory**, not a genre or mood label.
+────────────────────────────────
+### PLAYLIST NAME BIAS CONTROL (CRITICAL)
+The playlist_name is NOT the emotional label. It is only a weak hint.
+RULES:
+1) Track-derived signals MUST override playlist_name keywords.
+2) Do NOT classify "playlist_emotional_direction" from name words like: love, sad, happy, chill, party, focus, workout.
+3) If playlist_name suggests an emotion/function but the tracks disagree, choose the track-based emotion/function and LOWER confidence by one level.
+4) Only use playlist_name as a tiebreaker when track signals are genuinely ambiguous.
+────────────────────────────────
+PLAYLIST NAME INTERPRETATION RULE:
+If a playlist_name expresses personal attachment (e.g. "Loved once", "My favorites", "All time classics"),
+treat it as an indicator of playlist importance, NOT emotional direction.
+Do NOT infer romantic, nostalgic, or calming emotions unless supported by track-level signals
+────────────────────────────────
+3) playlist_language_distribution
+Estimate the language balance of the playlist.
+Rules:
+- Output as an ARRAY of objects.
+- Each object MUST have "language" (ISO-639-1 code, e.g., "en", "he", "es") and "percentage" (number, 0.0 to 1.0).
+- Percentages in the array should approximately sum to 1.0.
+- If one language dominates, use 1.0 for it.
+Examples:
+[{"language": "en", "percentage": 1.0}]
+[{"language": "he", "percentage": 0.8}, {"language": "en", "percentage": 0.2}]
+────────────────────────────────
+4) confidence
+Indicate overall confidence in your classification.
+Allowed values:, high, medium, low
+Rules:
+- high → playlist name and track composition clearly align
+- medium → partial signals or mild ambiguity
+- low → weak, mixed, or unclear signals
 
-In short:
-playlist_primary_function = what the user uses music *for*  
-playlist_emotional_direction = how the music makes the user *feel over time*
-
-## IMPORTANT USAGE RULES (TASK B):
-
-Derive playlist_primary_function and playlist_emotional_direction using:
-- playlist_name (strong hint)
-- playlist structure (energy/tempo spread across tracks, repetition, consistency)
-- dominant audio characteristics inferred from track titles/artists (best-effort)
-If playlist_name is generic/unclear (e.g., "My Playlist", "Playlist #1"):
-prioritize the inferred audio/structure signals over the name.
-
-## IMPORTANT USAGE RULES (TASK B)
-- These values are contextual signals, not strict commands.
-- Do NOT copy playlist_name words into playlist_primary_function unless it truly matches.
-- Do NOT output explanations, only the required fields.
-- If confidence is uncertain, still choose the best label, but mark confidence as "medium" or "low".
-
+NEVER output high confidence if:
+- The playlist name is generic
+- Signals conflict
+- The inference relies mainly on assumptions
+────────────────────────────────
+GENERAL GUIDELINES
+- Do NOT overfit to popular artists or genres.
+- Do NOT assume intent where none is clear.
+- Accuracy is more important than coverage.
+- Honest uncertainty is preferred over confident misclassification.
+When unsure:
+- Prefer background over a strong function
+- Prefer neutral over forcing emotion
+- Prefer medium or low confidence over false certainty
+────────────────────────────────
 ## OUTPUT FORMAT:
 Return ONLY raw JSON matching schema:
 {
   "analyzed_playlist_context": [
     {
       "origin": "PLAYLISTS",
-      "playlist_name": "...",
-      "playlist_creator": "...",
-      "playlist_track_count": 0,
-      "playlist_primary_function": "focus" | "workout" | "relax" | "sleep" | "commute" | "study" | "party" | "background" | "other",
-      "playlist_emotional_direction": "calming" | "energizing" | "uplifting" | "melancholic" | "romantic" | "dark" | "nostalgic" | "other",
+      "playlist_name": "<string>",
+      "playlist_creator": "<string>",
+      "playlist_track_count": <number>,
+      "playlist_primary_function": "focus | workout | relax | sleep | commute | study | party | background | other",
+      "playlist_emotional_direction": "calming | energizing | uplifting | melancholic | romantic | dark | nostalgic | neutral | other",
       "playlist_language_distribution": [{"language": "<iso_639_1>", "percentage": 0.0}],
-      "confidence": "low" | "medium" | "high"
+      "confidence": "low | medium | high"
     }
   ]
-}
-`;
+}`;
 
       const promptInput_taskA = JSON.stringify({ TOP_50_TRACKS: topTracks }, null, 2);
       const promptInput_taskB = JSON.stringify({ PLAYLISTS: playlists }, null, 2); // MODIFIED: pass full playlist objects
