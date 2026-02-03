@@ -1,8 +1,14 @@
 
-
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { AdminDataInspectorProps, AnalyzedPlaylistContextItem } from '../types';
+import { 
+  AdminDataInspectorProps, 
+  AnalyzedPlaylistContextItem, 
+  AnalyzedTopTrack, 
+  ConfidenceLevel, 
+  AudioPhysics, 
+  SemanticTags 
+} from '../types';
 
 // Helper for collapsible sections
 const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => {
@@ -21,9 +27,58 @@ const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode }>
   );
 };
 
+// NEW: Helper function to render AudioPhysics
+const renderAudioPhysics = (physics: AudioPhysics | undefined) => {
+  if (!physics) return <p className="text-slate-500">No audio physics data.</p>;
+  return (
+    <div className="pl-4 border-l border-slate-700 space-y-1">
+      <p><strong>Energy:</strong> {physics.energy_level} (Conf: {physics.energy_confidence})</p>
+      <p><strong>Tempo:</strong> {physics.tempo_feel} (Conf: {physics.tempo_confidence})</p>
+      <p><strong>Vocals:</strong> {physics.vocals_type} (Conf: {physics.vocals_confidence})</p>
+      <p><strong>Texture:</strong> {physics.texture_type} (Conf: {physics.texture_confidence})</p>
+      <p><strong>Danceability:</b> {physics.danceability_hint} (Conf: {physics.danceability_confidence})</p>
+    </div>
+  );
+};
+
+// REMOVED: renderMoodAnalysis helper function as mood analysis is now flattened
+// const renderMoodAnalysis = (moodAnalysis: MoodAnalysis | undefined) => {
+//   if (!moodAnalysis) return <p className="text-slate-500">No mood analysis data.</p>;
+//   return (
+//     <div className="pl-4 border-l border-slate-700 space-y-1">
+//       <p><strong>Emotional Tags:</strong> {moodAnalysis.emotional_tags?.join(', ') || 'N/A'} (Conf: {moodAnalysis.emotional_confidence})</p>
+//       <p><strong>Cognitive Tags:</strong> {moodAnalysis.cognitive_tags?.join(', ') || 'N/A'} (Conf: {moodAnalysis.cognitive_confidence})</p>
+//       <p><strong>Somatic Tags:</strong> {moodAnalysis.somatic_tags?.join(', ') || 'N/A'} (Conf: {moodAnalysis.somatic_confidence})</p>
+//       <p><strong>Language:</strong> {moodAnalysis.language_iso_639_1 || 'N/A'} (Conf: {moodAnalysis.language_confidence})</p>
+//     </div>
+//   );
+// };
+
+// NEW: Helper function to render SemanticTags (updated for flattened mood)
+const renderSemanticTags = (tags: SemanticTags | undefined) => {
+  if (!tags) return <p className="text-slate-500">No semantic tags data.</p>;
+  
+  return (
+    <div className="pl-4 border-l border-slate-700 space-y-1">
+      <p><strong>Primary Genre:</strong> {tags.primary_genre} (Conf: {tags.primary_genre_confidence})</p>
+      {tags.secondary_genres?.length > 0 && <p><strong>Secondary Genres:</b> {tags.secondary_genres.join(', ')} (Conf: {tags.secondary_genres_confidence})</p>}
+      
+      {/* Flattened Mood Analysis Display */}
+      <div className="mt-2">
+        <p className="font-semibold text-slate-400">Mood Analysis:</p>
+        <div className="pl-4 border-l border-slate-700 space-y-1">
+          <p><strong>Emotional Tags:</b> {tags.emotional_tags?.join(', ') || 'N/A'} (Conf: {tags.emotional_confidence})</p>
+          <p><strong>Cognitive Tags:</b> {tags.cognitive_tags?.join(', ') || 'N/A'} (Conf: {tags.cognitive_confidence})</p>
+          <p><strong>Somatic Tags:</b> {tags.somatic_tags?.join(', ') || 'N/A'} (Conf: {tags.somatic_confidence})</p>
+          <p><strong>Language:</b> {tags.language_iso_639_1 || 'N/A'} (Conf: {tags.language_confidence})</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose, userTaste, aggregatedPlaylists, debugLogs }) => {
-  // Use a local addLog for internal component logging, assuming it's available globally or passed down
   const localAddLog = (window as any).addLog || console.log;
 
   useEffect(() => {
@@ -33,7 +88,7 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
     } else {
       localAddLog("AdminDataInspector: Component is now closed.");
     }
-  }, [isOpen, localAddLog]); // Depend on isOpen and localAddLog
+  }, [isOpen, localAddLog]);
 
   if (!isOpen) return null;
 
@@ -60,14 +115,22 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
           <CollapsibleSection title="Unified Taste Analysis (Gemini)">
             {userTaste?.unified_analysis ? (
               <div className="space-y-3">
-                <p><strong>Overall Mood Category:</strong> {userTaste.unified_analysis.overall_mood_category} (Confidence: {userTaste.unified_analysis.overall_mood_confidence.toFixed(2)})</p>
+                <p><strong>Overall Mood Category:</b> {userTaste.unified_analysis.overall_mood_category} (Confidence: {userTaste.unified_analysis.overall_mood_confidence.toFixed(2)})</p>
                 
+                {userTaste.unified_analysis.user_taste_profile_v1 && ( 
+                  <>
+                    <h4 className="font-semibold text-white mt-4 mb-2">User Taste Profile v1 (Aggregated):</h4>
+                    <pre className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
+                      {JSON.stringify(userTaste.unified_analysis.user_taste_profile_v1, null, 2)}
+                    </pre>
+                  </>
+                )}
+
                 <h4 className="font-semibold text-white mt-4 mb-2">Session Semantic Profile (Derived):</h4>
                 <pre className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
                   {JSON.stringify(userTaste.unified_analysis.session_semantic_profile, null, 2)}
                 </pre>
 
-                {/* NEW: Display Analyzed Playlist Context */}
                 {userTaste.unified_analysis.playlist_contexts && userTaste.unified_analysis.playlist_contexts.length > 0 && (
                     <>
                         <h4 className="font-semibold text-white mt-4 mb-2">Analyzed Playlist Contexts (Itemized):</h4>
@@ -81,15 +144,26 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
                     </>
                 )}
 
-                {/* NEW: Display Analyzed Top 50 Tracks (Itemized) */}
                 {userTaste.unified_analysis.analyzed_top_tracks && userTaste.unified_analysis.analyzed_top_tracks.length > 0 && (
                     <>
                         <h4 className="font-semibold text-white mt-4 mb-2">Analyzed Top 50 Tracks (Itemized):</h4>
                         <div className="space-y-3">
-                            {userTaste.unified_analysis.analyzed_top_tracks.map((track, index) => (
-                                <pre key={index} className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
-                                    {JSON.stringify(track, null, 2)}
-                                </pre>
+                            {userTaste.unified_analysis.analyzed_top_tracks.map((track: AnalyzedTopTrack, index: number) => ( 
+                                <div key={index} className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
+                                    <p><strong>Origin:</b> {track.origin || 'N/A'}</p>
+                                    <p><strong>Song:</b> {track.song_name}</p>
+                                    <p><strong>Artist:</b> {track.artist_name}</p>
+                                    <p><strong>Overall Confidence:</b> {track.confidence}</p> 
+                                    {/* NEW: Render AudioPhysics and SemanticTags with confidence */}
+                                    <div className="mt-2">
+                                      <p className="font-semibold text-slate-400">Audio Physics:</p>
+                                      {renderAudioPhysics(track.audio_physics)}
+                                    </div>
+                                    <div className="mt-2">
+                                      <p className="font-semibold text-slate-400">Semantic Tags:</p>
+                                      {renderSemanticTags(track.semantic_tags)}
+                                    </div>
+                                </div>
                             ))}
                         </div>
                     </>
