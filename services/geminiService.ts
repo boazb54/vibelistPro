@@ -1,14 +1,16 @@
-import { 
+import {
   GeneratedPlaylistRaw, AnalyzedTopTrack, ContextualSignals, UserTasteProfile, GeneratedTeaserRaw, VibeValidationResponse, UnifiedVibeResponse, GeminiResponseMetrics,
   UnifiedTasteAnalysis,
   UnifiedTasteGeminiResponse,
-  TranscriptionResult, 
+  TranscriptionResult,
   TranscriptionStatus,
   TranscriptionRequestMeta,
   AggregatedPlaylist, // NEW: Import AggregatedPlaylist
-  AnalyzedPlaylistContextItem // NEW: Import AnalyzedPlaylistContextItem
+  AnalyzedPlaylistContextItem, // NEW: Import AnalyzedPlaylistContextItem
+  UnifiedTasteGeminiError, // NEW: Import UnifiedTasteGeminiError
 } from "../types";
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+// REMOVED: GoogleGenAI, Type, HarmCategory, HarmBlockThreshold are no longer imported here as Gemini calls are proxied.
+// import { GoogleGenAI, Type, GenerateContentResponse, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { GEMINI_MODEL } from "../constants"; // Use the global model constant
 
 declare const addLog: (message: string) => void;
@@ -20,43 +22,6 @@ const ACOUSTIC_DURATION_THRESHOLD_MS = 800; // Minimum duration for valid speech
 // NEW: Constant for transcription prompt text, consistent with server.
 const TRANSCRIPTION_PROMPT_TEXT = "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble.";
 
-// --- START: PREVIEW MODE IMPLEMENTATION (v1.1.1 FIX) ---
-
-/**
- * Detects if the app is running inside the Google AI Studio Preview environment.
- * @returns {boolean} True if in preview mode, otherwise false.
- */
-export const isPreviewEnvironment = (): boolean => {
-  try {
-    // Correctly detect the environment by checking for the host-injected 'aistudio' API object.
-    // The previous hostname check was incorrect due to iframe sandboxing.
-    return typeof window !== 'undefined' && !!(window as any).aistudio;
-  } catch (e) {
-    return false; // Fallback for non-browser environments
-  }
-};
-
-/**
- * Handles API key missing errors by prompting the user to select a key.
- * This is primarily for the preview environment where direct calls are made.
- */
-async function handleApiKeyMissingError(responseStatus: number, errorData: any) {
-  if (responseStatus === 401 && errorData?.error?.includes('API_KEY environment variable is missing')) {
-    addLog("API Key Missing (401). Attempting to prompt user for key selection.");
-    if (typeof window !== 'undefined' && (window as any).aistudio && (window as any).aistudio.openSelectKey) {
-      await (window as any).aistudio.openSelectKey();
-      const userError = new Error(`Authentication Error: Gemini API key is missing or invalid. Please retry after selecting a valid API key from a paid GCP project. See billing info at ${BILLING_DOCS_URL}`);
-      userError.name = 'ApiKeyRequiredError';
-      throw userError;
-    } else {
-      const userError = new Error(`Authentication Error: Gemini API key is missing or invalid. Please ensure it's configured in your environment variables. See billing info at ${BILLING_DOCS_URL}`);
-      userError.name = 'ApiKeyRequiredError';
-      throw userError;
-    }
-  }
-}
-
-// --- END: PREVIEW MODE IMPLEMENTATION ---
 
 /**
  * Classifies raw Gemini transcription output into 'ok', 'no_speech', or 'error'.
@@ -132,10 +97,9 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string, a
 
   // Check 3.4: Very short, non-linguistic input (e.g., just "uh", "mm", or single sounds)
   // This covers "Output length is below a meaningful speech threshold" and "No linguistic sentence structure" if combined with other checks
-  const words = textWithoutEventTokens.split(/\s+/).filter(Boolean); // Get actual words after removing events
-  if (trimmedText.length < 5 && words.length < 2) { // Short raw text, very few actual words
+  const words = textWithoutEventTokens.split(/\s+/).filter(Boolean);
+  if (trimmedText.length < 5 && words.length < 2) {
     const commonFillers = ['uh', 'um', 'mm', 'oh', 'ah', 'er', 'hm'];
-    // If all detected 'words' are common fillers, or the text without event tokens is extremely short
     if (words.every(word => commonFillers.includes(word.toLowerCase())) || textWithoutEventTokens.length < 3) {
         addLog("[Client-classify] Text Factor B failed: Very short non-linguistic input detected. Returning 'no_speech'.");
         return { status: 'no_speech', reason: "No discernible speech detected in the audio." };
@@ -148,19 +112,19 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string, a
 }
 
 export const generatePlaylistFromMood = async (
-  mood: string, 
+  mood: string,
   contextSignals: ContextualSignals,
-  isAuthenticated: boolean, // NEW: isAuthenticated flag
+  isAuthenticated: boolean,
   tasteProfile?: UserTasteProfile,
   excludeSongs?: string[]
-): Promise<UnifiedVibeResponse> => { // NEW: Return UnifiedVibeResponse
+): Promise<UnifiedVibeResponse> => {
   const t_prompt_start = performance.now();
 
   // --- STAGE 1: Client-side prompt construction for Gemini ---
   // The system instruction for the /api/vibe.mjs endpoint (server-side) will handle
   // the validation and teaser generation internally based on isAuthenticated flag.
   // Here, we just build the raw JSON payload for Gemini to process.
-  
+
    const promptText = JSON.stringify({
       user_target: { query: mood, modality: contextSignals.input_modality },
       environmental_context: {
@@ -171,712 +135,150 @@ export const generatePlaylistFromMood = async (
           country: contextSignals.country || 'Unknown'
       },
       taste_bias: tasteProfile ? {
-          type: tasteProfile.unified_analysis?.session_semantic_profile?.taste_profile_type || 'unknown', // Updated
+          type: tasteProfile.unified_analysis?.session_semantic_profile?.taste_profile_type || 'unknown',
           top_artists: tasteProfile.topArtists.slice(0, 20),
           top_genres: tasteProfile.topGenres.slice(0, 10),
-          vibe_fingerprint: tasteProfile.unified_analysis?.session_semantic_profile ? { energy: tasteProfile.unified_analysis.session_semantic_profile.energy_bias, favored_genres: tasteProfile.unified_analysis.session_semantic_profile.dominant_genres } : null, // Updated
-          user_playlist_mood: tasteProfile.unified_analysis?.overall_mood_category ? { playlist_mood_category: tasteProfile.unified_analysis.overall_mood_category, confidence_score: tasteProfile.unified_analysis.overall_mood_confidence } : null, // Updated
-          // v1.2.0 - Add Top 50 Tracks (Raw) as anchors for full generation
+          vibe_fingerprint: tasteProfile.unified_analysis?.session_semantic_profile ? { energy: tasteProfile.unified_analysis.session_semantic_profile.energy_bias, favored_genres: tasteProfile.unified_analysis.session_semantic_profile.dominant_genres } : null,
+          user_playlist_mood: tasteProfile.unified_analysis?.overall_mood_category ? { playlist_mood_category: tasteProfile.unified_analysis.overall_mood_category, confidence_score: tasteProfile.unified_analysis.overall_mood_confidence } : null,
           top_50_tracks_anchors: tasteProfile.topTracks.slice(0, 50)
       } : null,
       exclusions: excludeSongs || []
   }, null, 2);
   const promptBuildTimeMs = Math.round(performance.now() - t_prompt_start);
 
-    if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Generating vibe for "${mood}" directly... (Authenticated: ${isAuthenticated})`);
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
-            // --- Unified System Instruction for Preview Environment ---
-            const systemInstruction_validation = `You are VibeList Pro *Vibe Validator*.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-A) WHO IS VIBELIST PRO (WHO WE ARE?) 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-VibeList Pro:
-is a multi-language, culture-aware music experience that translates how you feel, where you are, and what you need right now into a playlist that fits the moment.
-
-VibeList Pro vision:
-1) Match music to the useR current mental/physical state (music as healing).
-2) Expand discovery (new songs, new versions, new artists — not boring like a static Spotify loop).
-3) Make “vibes” easy to express, even when the user cant explain it well.
-
-Your job (validation only):
-Decide if the user input is a **valid vibe request** for generating a playlist.
-You are NOT a general assistant or chatbot. Do not answer off-topic questions. Redirect them back to creating a vibe-based playlist.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-B) WHAT IS A “VIBE” (LANGUAGE-AGNOSTIC DEFINITION)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WHAT IS A “VIBE” (LANGUAGE-AGNOSTIC DEFINITION)
-A vibe is any expression (in any language) that can describe or imply at least one of the following:- mood / emotion: “sad”, “confident”, “heartbroken”
-- activity / purpose: “workout”, “coding”, “study”, “cleaning”
-- situation / context: “rainy drive”, “late night alone”, “airport waiting”
-- moment / scene: “sunrise”, “after party comedown”, “first coffee”
-- memory / nostalgia: “high school”, “summer 2016”, “missing home”
-- relationship / feeling: “crush”, “breakup recovery”, “lonely but hopeful”
-- intention / affirmation: “fresh start”, “I need motivation”, “calm my mind”
-- sensory/energy words: “soft”, “high energy”, “warm”, “dark”, “minimal”
-
-Important:
-- Vibes can be **short** (“focus”, “workout”, “sleep”) OR **detailed** (“quiet focus with a bit of hope”).
-- If it can reasonably map to a music moment → it is VALID.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-C) Quick Vibe vs Typed Vibe (IMPORTANT LOGIC)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Users can express the same word in two ways:
-1) Quick vibe click (predefined button like "Workout", "Focus", "Sleep")
-2) Typed input (free text like "workout")
-
-Validation rule:
-- Treat BOTH as valid vibes if they match the definition above.
-- However, typed input may indicate the user is unsure, nuanced, or wants a custom interpretation.
-- Do NOT reject typed vibes just because they are short. "Workout" typed is still valid.
-
-You do NOT need to ask follow-up questions here.
-Your output is only classification + a short reason.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-D) What is INVALID VIBE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1) VIBE_INVALID_GIBBERISH:
-- random characters, keyboard mashing, nonsense text with no meaning
-
-Examples for VIBE_INVALID_GIBBERISH:
-
-1)User input: asdfkjh123!!
-Reason: Random characters with no semantic meaning or emotional context.
-
-2)User input: @@@###^^
-Reason: Symbols only, no words or interpretable intent related to music or a vibe.
-
-3)User input: qweoiu zmxn
-Reason: Keyboard mashing / invented strings that do not describe a mood, moment, or situation.
-
-2) VIBE_INVALID_OFF_TOPIC:
-- coherent text but not a vibe request, e.g.:
-  - general questions: “what is the time?”, “whats the weather?”
-  - tech support: “why my app crashes?”
-  - unrelated tasks: “write me an email”, “tell me a joke”
-  - anything that is clearly not describing a music moment
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-E) How to write the 'reason' (CRITICAL) 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1) VIBE_INVALID_OFF_TOPIC:
-
- #### CRITICAL INSRUCTION FOR VIBE_INVALID_OFF_TOPIC: MUST BE FOLLOWED ### 
- YOU NEED TO response WITH the below TEXT ONLY AFTER YOU TRANSLATED IT TO THE user's language THE VIBE WAS CREATED
-
- "That's outside VibeList Pro's musical realm. Tell me a mood or moment, and I'll find its soundtrack!"
-
-
-
-2) VIBE_INVALID_GIBBERISH:
-
-#### CRITICAL INSRUCTION FOR VIBE_INVALID_OFF_TOPIC: MUST BE FOLLOWED ### 
-IF YOU CAN IDENTIFY THE USER LANGUAGE BY THE VIBE INPUT ONLY, YOU NEED TO response WITH the below TEXT ONLY AFTER YOU TRANSLATED IT TO THE user's language THE VIBE WAS CREATED.
-
-"I want to help, but this doesn't feel like a vibe yet. Tell me what you're feeling or what kind of moment you're in."
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-F) Output rules
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Return ONLY raw JSON matching schema:
-{
-  "validation_status": "VIBE_VALID" | "VIBE_INVALID_GIBBERISH" | "VIBE_INVALID_OFF_TOPIC",
-  "reason": "string"
-}
-`;
-            
-            const systemInstruction_teaser = `You are a creative music curator. Your goal is to generate a creative, evocative playlist title and a short, compelling description.
-
-RULES:
-1. The description MUST be under 20 words.
-2. Mirror the language of the user's mood (e.g., Hebrew input gets a Hebrew title).
-3. Return ONLY a raw JSON object with 'playlist_title' and 'description'.`;
-
-            const systemInstruction_fullPlaylist = `You are a professional music curator/Mood-driven playlists with deep knowledge of audio engineering and music theory. Your goal is to create a playlist that matches the **physical audio requirements** of the user's intent, prioritizing physics over genre labels. ### 1. THE "AUDIO PHYSICS" HIERARCHY (ABSOLUTE RULES) When selecting songs, you must evaluate them in this order: 1. **INTENT (PHYSICAL CONSTRAINTS):** Does the song's audio texture match the requested activity? - *Workout:* Requires High Energy, Steady Beat. - *Focus:* Requires Steady Pulse, Minimal Lyrics. - *Sleep/Relax:* See Polarity Logic below. 2. **CONTEXT:** Time of day and location tuning. 3. **TASTE (STYLISTIC COMPASS):** Only use the user's favorite artists/genres if they fit the **Physical Constraints** of Step 1. - **CRITICAL:** If the user loves "Techno" but asks for "Sleep", **DO NOT** play "Chill Techno" (it still has kicks). Play an "Ambient" or "Beatless" track by a Techno artist, or ignore the genre entirely. - **NEW: DEEPER TASTE UNDERSTANDING:** If provided, leverage the 'user_playlist_mood' as a strong signal for the user's overall, inherent musical taste. This is *beyond* just top artists/genres and represents a more holistic "vibe fingerprint" for the user. Use it to fine-tune song selection, especially when there are multiple songs that fit the physical constraints.
-          
-          **IMPORTANT: TOP 50 TRACK ANCHORS PROVIDED**
-          The user has also provided a list of their 'top_50_tracks_anchors' within the input JSON. These are individual song-by-artist strings and serve as *strong indicators of their core taste*.
-          - **Rule 1 (Exclusion):** These 'top_50_tracks_anchors' MUST NOT appear in the generated playlist. They are anchors for understanding, not suggestions for inclusion.
-          - **Rule 2 (No Replacement):** Do NOT replace these anchors with broader genre or artist summaries. Treat them as specific, individual data points of taste.
-          - **Rule 3 (Track-Level Focus):** Gemini MUST see and use the track-level text of these anchors, not abstractions.
-          
-          ### 2. TEMPORAL + LINGUISTIC POLARITY & INTENT DECODING (CRITICAL LOGIC) Determine whether the user describes a **PROBLEM** (needs fixing) or a **GOAL** (needs matching). **SCENARIO: User expresses fatigue ("tired", "low energy", "חסר אנרגיות")** *   **IF user explicitly requests sleep/relaxation:** *   → GOAL: Matching (Sleep/Calm) *   → Ignore time. *   **ELSE IF local_time is Morning/Afternoon (06:00–17:00):** *   → GOAL: Gentle Energy Lift (Compensation). *   → AUDIO PHYSICS: - Energy: Low → Medium. - Tempo: Slow → Mid. - Rhythm: Present but soft. - No ambient drones. No heavy drops. *   **ELSE IF local_time is Evening/Night (20:00–05:00):** *   → GOAL: Relaxation / Sleep. *   → AUDIO PHYSICS: - Constant low energy. - Slow tempo. - Ambient / minimal. - No drums. **RULE: "Waking up" ≠ "Sleep"** *   Waking up requires dynamic rising energy. *   Sleep requires static low energy. ### 3. "TITLE BIAS" WARNING **NEVER** infer a song's vibe from its title. - A song named "Pure Bliss" might be a high-energy Trance track (Bad for sleep). - A song named "Violent" might be a slow ballad (Good for sleep). - **Judge the Audio, Not the Metadata.** ### 4. LANGUAGE & FORMATTING RULES (NEW & CRITICAL) 1. **Language Mirroring:** If the user types in Hebrew/Spanish/etc., write the 'playlist_title' and 'description' in that **SAME LANGUAGE**. 2. **Metadata Exception:** Keep 'songs' metadata (Song Titles and Artist Names) in their original language (English/International). Do not translate them. 3. **Conciseness:** The 'description' must be **under 20 words**. Short, punchy, and evocative. ### 5. NEGATIVE EXAMPLES (LEARN FROM THESE ERRORS) *   **User Intent:** Sleep / Waking Up *   **User Taste:** Pop, EDM (e.g., Alan Walker, Calvin Harris) *   🔴 **BAD SELECTION:** "Alone" by Alan Walker. *   *Why:* Lyrically sad, but physically high energy (EDM drops, synth leads). *   🟢 **GOOD SELECTION:** "Faded (Restrung)" by Alan Walker or "Ambient Mix" by similar artists. *   *Why:* Matches taste but strips away the drums/energy to fit the physics of sleep. ### OUTPUT FORMAT Return the result as raw, valid JSON only. Do not use Markdown formatting. Use this exact JSON structure for your output: { "playlist_title": "Creative Title (Localized)", "mood": "The mood requested", "description": "Short description (<20 words, Localized)", "songs": [ { "title": "Song Title (Original Language)", "artist": "Artist Name (Original Language)", "estimated_vibe": { "energy": "Low" | "Medium" | "High" | "Explosive", "mood": "Adjective (e.g. Uplifting, Melancholic)", "genre_hint": "Specific Sub-genre" } } ] } CRITICAL RULES: 1. Pick 15 songs. 2. The songs must be real and findable on Spotify/iTunes. 3. If "Exclusion List" is provided: Do NOT include any of the songs listed. 4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel.`;
-            
-            // --- STAGE 1.1: Validation (Preview) ---
-            const validation_t_api_start = performance.now();
-            const validationResponse = await ai.models.generateContent({
-                model: GEMINI_MODEL,
-                contents: `Validate the following user input: "${mood}"`,
-                config: {
-                    systemInstruction: systemInstruction_validation,
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: { validation_status: { type: Type.STRING }, reason: { type: Type.STRING } },
-                        required: ["validation_status", "reason"]
-                    },
-                    thinkingConfig: { thinkingBudget: 0 }
-                }
-            });
-            // Fix: Use the correct interface for validationData
-            const validationData: VibeValidationResponse = JSON.parse(validationResponse.text);
-            const validation_t_api_end = performance.now();
-
-            if (validationData.validation_status !== 'VIBE_VALID') {
-              addLog(`[PREVIEW MODE] Vibe validation failed for "${mood}": ${validationData.reason}`);
-              return {
-                validation_status: validationData.validation_status,
-                reason: validationData.reason,
-                promptText: promptText,
-                metrics: {
-                  promptBuildTimeMs,
-                  geminiApiTimeMs: Math.round(validation_t_api_end - validation_t_api_start)
-                }
-              };
+    // --- PRODUCTION MODE: SECURE PROXY CALL ---
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+    addLog(`Calling /api/vibe.mjs with mood "${mood}" (Authenticated: ${isAuthenticated})...`);
+    try {
+        const response = await fetch('/api/vibe.mjs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mood, contextSignals, isAuthenticated, tasteProfile, excludeSongs, promptText }),
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+            const errorBody = await response.text();
+            let errorData: any = {};
+            try {
+                errorData = JSON.parse(errorBody);
+            } catch (e) {
+                addLog(`Server response was not JSON for status ${response.status}, falling back to raw text. Raw body: "${errorBody.substring(0, 200)}..."`);
+                errorData.error = `Non-JSON response from server: ${errorBody.substring(0, 500)}`;
             }
-
-            // --- STAGE 1.2: Teaser or Full Playlist (Preview) ---
-            const t_api_start = performance.now();
-            let geminiModelResponse: GenerateContentResponse;
-            if (!isAuthenticated) {
-                // Teaser generation
-                addLog(`[PREVIEW MODE] Generating teaser for "${mood}"...`);
-                geminiModelResponse = await ai.models.generateContent({
-                    model: GEMINI_MODEL,
-                    contents: `Generate a playlist title and description for the mood: "${mood}"`,
-                    config: {
-                        systemInstruction: systemInstruction_teaser,
-                        responseMimeType: "application/json",
-                        responseSchema: {
-                            type: Type.OBJECT,
-                            properties: { playlist_title: { type: Type.STRING }, description: { type: Type.STRING } },
-                            required: ["playlist_title", "description"]
-                        },
-                        thinkingConfig: { thinkingBudget: 0 }
-                    }
-                });
-            } else {
-                // Full playlist generation
-                addLog(`[PREVIEW MODE] Generating full playlist for "${mood}"...`);
-                geminiModelResponse = await ai.models.generateContent({
-                    model: GEMINI_MODEL,
-                    contents: promptText,
-                    config: { systemInstruction: systemInstruction_fullPlaylist, responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } }
-                });
-            }
-            const t_api_end = performance.now();
-            
-            const rawData = JSON.parse(geminiModelResponse.text);
-            addLog(`[PREVIEW MODE] Generation successful for mood "${mood}".`);
-            return {
-                ...rawData,
-                validation_status: 'VIBE_VALID', // Mark as valid as it passed validation
-                reason: 'Vibe is valid',
-                promptText: promptText,
-                metrics: {
-                    promptBuildTimeMs,
-                    geminiApiTimeMs: Math.round(t_api_end - t_api_start) + Math.round(validation_t_api_end - validation_t_api_start) // Sum of all Gemini calls
-                }
-            };
-        } catch (error) {
-            console.error("[PREVIEW MODE] Direct Gemini call failed (unified):", error);
-            throw error;
+            throw new Error(`Server error (${response.status}): ${errorData.error || response.statusText || 'Unknown server response'}`);
         }
-    } else {
-        // --- PRODUCTION MODE: SECURE PROXY CALL ---
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-        addLog(`Calling /api/vibe.mjs with mood "${mood}" (Authenticated: ${isAuthenticated})...`);
-        try {
-            const response = await fetch('/api/vibe.mjs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mood, contextSignals, isAuthenticated, tasteProfile, excludeSongs, promptText }),
-                signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
-            if (!response.ok) {
-                const errorBody = await response.text(); // Always try to get raw text
-                let errorData: any = {};
-                try {
-                    errorData = JSON.parse(errorBody);
-                } catch (e) {
-                    addLog(`Server response was not JSON for status ${response.status}, falling back to raw text. Raw body: "${errorBody.substring(0, 200)}..."`);
-                    errorData.error = `Non-JSON response from server: ${errorBody.substring(0, 500)}`; // Provide truncated raw body
-                }
-                await handleApiKeyMissingError(response.status, errorData);
-                throw new Error(`Server error (${response.status}): ${errorData.error || response.statusText || 'Unknown server response'}`);
+        const rawData: UnifiedVibeResponse = await response.json();
+        return {
+            ...rawData,
+            promptText: promptText,
+            metrics: {
+                promptBuildTimeMs: promptBuildTimeMs,
+                geminiApiTimeMs: rawData.metrics?.geminiApiTimeMs || 0
             }
-            const rawData: UnifiedVibeResponse = await response.json();
-            return {
-                ...rawData,
-                promptText: promptText,
-                // Fix: Include promptBuildTimeMs as required by GeminiResponseMetrics
-                metrics: {
-                    promptBuildTimeMs: promptBuildTimeMs,
-                    geminiApiTimeMs: rawData.metrics?.geminiApiTimeMs || 0 // Ensure metrics exists
-                }
-            };
-        } catch (error) {
-            clearTimeout(timeoutId);
-            console.error("Vibe generation failed through proxy:", error);
-            throw error;
-        }
+        };
+    } catch (error) {
+        clearTimeout(timeoutId);
+        console.error("Vibe generation failed through proxy:", error);
+        throw error;
     }
 };
 
-export const transcribeAudio = async (base64Audio: string, mimeType: string, acousticMetadata?: TranscriptionRequestMeta): Promise<TranscriptionResult> => { // NEW: Add acousticMetadata
+export const transcribeAudio = async (base64Audio: string, mimeType: string, acousticMetadata?: TranscriptionRequestMeta): Promise<TranscriptionResult> => {
     if (!base64Audio) {
       addLog("No audio data provided for transcription.");
-      return { status: 'no_speech', reason: "No audio data provided." }; // Handle early for empty input
+      return { status: 'no_speech', reason: "No audio data provided." };
     }
-    // Ensure acousticMetadata is always provided for classification
     const effectiveAcousticMetadata: TranscriptionRequestMeta = acousticMetadata || { durationMs: 0, speechDetected: false };
 
-    if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Transcribing audio directly (type: ${mimeType})...`);
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
-            // Use the defined constant prompt text
-            const response = await ai.models.generateContent({
-                model: GEMINI_MODEL,
-                contents: [
-                    { inlineData: { mimeType: mimeType, data: base64Audio } },
-                    { text: TRANSCRIPTION_PROMPT_TEXT }
-                ]
-            });
-            const rawTranscript = response.text || "";
-            addLog(`[PREVIEW MODE] Transcription raw output: "${rawTranscript.substring(0, 50)}..."`);
-            
-            // Classify the transcription result client-side for preview with acoustic metadata
-            const result = classifyTranscription(rawTranscript, TRANSCRIPTION_PROMPT_TEXT, effectiveAcousticMetadata); // NEW: Pass acousticMetadata
-            if (result.status === 'ok') {
-              addLog(`[PREVIEW MODE] Transcription successful. Text: "${result.text?.substring(0, 50)}..."`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+    addLog(`Calling /api/transcribe.mjs...`);
+    try {
+        const response = await fetch('/api/transcribe.mjs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64Audio, mimeType, acousticMetadata: effectiveAcousticMetadata }),
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+            const errorBody = await response.text();
+            let errorData: any = {};
+            try {
+                errorData = JSON.parse(errorBody);
+            } catch (e) {
+                addLog(`Server response was not JSON for status ${response.status}, falling back to raw text. Raw body: "${errorBody.substring(0, 200)}..."`);
+                errorData.reason = `Non-JSON response from server: ${errorBody.substring(0, 500)}`;
+                errorData.status = 'error';
+            }
+
+            if (errorData.status && (errorData.status === 'error' || errorData.status === 'no_speech')) {
+              addLog(`Transcription proxy returned classified status '${errorData.status}': ${errorData.reason || errorData.error}`);
+              return { status: errorData.status, reason: errorData.reason || errorData.error };
             } else {
-              addLog(`[PREVIEW MODE] Transcription classified as '${result.status}'. Reason: ${result.reason}`);
+              addLog(`Transcription proxy returned generic error (${response.status}): ${errorData.reason || response.statusText}`);
+              return { status: 'error', reason: `Server error: ${errorData.reason || response.statusText}` };
             }
-            return result;
-
-        } catch (error: any) {
-            console.error("[PREVIEW MODE] Direct Gemini call failed (transcribe):", error);
-            addLog(`[PREVIEW MODE] Transcription failed: ${error.message}`);
-            // Map errors to structured error response
-            return { status: 'error', reason: `Voice processing failed: ${error.message}` };
         }
-    } else {
-        // --- PRODUCTION MODE: SECURE PROXY CALL (Existing Logic) ---
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-        addLog(`Calling /api/transcribe.mjs...`);
-        try {
-            const response = await fetch('/api/transcribe.mjs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base64Audio, mimeType, acousticMetadata: effectiveAcousticMetadata }), // NEW: Pass acousticMetadata
-                signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
-            if (!response.ok) {
-                const errorBody = await response.text();
-                let errorData: any = {};
-                try {
-                    errorData = JSON.parse(errorBody);
-                } catch (e) {
-                    addLog(`Server response was not JSON for status ${response.status}, falling back to raw text. Raw body: "${errorBody.substring(0, 200)}..."`);
-                    errorData.reason = `Non-JSON response from server: ${errorBody.substring(0, 500)}`;
-                    errorData.status = 'error'; // Assume error if not JSON
-                }
-
-                await handleApiKeyMissingError(response.status, errorData);
-                
-                // If the server returns a structured error, use it. Otherwise, create a generic one.
-                if (errorData.status && (errorData.status === 'error' || errorData.status === 'no_speech')) {
-                  addLog(`Transcription proxy returned classified status '${errorData.status}': ${errorData.reason || errorData.error}`);
-                  return { status: errorData.status, reason: errorData.reason || errorData.error };
-                } else {
-                  addLog(`Transcription proxy returned generic error (${response.status}): ${errorData.reason || response.statusText}`);
-                  return { status: 'error', reason: `Server error: ${errorData.reason || response.statusText}` };
-                }
-            }
-            const data: TranscriptionResult = await response.json(); // NEW: Expect TranscriptionResult
-            addLog(`Transcription proxy returned status '${data.status}'. Text: "${data.text?.substring(0, 50)}...". Reason: ${data.reason}`);
-            return data;
-        } catch (error: any) {
-            clearTimeout(timeoutId);
-            console.error("Audio transcription failed through proxy:", error);
-            addLog(`Audio transcription failed through proxy: ${error.message}`);
-            // Map network/fetch errors to structured error response
-            return { status: 'error', reason: `Voice processing failed: ${error.message}` };
-        }
+        const data: TranscriptionResult = await response.json();
+        addLog(`Transcription proxy returned status '${data.status}'. Text: "${data.text?.substring(0, 50)}...". Reason: ${data.reason}`);
+        return data;
+    } catch (error: any) {
+        clearTimeout(timeoutId);
+        console.error("Audio transcription failed through proxy:", error);
+        addLog(`Audio transcription failed through proxy: ${error.message}`);
+        return { status: 'error', reason: `Voice processing failed: ${error.message}` };
     }
 };
 
-// NEW: analyzeFullTasteProfile
+// MODIFIED: analyzeFullTasteProfile now calls the server-side /api/analyze.mjs endpoint
 export const analyzeFullTasteProfile = async (
-  playlists: AggregatedPlaylist[], // MODIFIED: now takes AggregatedPlaylist[]
+  playlists: AggregatedPlaylist[],
   topTracks: string[]
-): Promise<UnifiedTasteGeminiResponse | { error: string }> => {
+): Promise<UnifiedTasteGeminiResponse | UnifiedTasteGeminiError> => {
   if ((!playlists || playlists.length === 0) && (!topTracks || topTracks.length === 0)) {
     addLog("Skipping full taste profile analysis: No tracks or playlist data provided.");
     return { error: "No tracks or playlist data to analyze" };
   }
 
-  // --- SYSTEM INSTRUCTION TASK A ---
-  const systemInstruction_taskA = `You are a Music Attribute Inference Engine.
+  // Removed: Direct GoogleGenAI client initialization and API_KEY access.
+  // This function now acts as a client-side proxy to the /api/analyze.mjs endpoint.
 
-Your job is to infer musical attributes such as semantic tags, by analyzing song name and artist name.
-──────────────────────────────
-## CRITICAL POSITION RULES NO 1 ##
-───────────────────────────────
-- TOP 50 TRACKS always outweigh playlist-derived insights
-- No other source may override Top 50 conclusions
-- Other sources may only refine, never contradict
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+  addLog(`Calling /api/analyze.mjs for unified taste analysis...`);
 
-─────────────────────────────
-## CRITICAL POSITION RULES NO 2 ##:
-───────────────────────────────
-TOP 50 TRACKS represent the user’s strongest and most reliable taste signal.
-They reflect:
-- Actual listening behavior
-- Repetition over time
-- Real preference expressed through action, not intention
+  try {
+    const response = await fetch('/api/analyze.mjs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'unified_taste', topTracks, playlists }), // Pass data to the server proxy
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
-─────────────────────────────
-## USAGE RULE ##:
-──────────────────────────────
-- Use Top 50 tracks to understand *how the user listens*
-- Do NOT treat them as a search query or a recommendation list
-
-─────────────────────────────
-## YOUR TASK — analyzed_50_top_tracks:
-───────────────────────────────
-For each individual song from the "top 50 tracks" list, generate detailed semantic tags, along with a confidence score.
-TOP 50 TRACKS are the PRIMARY reference for:
-1) Audio physics baselines (energy, tempo, density)
-2) Emotional distribution (dominant + secondary emotions)
-3) Language distribution
-4) Genre and texture bias Contradict
-
-──────────────────────────────
-## Language Bias Control ##
-───────────────────────────────
-When inferring language or musical attributes:
-Do not assume English dominance due to higher familiarity or data availability.
-Some non-English tracks may have less public metadata or coverage.
-In such cases:
-Prefer artist origin, known discography. 
-
-───────────────────────────────
-## Genre Bias Control ##
-───────────────────────────────
-When inferring genres:
-
-Do not default to broad or Western genres (e.g. “pop”, “rock”, “indie”) due to higher dataset familiarity.
-Some regional, hybrid, or non-mainstream genres may have less explicit documentation.
-If genre signals are weak or mixed, reduce confidence rather than forcing a popular label.
-
-───────────────────────────────
-## Emotion / Mood Bias Control  ##
-───────────────────────────────
-When inferring emotional characteristics:
-
-Do not assume neutral, uplifting, or “safe” moods due to lack of explicit emotional labeling.
-Non-English or older tracks may have less emotional annotation in public sources.
-
-In such cases:
-Infer emotion from musical style, tempo, harmony, and artist body of work, not popularity.
-Avoid over-using common defaults such as “uplifting” or “chill”.
-
-If emotional direction is unclear or conflicting, lower confidence instead of smoothing.
-
-Rule: Absence of explicit emotional data is not evidence of emotional neutrality or positivity.
-
-───────────────────────────────
-## OUTPUT FORMAT RULES: ##
-───────────────────────────────
-Use ISO-639-1 language codes (e.g. en, he, es).
-Return ONLY raw JSON matching schema:
-
-{ 
- "analyzed_50_top_tracks": [
-    {
-      "origin": "TOP_50_TRACKS_LIST",
-      "song_name": "...",
-      "artist_name": "...",
-      "semantic_tags": {
-        "primary_genre": "...",
-        "secondary_genres": ["..."],
-        "energy": "low" | "medium" | "high" | "explosive",
-        "mood": ["..."],
-        "tempo": "slow" | "mid" | "fast",
-        "vocals": "instrumental" | "lead_vocal" | "choral",
-        "texture": "organic" | "electric" | "synthetic",
-        "language": "..."
-     },  
-     "confidence": "low" | "medium" | "high"
-    }
- ]
-}
-`;
-      // --- SYSTEM INSTRUCTION TASK B ---
-      const systemInstruction_taskB = `You are an AI system analyzing user-created playlists to extract contextual signals.
-Your role is to understand what each playlist represents from the user’s point of view.
-Your job is to infer:
-1. The primary function of the playlist
-2. The dominant emotional direction
-3. The language distribution
-4. How confident you are in these inferences
-───────────────────────────────
-OUTPUT RULES (STRICT)
-- Return ONLY raw JSON matching the response schema.
-- Do NOT add fields that are not defined.
-- Do NOT include explanations or commentary outside the JSON.
-- Do NOT guess when signals are weak.
-────────────────────────────────
-FIELD DEFINITIONS & RULES
-1) playlist_primary_function
-Choose the main use-case of the playlist.
-Allowed values:
-- focus, workout, relax, sleep, commute, study, party, background, other
-
-Rules:
-- Base this on playlist name AND track patterns together.
-- Genre-only names (e.g. “Alternative”, “Rock”) do NOT imply function.
-- If no clear functional intent exists, prefer:
-  - background
-  - or other (only if none apply)
-Never force a function if signals are unclear.
-────────────────────────────────
-2) playlist_emotional_direction
-Choose the dominant emotional direction of the playlist.
-Allowed values:, calming, energizing, uplifting, melancholic, romantic, dark, nostalgic, neutral, other
-
-Rules:
-- Describe the overall emotional tone, not individual tracks.
-- Use neutral when the playlist is functional or unobtrusive.
-- Use other only if no category reasonably fits.
-
-────────────────────────────────
-### PLAYLIST NAME BIAS CONTROL (CRITICAL)
-The playlist_name is NOT the emotional label. It is only a weak hint.
-RULES:
-1) Track-derived signals MUST override playlist_name keywords.
-2) Do NOT classify "playlist_emotional_direction" from name words like: love, sad, happy, chill, party, focus, workout.
-3) If playlist_name suggests an emotion/function but the tracks disagree, choose the track-based emotion/function and LOWER confidence by one level.
-4) Only use playlist_name as a tiebreaker when track signals are genuinely ambiguous.
-────────────────────────────────
-PLAYLIST NAME INTERPRETATION RULE:
-If a playlist_name expresses personal attachment (e.g. "Loved once", "My favorites", "All time classics"),
-treat it as an indicator of playlist importance, NOT emotional direction.
-Do NOT infer romantic, nostalgic, or calming emotions unless supported by track-level signals
-────────────────────────────────
-3) playlist_language_distribution
-Estimate the language balance of the playlist.
-Rules:
-- Output as an ARRAY of objects.
-- Each object MUST have "language" (ISO-639-1 code, e.g., "en", "he", "es") and "percentage" (number, 0.0 to 1.0).
-- Percentages in the array should approximately sum to 1.0.
-- If one language dominates, use 1.0 for it.
-Examples:
-[{"language": "en", "percentage": 1.0}]
-[{"language": "he", "percentage": 0.8}, {"language": "en", "percentage": 0.2}]
-────────────────────────────────
-4) confidence
-Indicate overall confidence in your classification.
-Allowed values:, high, medium, low
-Rules:
-- high → playlist name and track composition clearly align
-- medium → partial signals or mild ambiguity
-- low → weak, mixed, or unclear signals
-
-NEVER output high confidence if:
-- The playlist name is generic
-- Signals conflict
-- The inference relies mainly on assumptions
-────────────────────────────────
-GENERAL GUIDELINES
-- Do NOT overfit to popular artists or genres.
-- Do NOT assume intent where none is clear.
-- Accuracy is more important than coverage.
-- Honest uncertainty is preferred over confident misclassification.
-When unsure:
-- Prefer background over a strong function
-- Prefer neutral over forcing emotion
-- Prefer medium or low confidence over false certainty
-────────────────────────────────
-## OUTPUT FORMAT:
-Return ONLY raw JSON matching schema:
-{
-  "analyzed_playlist_context": [
-    {
-      "origin": "PLAYLISTS",
-      "playlist_name": "<string>",
-      "playlist_creator": "<string>",
-      "playlist_track_count": <number>,
-      "playlist_primary_function": "focus | workout | relax | sleep | commute | study | party | background | other",
-      "playlist_emotional_direction": "calming | energizing | uplifting | melancholic | romantic | dark | nostalgic | neutral | other",
-      "playlist_language_distribution": [{"language": "<iso_639_1>", "percentage": 0.0}],
-      "confidence": "low | medium | high"
-    }
-  ]
-}`;
-
-      const promptInput_taskA = JSON.stringify({ TOP_50_TRACKS: topTracks }, null, 2);
-      const promptInput_taskB = JSON.stringify({ PLAYLISTS: playlists }, null, 2); // MODIFIED: pass full playlist objects
-
-      // Response schema for TASK A
-      const responseSchema_taskA = {
-        type: Type.OBJECT,
-        properties: {
-          analyzed_50_top_tracks: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                origin: { type: Type.STRING }, // NEW: origin
-                song_name: { type: Type.STRING },
-                artist_name: { type: Type.STRING },
-                semantic_tags: {
-                  type: Type.OBJECT,
-                  properties: {
-                    primary_genre: { type: Type.STRING },
-                    secondary_genres: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    energy: { type: Type.STRING },
-                    mood: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    tempo: { type: Type.STRING },
-                    vocals: { type: Type.STRING },
-                    texture: { type: Type.STRING },
-                    language: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  },
-                  required: ["primary_genre", "energy", "mood", "tempo", "vocals", "texture", "language"],
-                },
-                confidence: { type: Type.STRING },
-              },
-              required: ["origin", "song_name", "artist_name", "semantic_tags", "confidence"], // NEW: origin required
-            },
-          },
-        },
-        required: ["analyzed_50_top_tracks"],
-      };
-
-      // Response schema for TASK B
-      const responseSchema_taskB = {
-        type: Type.OBJECT,
-        properties: {
-          analyzed_playlist_context: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                origin: { type: Type.STRING }, // NEW: origin
-                playlist_name: { type: Type.STRING },
-                playlist_creator: { type: Type.STRING },
-                playlist_track_count: { type: Type.NUMBER },
-                playlist_primary_function: { type: Type.STRING },
-                playlist_emotional_direction: { type: Type.STRING },
-                playlist_language_distribution: { // MODIFIED: Changed to array of objects
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      language: { type: Type.STRING },
-                      percentage: { type: Type.NUMBER },
-                    },
-                    required: ["language", "percentage"],
-                  },
-                },
-                confidence: { type: Type.STRING },
-              },
-              required: [
-                "origin",
-                "playlist_name",
-                "playlist_creator",
-                "playlist_track_count",
-                "playlist_primary_function",
-                "playlist_emotional_direction",
-                "playlist_language_distribution",
-                "confidence",
-              ],
-            },
-          },
-        },
-        required: ["analyzed_playlist_context"],
-      };
-
-      if (isPreviewEnvironment()) {
-        addLog(`[PREVIEW MODE] Analyzing full taste profile directly (parallel calls)...`);
-        try {
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-          const [responseA, responseB] = await Promise.all([
-            ai.models.generateContent({
-              model: GEMINI_MODEL,
-              contents: promptInput_taskA,
-              config: {
-                systemInstruction: systemInstruction_taskA,
-                responseMimeType: "application/json",
-                responseSchema: responseSchema_taskA,
-                thinkingConfig: { thinkingBudget: 0 }
-              }
-            }),
-            ai.models.generateContent({
-              model: GEMINI_MODEL,
-              contents: promptInput_taskB,
-              config: {
-                systemInstruction: systemInstruction_taskB,
-                responseMimeType: "application/json",
-                responseSchema: responseSchema_taskB,
-                thinkingConfig: { thinkingBudget: 0 }
-              }
-            })
-          ]);
-
-          const parsedDataA: { analyzed_50_top_tracks: AnalyzedTopTrack[] } = JSON.parse(responseA.text);
-          const parsedDataB: { analyzed_playlist_context: AnalyzedPlaylistContextItem[] } = JSON.parse(responseB.text);
-
-          const unifiedResponse: UnifiedTasteGeminiResponse = {
-            analyzed_50_top_tracks: parsedDataA.analyzed_50_top_tracks,
-            analyzed_playlist_context: parsedDataB.analyzed_playlist_context,
-          };
-
-          addLog(`[PREVIEW MODE] Successfully analyzed full taste profile (parallel).`);
-          return unifiedResponse;
-
-        } catch (error) {
-          console.error("[PREVIEW MODE] Direct Gemini call failed (unified taste analysis - parallel):", error);
-          throw error;
-        }
-      } else {
-        // PRODUCTION MODE: SECURE PROXY CALL
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-
-        addLog(`Calling /api/analyze.mjs (unified taste) with ${playlists.length} playlists and ${topTracks.length} top tracks...`);
-        try {
-          // MODIFIED: Send playlists as objects, not flattened tracks
-          const response = await fetch('/api/analyze.mjs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'unified_taste', playlists, topTracks }), // MODIFIED: Send `playlists`
-            signal: controller.signal,
-          });
-          clearTimeout(timeoutId);
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            await handleApiKeyMissingError(response.status, errorData);
-            throw new Error(`Server error: ${errorData.error || response.statusText}`);
-          }
-          return await response.json();
-        } catch (error) {
-          clearTimeout(timeoutId);
-          console.error("Error analyzing unified user taste via proxy (parallel):", error);
-          throw error;
-        }
+    if (!response.ok) {
+      const errorBody = await response.text();
+      let errorData: any = {};
+      try {
+        errorData = JSON.parse(errorBody);
+      } catch (e) {
+        addLog(`Server response was not JSON for status ${response.status}, falling back to raw text. Raw body: "${errorBody.substring(0, 200)}..."`);
+        errorData.error = `Non-JSON response from server: ${errorBody.substring(0, 500)}`;
       }
-    };
+      throw new Error(`Server error (${response.status}): ${errorData.error || response.statusText || 'Unknown server response'}`);
+    }
+
+    const data: UnifiedTasteGeminiResponse = await response.json();
+    addLog("[Client-side] Unified Taste Analysis response received from server proxy.");
+    return data;
+
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    console.error("Unified Taste Analysis failed through proxy:", error);
+    addLog(`Unified Taste Analysis failed through proxy: ${error.message}`);
+    return { error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' };
+  }
+};
