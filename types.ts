@@ -4,53 +4,157 @@ export interface AiVibeEstimate {
   genre_hint: string;  // e.g. "Synth-pop"
 }
 
-// NEW: Improved Schema Interfaces
+// NEW: Interface for per-attribute confidence (low|medium|high)
+export type ConfidenceLevel = "low" | "medium" | "high";
+
+// NEW: Audio Physics attributes with per-attribute confidence
+export interface AudioPhysics {
+  energy_level: "low" | "low_medium" | "medium" | "medium_high" | "high";
+  energy_confidence: ConfidenceLevel;
+  tempo_feel: "slow" | "mid" | "fast";
+  tempo_confidence: ConfidenceLevel;
+  vocals_type: "instrumental" | "sparse" | "lead_vocal" | "harmonies" | "choral" | "background_vocal"; // Expanded enum
+  vocals_confidence: ConfidenceLevel;
+  texture_type: "organic" | "acoustic" | "electric" | "synthetic" | "hybrid" | "ambient"; // Expanded enum
+  texture_confidence: ConfidenceLevel;
+  danceability_hint: "low" | "medium" | "high"; // New dimension
+  danceability_confidence: ConfidenceLevel;
+}
+
+// REMOVED: Mood Analysis structure with 3 axes and confidence (now flattened into SemanticTags)
+// export interface MoodAnalysis {
+//   emotional_tags: string[];
+//   emotional_confidence: ConfidenceLevel;
+//   cognitive_tags: string[];
+//   cognitive_confidence: ConfidenceLevel;
+//   somatic_tags: string[];
+//   somatic_confidence: ConfidenceLevel;
+//   language_iso_639_1: string; // Changed to string for single primary language
+//   language_confidence: ConfidenceLevel;
+// }
+
+// NEW: Semantic Tags structure (refined and flattened)
 export interface SemanticTags {
   primary_genre: string;
+  primary_genre_confidence: ConfidenceLevel;
   secondary_genres: string[];
-  energy: string; // "low" | "medium" | "high" | "explosive"
-  mood: string[]; 
-  tempo: string; // "slow" | "mid" | "fast"
-  vocals: string; // "instrumental" | "lead_vocal" | "choral"
-  texture: string; // "organic" | "electric" | "synthetic"
-  language?: string[]; // NEW: ISO 639-1 language codes (e.g., ['en', 'he'])
+  secondary_genres_confidence: ConfidenceLevel;
+  // Flattened mood analysis properties
+  emotional_tags: string[];
+  emotional_confidence: ConfidenceLevel;
+  cognitive_tags: string[];
+  cognitive_confidence: ConfidenceLevel;
+  somatic_tags: string[];
+  somatic_confidence: ConfidenceLevel;
+  language_iso_639_1: string;
+  language_confidence: ConfidenceLevel;
 }
 
-export interface AnalyzedTopTrack { // Renamed from AnalyzedTrack
-  origin: "TOP_50_TRACKS_LIST"; // NEW
+export interface AnalyzedTopTrack { 
+  origin: "TOP_50_TRACKS_LIST"; 
   song_name: string;
   artist_name: string;
-  semantic_tags: SemanticTags;
-  confidence: string; // "low" | "medium" | "high"
+  audio_physics: AudioPhysics; // NEW: Split out audio physics
+  semantic_tags: SemanticTags; // NEW: Updated semantic tags structure (flattened mood)
+  confidence: ConfidenceLevel; // RE-INTRODUCED: Top-level overall track confidence
 }
 
-// NEW: Analyzed playlist context item for TASK B
+// NEW: Analyzed playlist context item for TASK B (No changes in this version)
 export interface AnalyzedPlaylistContextItem {
   origin: "PLAYLISTS";
   playlist_name: string;
   playlist_creator: string;
   playlist_track_count: number;
   playlist_primary_function: "focus" | "workout" | "relax" | "sleep" | "commute" | "study" | "party" | "background" | "other";
-  playlist_emotional_direction: "calming" | "energizing" | "uplifting" | "melancholic" | "romantic" | "dark" | "nostalgic" | "other";
-  playlist_language_distribution: Array<{ language: string; percentage: number; }>; // MODIFIED: Changed to array of objects
+  playlist_emotional_direction: "calming" | "energizing" | "uplifting" | "melancholic" | "romantic" | "dark" | "nostalgic" | "neutral" | "other";
+  playlist_language_distribution: Array<{ language: string; percentage: number; }>; 
   confidence: "low" | "medium" | "high";
 }
 
-// NEW: Aggregated Session Profile (Deterministically calculated)
+// NEW: Combination item for intents
+export interface IntentCombinationItem {
+  mood: string;
+  weight: number;
+  track_examples: Array<{ title: string; artist: string }>;
+}
+
+// NEW: Intent Profile Signals Structure
+export interface IntentProfileSignals {
+  intent: string;
+  confidence: ConfidenceLevel;
+  emotional_mood_combinations: IntentCombinationItem[];
+  cognitive_mood_combinations: IntentCombinationItem[];
+  somatic_mood_combinations: IntentCombinationItem[];
+  genre_hints: string[];
+  physics_constraints: {
+    energy: AudioPhysics['energy_level'];
+    danceability: AudioPhysics['danceability_hint'];
+    vocals: AudioPhysics['vocals_type'];
+    texture: AudioPhysics['texture_type'];
+    tempo: AudioPhysics['tempo_feel'];
+  };
+  track_examples: Array<{ title: string; artist: string }>;
+}
+
+// NEW: User Taste Profile v1 (Aggregated JSON)
+export interface UserTasteProfileV1 {
+  origin: "TOP_50_TRACKS_ANALYZE";
+  overall_profile_confidence: ConfidenceLevel;
+  language_profile: {
+    language_profile_distribution: Record<string, number>; // e.g. { "en": 0.0 }
+    language_profile_confidence: ConfidenceLevel;
+  };
+  audio_physics_profile: {
+    energy_bias: AudioPhysics['energy_level'];
+    tempo_bias: AudioPhysics['tempo_feel'];
+    danceability_bias: AudioPhysics['danceability_hint'];
+    vocals_bias: AudioPhysics['vocals_type'];
+    texture_bias: AudioPhysics['texture_type'];
+    audio_physics_profile_confidence: ConfidenceLevel;
+  };
+  genre_profile: {
+    primary_genres: string[];
+    secondary_genres: string[];
+    genre_profile_confidence: ConfidenceLevel;
+  };
+  emotional_mood_profile: {
+    primary: string;
+    secondary: string[];
+    distribution: Record<string, number>; // e.g. { "<mood>": 0.0 }
+    emotional_mood_profile_confidence: ConfidenceLevel;
+  };
+  cognitive_mood_profile: {
+    primary: string;
+    secondary: string[];
+    distribution: Record<string, number>;
+    cognitive_mood_profile_confidence: ConfidenceLevel;
+  };
+  somatic_mood_profile: {
+    primary: string;
+    secondary: string[];
+    distribution: Record<string, number>;
+    somatic_mood_profile_confidence: ConfidenceLevel;
+  };
+  intent_profile_signals: {
+    intents_ranked: IntentProfileSignals[];
+  };
+}
+
+
+// Existing types follow...
 export interface SessionSemanticProfile {
-  taste_profile_type: 'diverse' | 'focused'; // NEW: Logic flag for prompt engineering
+  taste_profile_type: 'diverse' | 'focused'; 
   dominant_genres: string[];
   energy_bias: string;
-  energy_distribution: Record<string, number>; // e.g. { low: 0.2, medium: 0.8 }
+  energy_distribution: Record<string, number>; 
   dominant_moods: string[];
   tempo_bias: string;
   vocals_bias: string;
   texture_bias: string;
-  artist_examples: string[]; // Top 5 weighted artists
-  language_distribution: Record<string, number>; // NEW: e.g., { "en": 0.7, "he": 0.3 }
+  artist_examples: string[]; 
+  language_distribution: Record<string, number>; 
 }
 
-// NEW: Context Object for Intent Parsing
 export interface ContextualSignals {
   local_time: string;
   day_of_week: string;
@@ -71,12 +175,11 @@ export interface Song {
   durationMs?: number;
   itunesUrl?: string;
   searchQuery: string;
-  estimatedVibe?: AiVibeEstimate; // NEW: AI Qualitative Data
+  estimatedVibe?: AiVibeEstimate; 
 }
 
-// Defines the client-side representation of a full playlist
 export interface Playlist {
-  id?: string; // Optional, might be assigned after saving to DB
+  id?: string; 
   title: string;
   mood: string;
   description: string;
@@ -86,7 +189,7 @@ export interface Playlist {
 export interface GeneratedSongRaw {
   title: string;
   artist: string;
-  estimated_vibe?: AiVibeEstimate; // NEW: Requested from Gemini
+  estimated_vibe?: AiVibeEstimate; 
 }
 
 export interface GeneratedPlaylistRaw {
@@ -101,12 +204,11 @@ export interface GeneratedTeaserRaw {
   description: string;
 }
 
-export interface GeminiResponseMetrics { // Extracted metrics interface for reuse
+export interface GeminiResponseMetrics { 
   promptBuildTimeMs: number;
   geminiApiTimeMs: number;
 }
 
-// Previously GeminiResponseWithMetrics, now part of UnifiedVibeResponse
 export interface GeminiPlaylistResponse extends GeneratedPlaylistRaw {
   promptText: string;
   metrics: GeminiResponseMetrics;
@@ -160,12 +262,6 @@ export interface SpotifyTrack {
   artists: { name: string }[];
 }
 
-// REMOVED: User Playlist Mood Analysis
-// export interface UserPlaylistMoodAnalysis {
-//   playlist_mood_category: string;
-//   confidence_score: number; // 0.0 to 1.0
-// }
-
 // NEW: Unified Taste Analysis (combines SessionSemanticProfile and AnalyzedPlaylistContextItem[])
 export interface UnifiedTasteAnalysis {
   overall_mood_category: string;
@@ -173,12 +269,19 @@ export interface UnifiedTasteAnalysis {
   session_semantic_profile: SessionSemanticProfile;
   playlist_contexts: AnalyzedPlaylistContextItem[]; // NEW
   analyzed_top_tracks?: AnalyzedTopTrack[]; // NEW: Added for itemized top track analysis
+  user_taste_profile_v1?: UserTasteProfileV1; // NEW: The aggregated taste profile v1
 }
 
 // NEW: Gemini's raw unified response for taste analysis (for two parallel calls)
 export interface UnifiedTasteGeminiResponse {
-  analyzed_50_top_tracks: AnalyzedTopTrack[];
+  analyzed_50_top_tracks: AnalyzedTopTrack[]; // MODIFIED: Type now reflects new AnalyzedTopTrack
   analyzed_playlist_context: AnalyzedPlaylistContextItem[];
+}
+
+// NEW: Error interface for UnifiedTasteGeminiResponse (to include serverErrorName)
+export interface UnifiedTasteGeminiError {
+  error: string;
+  serverErrorName?: string;
 }
 
 export interface UserTasteProfile {
