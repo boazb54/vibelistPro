@@ -1,3 +1,4 @@
+
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -20,18 +21,6 @@ export interface AudioPhysics {
   danceability_hint: "low" | "medium" | "high"; // New dimension
   danceability_confidence: ConfidenceLevel;
 }
-
-// REMOVED: Mood Analysis structure with 3 axes and confidence (now flattened into SemanticTags)
-// export interface MoodAnalysis {
-//   emotional_tags: string[];
-//   emotional_confidence: ConfidenceLevel;
-//   cognitive_tags: string[];
-//   cognitive_confidence: ConfidenceLevel;
-//   somatic_tags: string[];
-//   somatic_confidence: ConfidenceLevel;
-//   language_iso_639_1: string; // Changed to string for single primary language
-//   language_confidence: ConfidenceLevel;
-// }
 
 // NEW: Semantic Tags structure (refined and flattened)
 export interface SemanticTags {
@@ -56,10 +45,10 @@ export interface AnalyzedTopTrack {
   artist_name: string;
   audio_physics: AudioPhysics; // NEW: Split out audio physics
   semantic_tags: SemanticTags; // NEW: Updated semantic tags structure (flattened mood)
-  confidence: ConfidenceLevel; // RE-INTRODUCED: Top-level overall track confidence
+  // REMOVED: Top-level overall track confidence
 }
 
-// NEW: Analyzed playlist context item for TASK B (No changes in this version)
+// NEW: Analyzed playlist context item for TASK B
 export interface AnalyzedPlaylistContextItem {
   origin: "PLAYLISTS";
   playlist_name: string;
@@ -71,14 +60,14 @@ export interface AnalyzedPlaylistContextItem {
   confidence: "low" | "medium" | "high";
 }
 
-// NEW: Combination item for intents
+// NEW: Combination item for intents (for UserTasteProfileV1)
 export interface IntentCombinationItem {
   mood: string;
   weight: number;
   track_examples: Array<{ title: string; artist: string }>;
 }
 
-// NEW: Intent Profile Signals Structure
+// NEW: Intent Profile Signals Structure (for UserTasteProfileV1)
 export interface IntentProfileSignals {
   intent: string;
   confidence: ConfidenceLevel;
@@ -274,7 +263,7 @@ export interface UnifiedTasteAnalysis {
 
 // NEW: Gemini's raw unified response for taste analysis (for two parallel calls)
 export interface UnifiedTasteGeminiResponse {
-  analyzed_50_top_tracks: AnalyzedTopTrack[]; // MODIFIED: Type now reflects new AnalyzedTopTrack
+  analyzed_top_50_tracks: AnalyzedTopTrack[]; // MODIFIED: Type now reflects new AnalyzedTopTrack
   analyzed_playlist_context: AnalyzedPlaylistContextItem[];
 }
 
