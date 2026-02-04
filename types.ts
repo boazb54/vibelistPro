@@ -320,15 +320,6 @@ export interface AggregatedPlaylist {
   tracks: string[]; // Array of "Song by Artist" strings
 }
 
-// NEW: Props for AdminDataInspector component
-export interface AdminDataInspectorProps {
-  isOpen: boolean;
-  onClose: () => void;
-  userTaste: UserTasteProfile | null;
-  aggregatedPlaylists: AggregatedPlaylist[];
-  debugLogs: string[];
-}
-
 // V1.2.0: Vibe Validation Gate Types
 export type VibeValidationStatus = 'VIBE_VALID' | 'VIBE_INVALID_GIBBERISH' | 'VIBE_INVALID_OFF_TOPIC';
 
