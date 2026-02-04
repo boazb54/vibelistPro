@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -149,23 +150,17 @@ Use: low | medium | high
 - **low:** weak evidence, uncommon track, or you’re guessing.
 
 ──────────────────────────────
-## Overall Track Confidence ##
-───────────────────────────────
-In addition to per-attribute confidences, also provide a single \`confidence\` score for the entire track's overall analysis (low | medium | high). This reflects your general certainty about the composite assessment of the track.
-
-──────────────────────────────
 ## OUTPUT FORMAT RULES ##
 ───────────────────────────────
 Return ONLY raw JSON matching this schema exactly. Do NOT add extra keys or explanations.
 Use lowercase for genres and tags. If unknown, use minimal empty lists or default "und" with low confidence.
 
 {
-  "analyzed_50_top_tracks": [
+  "analyzed_top_50_tracks": [
     {
       "origin": "TOP_50_TRACKS_LIST",
       "song_name": "<string>",
       "artist_name": "<string>",
-      "confidence": "low|medium|high",
 
       "audio_physics": {
         "energy_level": "low|low_medium|medium|medium_high|high",
@@ -324,7 +319,7 @@ Return ONLY raw JSON matching schema:
         const responseSchema_taskA = {
           type: Type.OBJECT,
           properties: {
-            analyzed_50_top_tracks: {
+            analyzed_top_50_tracks: { // Renamed from analyzed_50_top_tracks
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
@@ -332,12 +327,10 @@ Return ONLY raw JSON matching schema:
                   origin: { type: Type.STRING },
                   song_name: { type: Type.STRING },
                   artist_name: { type: Type.STRING },
-                  // Corrected to use Type.STRING for confidence levels
-                  confidence: { type: Type.STRING }, // Top-level track confidence
+                  // REMOVED: Top-level track confidence
                   audio_physics: {
                     type: Type.OBJECT,
                     properties: {
-                      // Corrected to use Type.STRING for these properties
                       energy_level: { type: Type.STRING },
                       energy_confidence: { type: Type.STRING },
                       tempo_feel: { type: Type.STRING },
@@ -360,7 +353,6 @@ Return ONLY raw JSON matching schema:
                   semantic_tags: {
                     type: Type.OBJECT,
                     properties: {
-                      // Corrected to use Type.STRING for these properties
                       primary_genre: { type: Type.STRING },
                       primary_genre_confidence: { type: Type.STRING },
                       secondary_genres: { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -384,11 +376,11 @@ Return ONLY raw JSON matching schema:
                     ],
                   },
                 },
-                required: ["origin", "song_name", "artist_name", "confidence", "audio_physics", "semantic_tags"],
+                required: ["origin", "song_name", "artist_name", "audio_physics", "semantic_tags"], // Removed "confidence"
               },
             },
           },
-          required: ["analyzed_50_top_tracks"],
+          required: ["analyzed_top_50_tracks"], // Renamed from analyzed_50_top_tracks
         };
 
         // Response schema for TASK B
@@ -404,10 +396,9 @@ Return ONLY raw JSON matching schema:
                   playlist_name: { type: Type.STRING },
                   playlist_creator: { type: Type.STRING },
                   playlist_track_count: { type: Type.NUMBER },
-                  // Corrected to use Type.STRING for these properties
                   playlist_primary_function: { type: Type.STRING },
                   playlist_emotional_direction: { type: Type.STRING },
-                  playlist_language_distribution: { // MODIFIED: Changed to array of objects
+                  playlist_language_distribution: {
                     type: Type.ARRAY,
                     items: {
                       type: Type.OBJECT,
@@ -418,7 +409,6 @@ Return ONLY raw JSON matching schema:
                       required: ["language", "percentage"],
                     },
                   },
-                  // Corrected to use Type.STRING for confidence
                   confidence: { type: Type.STRING },
                 },
                 required: [
@@ -540,7 +530,7 @@ Return ONLY raw JSON matching schema:
           const parsedDataB = JSON.parse(geminiResponseTextB.replace(/```json|```/g, '').trim());
 
           const unifiedResponse = {
-            analyzed_50_top_tracks: parsedDataA.analyzed_50_top_tracks,
+            analyzed_top_50_tracks: parsedDataA.analyzed_top_50_tracks, // Renamed
             analyzed_playlist_context: parsedDataB.analyzed_playlist_context,
           };
 
