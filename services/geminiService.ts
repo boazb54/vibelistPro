@@ -1,29 +1,42 @@
 import {
   GeneratedPlaylistRaw, AnalyzedTopTrack, ContextualSignals, UserTasteProfile, GeneratedTeaserRaw, VibeValidationResponse, UnifiedVibeResponse, GeminiResponseMetrics,
   UnifiedTasteAnalysis,
-  // UnifiedTasteGeminiResponse, // Removed, as we now return a partial structure
+  UnifiedTasteGeminiResponse,
   TranscriptionResult,
   TranscriptionStatus,
   TranscriptionRequestMeta,
-  AggregatedPlaylist,
-  // AnalyzedPlaylistContextItem, // Removed, as this is part of Task B
-  UnifiedTasteGeminiError,
+  AggregatedPlaylist, // NEW: Import AggregatedPlaylist
+  AnalyzedPlaylistContextItem, // NEW: Import AnalyzedPlaylistContextItem
+  UnifiedTasteGeminiError, // NEW: Import UnifiedTasteGeminiError
 } from "../types";
-import { GEMINI_MODEL } from "../constants";
+// REMOVED: GoogleGenAI, Type, HarmCategory, HarmBlockThreshold are no longer imported here as Gemini calls are proxied.
+// import { GoogleGenAI, Type, GenerateContentResponse, HarmCategory, HarmBlockThreshold } from "@google/genai";
+import { GEMINI_MODEL } from "../constants"; // Use the global model constant
 
 declare const addLog: (message: string) => void;
 
 const API_REQUEST_TIMEOUT_MS = 60 * 1000;
 const BILLING_DOCS_URL = "ai.google.dev/gemini-api/docs/billing";
-const ACOUSTIC_DURATION_THRESHOLD_MS = 800;
+const ACOUSTIC_DURATION_THRESHOLD_MS = 800; // Minimum duration for valid speech signal
 
+// NEW: Constant for transcription prompt text, consistent with server.
 const TRANSCRIPTION_PROMPT_TEXT = "Transcribe the following audio exactly as spoken. Do not translate it. Return only the transcription text, no preamble.";
 
 
+/**
+ * Classifies raw Gemini transcription output into 'ok', 'no_speech', or 'error'.
+ * This function enforces the transcription contract on the client-side for preview environment.
+ * It now includes a two-factor gate: acoustic signals (duration, speech detected) and text quality.
+ * @param {string} rawText - The raw text received from the Gemini API.
+ * @param {string} promptTextSentToModel - The exact prompt text that was sent to the Gemini API for transcription.
+ * @param {TranscriptionRequestMeta} acousticMetadata - Acoustic signals from the client.
+ * @returns {TranscriptionResult} - Structured transcription result.
+ */
 function classifyTranscription(rawText: string, promptTextSentToModel: string, acousticMetadata: TranscriptionRequestMeta): TranscriptionResult {
   const trimmedText = rawText.trim();
   const lowerCaseTrimmedText = trimmedText.toLowerCase();
 
+  // v2.2.4 - FACTOR A: ACOUSTIC SIGNAL CHECK
   const acousticFactorA_pass = acousticMetadata.speechDetected && acousticMetadata.durationMs >= ACOUSTIC_DURATION_THRESHOLD_MS;
 
   if (!acousticFactorA_pass) {
@@ -31,14 +44,17 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string, a
     return { status: 'no_speech', reason: "No sufficient speech signal detected in the audio." };
   }
 
+  // If Acoustic Factor A passes, proceed to FACTOR B (Text Quality Checks)
+  // Condition 1: Empty or whitespace
   if (trimmedText === "") {
     addLog("[Client-classify] Text Factor B failed: Empty or whitespace output. Returning 'no_speech'.");
     return { status: 'no_speech', reason: "No discernible speech detected in the audio." };
   }
 
+  // Condition 2: Prompt-echoing or explicit 'no speech' phrases from Gemini
   const lowerCasePrompt = promptTextSentToModel.toLowerCase().trim();
 
-  if (lowerCaseTrimmedText === lowerCasePrompt ||
+  if (lowerCaseTrimmedText === lowerCasePrompt || // Exact echo of the prompt
       lowerCaseTrimmedText.includes("i cannot transcribe") ||
       lowerCaseTrimmedText.includes("no discernible speech") ||
       lowerCaseTrimmedText.includes("there was no speech detected") ||
@@ -51,15 +67,18 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string, a
     return { status: 'no_speech', reason: "No clear speech detected in the audio." };
   }
 
+  // NEW Condition 3 (v2.2.3): Non-speech event filtering
   const eventTokenRegex = /\[.*?\]/g;
   const hasEventTokens = eventTokenRegex.test(trimmedText);
   const textWithoutEventTokens = trimmedText.replace(eventTokenRegex, '').trim();
 
+  // Check 3.1: Output consists ONLY of event markers
   if (trimmedText.length > 0 && textWithoutEventTokens.length === 0 && hasEventTokens) {
       addLog("[Client-classify] Text Factor B failed: Output consists only of event markers. Returning 'no_speech'.");
       return { status: 'no_speech', reason: "No speech detected. Only environmental sounds or non-linguistic events." };
   }
 
+  // Check 3.2: Output is dominated by bracketed tokens (more than 50% of non-whitespace characters)
   const allNonWhitespaceLength = trimmedText.replace(/\s/g, '').length;
   const eventTokenStrippedLength = textWithoutEventTokens.replace(/\s/g, '').length;
   const lengthOfEventTokens = allNonWhitespaceLength - eventTokenStrippedLength;
@@ -69,12 +88,15 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string, a
       return { status: 'no_speech', reason: "No clear speech detected. Input appears to be mostly environmental sounds or non-linguistic events." };
   }
 
-  const repetitiveNonLexicalRegex = /(uh|um|mm|ah|oh)\s*(\1\s*){1,}/i;
+  // Check 3.3: Repetitive non-lexical markers (e.g., "uh uh uh", "mmm mmm")
+  const repetitiveNonLexicalRegex = /(uh|um|mm|ah|oh)\s*(\1\s*){1,}/i; // Detects "uh uh uh", "um um um", etc.
   if (repetitiveNonLexicalRegex.test(lowerCaseTrimmedText)) {
       addLog("[Client-classify] Text Factor B failed: Repetitive non-lexical markers detected. Returning 'no_speech'.");
       return { status: 'no_speech', reason: "No clear speech detected. Input contains repetitive non-linguistic sounds." };
   }
 
+  // Check 3.4: Very short, non-linguistic input (e.g., just "uh", "mm", or single sounds)
+  // This covers "Output length is below a meaningful speech threshold" and "No linguistic sentence structure" if combined with other checks
   const words = textWithoutEventTokens.split(/\s+/).filter(Boolean);
   if (trimmedText.length < 5 && words.length < 2) {
     const commonFillers = ['uh', 'um', 'mm', 'oh', 'ah', 'er', 'hm'];
@@ -84,6 +106,7 @@ function classifyTranscription(rawText: string, promptTextSentToModel: string, a
     }
   }
 
+  // Final Condition: Otherwise, it's valid speech (both Factor A and Factor B passed)
   addLog("[Client-classify] Transcription classified as 'ok'.");
   return { status: 'ok', text: rawText };
 }
@@ -96,6 +119,11 @@ export const generatePlaylistFromMood = async (
   excludeSongs?: string[]
 ): Promise<UnifiedVibeResponse> => {
   const t_prompt_start = performance.now();
+
+  // --- STAGE 1: Client-side prompt construction for Gemini ---
+  // The system instruction for the /api/vibe.mjs endpoint (server-side) will handle
+  // the validation and teaser generation internally based on isAuthenticated flag.
+  // Here, we just build the raw JSON payload for Gemini to process.
 
    const promptText = JSON.stringify({
       user_target: { query: mood, modality: contextSignals.input_modality },
@@ -118,6 +146,7 @@ export const generatePlaylistFromMood = async (
   }, null, 2);
   const promptBuildTimeMs = Math.round(performance.now() - t_prompt_start);
 
+    // --- PRODUCTION MODE: SECURE PROXY CALL ---
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
     addLog(`Calling /api/vibe.mjs with mood "${mood}" (Authenticated: ${isAuthenticated})...`);
@@ -205,25 +234,27 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, aco
 };
 
 // MODIFIED: analyzeFullTasteProfile now calls the server-side /api/analyze.mjs endpoint
-// and expects ONLY AnalyzedTopTrack[] in the response for v2.4.1
 export const analyzeFullTasteProfile = async (
-  playlists: AggregatedPlaylist[], // Still accepting this, but won't be sent for Task A only
+  playlists: AggregatedPlaylist[],
   topTracks: string[]
-): Promise<{ analyzed_50_top_tracks: AnalyzedTopTrack[] } | UnifiedTasteGeminiError> => { // UPDATED RETURN TYPE
-  if (!topTracks || topTracks.length === 0) { // Only checking topTracks as playlists are ignored for this API call
-    addLog("Skipping full taste profile analysis: No top tracks provided.");
-    return { error: "No top tracks to analyze" };
+): Promise<UnifiedTasteGeminiResponse | UnifiedTasteGeminiError> => {
+  if ((!playlists || playlists.length === 0) && (!topTracks || topTracks.length === 0)) {
+    addLog("Skipping full taste profile analysis: No tracks or playlist data provided.");
+    return { error: "No tracks or playlist data to analyze" };
   }
+
+  // Removed: Direct GoogleGenAI client initialization and API_KEY access.
+  // This function now acts as a client-side proxy to the /api/analyze.mjs endpoint.
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
-  addLog(`Calling /api/analyze.mjs for Task A taste analysis...`);
+  addLog(`Calling /api/analyze.mjs for unified taste analysis...`);
 
   try {
     const response = await fetch('/api/analyze.mjs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'unified_taste', topTracks }), // Only send topTracks to the server proxy
+      body: JSON.stringify({ type: 'unified_taste', topTracks, playlists }), // Pass data to the server proxy
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -240,14 +271,14 @@ export const analyzeFullTasteProfile = async (
       throw new Error(`Server error (${response.status}): ${errorData.error || response.statusText || 'Unknown server response'}`);
     }
 
-    const data: { analyzed_50_top_tracks: AnalyzedTopTrack[] } = await response.json(); // UPDATED EXPECTED DATA STRUCTURE
-    addLog("[Client-side] Task A Taste Analysis response received from server proxy.");
+    const data: UnifiedTasteGeminiResponse = await response.json();
+    addLog("[Client-side] Unified Taste Analysis response received from server proxy.");
     return data;
 
   } catch (error: any) {
     clearTimeout(timeoutId);
-    console.error("Task A Taste Analysis failed through proxy:", error);
-    addLog(`Task A Taste Analysis failed through proxy: ${error.message}`);
+    console.error("Unified Taste Analysis failed through proxy:", error);
+    addLog(`Unified Taste Analysis failed through proxy: ${error.message}`);
     return { error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' };
   }
 };
