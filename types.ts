@@ -297,7 +297,7 @@ export interface UnifiedTasteAnalysis {
   overall_mood_confidence: number;
   session_semantic_profile: SessionSemanticProfile;
   playlist_contexts: AnalyzedPlaylistContextItem[]; // NEW
-  analyzed_top_tracks?: RawAnalyzedTopTrack[]; // MODIFIED: For itemized raw top track analysis
+  // REMOVED: analyzed_top_tracks?: RawAnalyzedTopTrack[]; // MODIFIED: For itemized raw top track analysis
   user_taste_profile_v1?: UserTasteProfileV1; // NEW: The aggregated taste profile v1
 }
 
