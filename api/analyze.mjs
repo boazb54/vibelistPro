@@ -163,16 +163,16 @@ Use lowercase for genres and tags. If unknown, use minimal empty lists or defaul
       "confidence": "low|medium|high",
 
       "audio_physics": {
-        "energy_level": "low|low_medium|medium|medium_high|high",
+        "energy_level": "low|medium|high|explosive"
         "energy_confidence": "low|medium|high",
 
         "tempo_feel": "slow|mid|fast",
         "tempo_confidence": "low|medium|high",
 
-        "vocals_type": "instrumental|sparse|lead_vocal|harmonies|choral|background_vocal",
+        "vocals_type": "instrumental|lead_vocal|choral"
         "vocals_confidence": "low|medium|high",
 
-        "texture_type": "organic|acoustic|electric|synthetic|hybrid|ambient",
+        "texture_type": "organic|electric|synthetic"
         "texture_confidence": "low|medium|high",
 
         "danceability_hint": "low|medium|high",
