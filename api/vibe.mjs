@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 
 // --- START: VERY EARLY DIAGNOSTIC LOGS (v1.2.7) ---
@@ -230,7 +229,7 @@ RULES:
         isFullPlaylistGeneration = true;
         
         // Point 1: Parse `top_50_tracks_anchors` and `unified_taste_profile` from `promptText`
-        const parsedPrompt = JSON.parse(promptText);
+        const parsedPrompt = JSON.parse(promptText.toString()); // Convert promptText to string before parsing
         const extractedTopTracks = parsedPrompt.taste_bias?.top_50_tracks_anchors || [];
         const unifiedTasteProfile = parsedPrompt.unified_taste_profile || null; // NEW: Extract UserTasteProfileV1
 
@@ -257,10 +256,10 @@ RULES:
 
           **Integration Strategy:**
           1. Directly parse and understand the entire `` `unified_taste_profile` `` object.
-          2. When matching the user's `` `query` ``, cross-reference with `` `intent_profile_signals.intents_ranked` `` to identify the most relevant intent(s).
+          2. When matching the user's `` `query` ``, cross-reference with `` `unified_taste_profile.intent_profile_signals.intents_ranked` `` to identify the most relevant intent(s).
           3. Apply the `` `physics_constraints` `` from the matched intent(s) as primary filtering criteria for songs.
           4. Use the `` `genre_hints` `` to guide genre selection *within* the physics constraints.
-          5. Fallback to `` `audio_physics_profile` `` and `` `genre_profile` `` for general stylistic tendencies if specific intent signals are weak.
+          5. Fallback to `` `unified_taste_profile.audio_physics_profile` `` and `` `unified_taste_profile.genre_profile` `` for general stylistic tendencies if specific intent signals are weak.
           
           ### 2. TEMPORAL + LINGUISTIC POLARITY & INTENT DECODING (CRITICAL LOGIC) Determine whether the user describes a **PROBLEM** (needs fixing) or a **GOAL** (needs matching). **SCENARIO: User expresses fatigue ("tired", "low energy", "חסר אנרגיות")** *   **IF user explicitly requests sleep/relaxation:** *   → GOAL: Matching (Sleep/Calm) *   → Ignore time. *   **ELSE IF local_time is Morning/Afternoon (06:00–17:00):** *   → GOAL: Gentle Energy Lift (Compensation). *   → AUDIO PHYSICS: - Energy: Low → Medium. - Tempo: Slow → Mid. - Rhythm: Present but soft. - No ambient drones. No heavy drops. *   **ELSE IF local_time is Evening/Night (20:00–05:00):** *   → GOAL: Relaxation / Sleep. *   → AUDIO PHYSICS: - Constant low energy. - Slow tempo. - Ambient / minimal. - No drums. **RULE: "Waking up" ≠ "Sleep"** *   Waking up requires dynamic rising energy. *   Sleep requires static low energy. ### 3. "TITLE BIAS" WARNING **NEVER** infer a song's vibe from its title. - A song named "Pure Bliss" might be a high-energy Trance track (Bad for sleep). - A song named "Violent" might be a slow ballad (Good for sleep). - **Judge the Audio, Not the Metadata.** ### 4. LANGUAGE & FORMATTING RULES (NEW & CRITICAL) 1. **Language Mirroring:** If the user types in Hebrew/Spanish/etc., write the 'playlist_title' and 'description' in that **SAME LANGUAGE**. 2. **Metadata Exception:** Keep 'songs' metadata (Song Titles and Artist Names) in their original language (English/International). Do not translate them. 3. **Conciseness:** The 'description' must be **under 20 words**. Short, punchy, and evocative. ### 5. NEGATIVE EXAMPLES (LEARN FROM THESE ERRORS) *   **User Intent:** Sleep / Waking Up *   **User Taste:** Pop, EDM (e.g., Alan Walker, Calvin Harris) *   🔴 **BAD SELECTION:** "Alone" by Alan Walker. *   *Why:* Lyrically sad, but physically high energy (EDM drops, synth leads). *   🟢 **GOOD SELECTION:** "Faded (Restrung)" by Alan Walker or "Ambient Mix" by similar artists. *   *Why:* Matches taste but strips away the drums/energy to fit the physics of sleep. ### OUTPUT FORMAT Return the result as raw, valid JSON only. Do not use Markdown formatting. Use this exact JSON structure for your output: { "playlist_title": "Creative Title (Localized)", "mood": "The mood requested", "description": "Short description (<20 words, Localized)", "songs": [ { "title": "Song Title (Original Language)", "artist": "Artist Name (Original Language)", "estimated_vibe": { "energy": "Low" | "Medium" | "High" | "Explosive", "mood": "Adjective (e.g. Uplifting, Melancholic)", "genre_hint": "Specific Sub-genre" } } ] } CRITICAL RULES: 1. Pick 15 songs. 2. The songs must be real and findable on Spotify/iTunes. 3. If "Exclusion List" is provided: Do NOT include any of the songs listed. 4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel.`;
         geminiContent = promptText; // Use the rich promptText from the client for full generation
