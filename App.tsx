@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -10,13 +11,15 @@ import PostSavePopup from './components/PostSavePopup';
 import { BurgerIcon } from './components/Icons'; 
 import { 
   Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse,
-  UnifiedTasteAnalysis, UnifiedTasteGeminiResponse 
+  // UnifiedTasteGeminiResponse, // Removed as server now returns partial
+  UnifiedTasteAnalysis, // Keep UnifiedTasteAnalysis for client-side construction
+  AnalyzedTopTrack // Imported to correctly type the partial response
 } from './types';
 import { 
   generatePlaylistFromMood, 
   analyzeFullTasteProfile, 
 } from './services/geminiService';
-import { aggregateSessionData } from './services/dataAggregator';
+// import { aggregateSessionData } from './services/dataAggregator'; // REMOVED: Bypass dataAggregator.ts for v2.4.1
 import { fetchSongMetadata } from './services/itunesService';
 import { 
   getLoginUrl, 
@@ -232,19 +235,23 @@ const App: React.FC = () => {
           const cachedUnifiedAnalysis = await storageService.getItem('user_unified_analysis');
           const cachedLastAnalyzedAt = await storageService.getItem('user_taste_analyzed_at');
 
+          // For v2.4.1, we are bypassing full aggregation on the client side for Task A validation.
+          // This cache logic is therefore simplified to check for raw Task A results if the aggregation is skipped.
+          // In a future release (Release 2), this would need to handle a fully aggregated UnifiedTasteAnalysis.
           if (cachedUnifiedAnalysis && cachedLastAnalyzedAt) {
               const parsedAnalysis: UnifiedTasteAnalysis = JSON.parse(cachedUnifiedAnalysis);
               const loadedTaste: UserTasteProfile = {
-                  topArtists: [], // These are not stored in unified_analysis
-                  topGenres: [],  // These are not stored in unified_analysis
-                  topTracks: [],  // These are not stored in unified_analysis
+                  topArtists: [], 
+                  topGenres: [],  
+                  topTracks: [],  
                   unified_analysis: parsedAnalysis,
+                  // Fix: Corrected typo from cachedLastAnalyAnalyzedAt to cachedLastAnalyzedAt
                   last_analyzed_at: cachedLastAnalyzedAt,
               };
               setUserTaste(loadedTaste);
-              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+              saveUserProfile(profile, null);
               addLog("[Client-side Taste Cache] Unified analysis loaded from local storage. Skipping Gemini API call.");
-              return; // Exit early as we have cached data
+              return; 
           }
 
           addLog("[Wave 1: Spotify Data Acquisition] Initiating concurrent data acquisition...");
@@ -255,7 +262,7 @@ const App: React.FC = () => {
           ]);
 
           let taste: UserTasteProfile | null = null;
-          let aggregatedPlaylists: AggregatedPlaylist[] = [];
+          let aggregatedPlaylists: AggregatedPlaylist[] = []; // Kept for consistency, but not sent to API for v2.4.1 analyze call
 
           if (tasteResult.status === 'fulfilled' && tasteResult.value) {
             taste = tasteResult.value;
@@ -268,49 +275,71 @@ const App: React.FC = () => {
             addLog(`[Wave 1: Spotify] Playlists acquired successfully. Hydrated ${aggregatedPlaylists.length} playlists.`);
           }
 
-          if (!taste || (taste.topTracks.length === 0 && aggregatedPlaylists.length === 0)) {
-             addLog("[Wave 1: Spotify] No meaningful taste data available for AI analysis. Saving profile without analysis.");
-             saveUserProfile(profile, null); // Only save profile to DB
+          if (!taste || (taste.topTracks.length === 0)) { // Only check topTracks as Task A is the focus
+             addLog("[Wave 1: Spotify] No meaningful top tracks data available for AI analysis. Saving profile without analysis.");
+             saveUserProfile(profile, null);
              setUserTaste(null);
              return;
           }
 
-          addLog("[Wave 2: Gemini] Initiating unified AI taste analysis...");
+          addLog("[Wave 2: Gemini] Initiating Task A AI taste analysis...");
           
-          if (taste.topTracks.length > 0 || aggregatedPlaylists.length > 0) {
+          if (taste.topTracks.length > 0) { // Only checking topTracks for Task A
             try {
-              const unifiedGeminiResponse: UnifiedTasteGeminiResponse | { error: string } = await analyzeFullTasteProfile(aggregatedPlaylists, taste.topTracks);
+              // UPDATED: analyzeFullTasteProfile now returns only analyzed_50_top_tracks for v2.4.1
+              const geminiApiResponse: { analyzed_50_top_tracks: AnalyzedTopTrack[] } | { error: string } = await analyzeFullTasteProfile(aggregatedPlaylists, taste.topTracks);
               
-              if ('error' in unifiedGeminiResponse) {
-                throw new Error(unifiedGeminiResponse.error);
+              if ('error' in geminiApiResponse) {
+                throw new Error(geminiApiResponse.error);
               }
 
-              addLog(`[Wave 2: Gemini] Unified Taste Analysis successful. Processing session fingerprint...`);
-              const unifiedAnalysis: UnifiedTasteAnalysis = aggregateSessionData(unifiedGeminiResponse);
+              addLog(`[Wave 2: Gemini] Task A Taste Analysis successful. Constructing minimal session fingerprint...`);
+              
+              // V2.4.1 DIRECTIVE: Bypass aggregateSessionData() and directly construct UnifiedTasteAnalysis
+              const unifiedAnalysis: UnifiedTasteAnalysis = {
+                  overall_mood_category: "Not fully aggregated (v2.4.1 Task A)",
+                  overall_mood_confidence: 0,
+                  session_semantic_profile: { // Minimal placeholder to satisfy type
+                      taste_profile_type: 'diverse',
+                      dominant_genres: [],
+                      energy_bias: 'unknown',
+                      energy_distribution: { low: 0, medium: 0, high: 0 },
+                      dominant_moods: [],
+                      tempo_bias: 'unknown',
+                      vocals_bias: 'unknown',
+                      texture_bias: 'unknown',
+                      artist_examples: [],
+                      language_distribution: {},
+                  },
+                  playlist_contexts: [], // Empty as Task B is not processed in this release
+                  analyzed_top_tracks: geminiApiResponse.analyzed_50_top_tracks, // This is the core Task A data
+                  user_taste_profile_v1: undefined, // Not part of v2.4.1
+              };
+
               const currentTimestamp = new Date().toISOString();
               
               const enhancedTaste: UserTasteProfile = {
                   ...taste,
                   unified_analysis: unifiedAnalysis,
-                  last_analyzed_at: currentTimestamp, // Store the timestamp
+                  last_analyzed_at: currentTimestamp,
               };
 
               // Persist to client-side storage
               await storageService.setItem('user_unified_analysis', JSON.stringify(unifiedAnalysis));
               await storageService.setItem('user_taste_analyzed_at', currentTimestamp);
-              addLog("[Client-side Taste Cache] Unified analysis saved to local storage.");
+              addLog("[Client-side Taste Cache] Unified analysis saved to local storage (v2.4.1 Task A only).");
 
-              addLog(">>> UNIFIED SESSION SEMANTIC PROFILE GENERATED <<<");
+              addLog(">>> UNIFIED SESSION SEMANTIC PROFILE GENERATED (Task A Only) <<<");
               setUserTaste(enhancedTaste);
               saveUserProfile(profile, null); // Only save profile to DB, not taste data
             } catch (geminiError: any) {
-              addLog(`[Wave 2: Gemini] Unified Taste Analysis failed: ${geminiError.message || 'Unknown error'}`);
-              console.warn("Unified Gemini analysis failed", geminiError);
+              addLog(`[Wave 2: Gemini] Task A Taste Analysis failed: ${geminiError.message || 'Unknown error'}`);
+              console.warn("Task A Gemini analysis failed", geminiError);
               setUserTaste(taste);
               saveUserProfile(profile, null); // Only save profile to DB, not taste data
             }
           } else {
-            addLog("[Wave 2: Gemini] Skipping unified analysis: No track or playlist data available.");
+            addLog("[Wave 2: Gemini] Skipping Task A analysis: No top track data available.");
             setUserTaste(taste);
             saveUserProfile(profile, null); // Only save profile to DB, not taste data
           }
