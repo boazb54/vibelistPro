@@ -1,5 +1,3 @@
-
-
 export interface AiVibeEstimate {
   energy: string;      // e.g. "High", "Chill", "Medium"
   mood: string;        // e.g. "Uplifting", "Melancholic"
@@ -22,6 +20,18 @@ export interface AudioPhysics {
   danceability_hint: "low" | "medium" | "high"; // New dimension
   danceability_confidence: ConfidenceLevel;
 }
+
+// REMOVED: Mood Analysis structure with 3 axes and confidence (now flattened into SemanticTags)
+// export interface MoodAnalysis {
+//   emotional_tags: string[];
+//   emotional_confidence: ConfidenceLevel;
+//   cognitive_tags: string[];
+//   cognitive_confidence: ConfidenceLevel;
+//   somatic_tags: string[];
+//   somatic_confidence: ConfidenceLevel;
+//   language_iso_639_1: string; // Changed to string for single primary language
+//   language_confidence: ConfidenceLevel;
+// }
 
 // NEW: Semantic Tags structure (refined and flattened)
 export interface SemanticTags {
@@ -46,10 +56,10 @@ export interface AnalyzedTopTrack {
   artist_name: string;
   audio_physics: AudioPhysics; // NEW: Split out audio physics
   semantic_tags: SemanticTags; // NEW: Updated semantic tags structure (flattened mood)
-  // REMOVED: Top-level overall track confidence
+  confidence: ConfidenceLevel; // RE-INTRODUCED: Top-level overall track confidence
 }
 
-// NEW: Analyzed playlist context item for TASK B
+// NEW: Analyzed playlist context item for TASK B (No changes in this version)
 export interface AnalyzedPlaylistContextItem {
   origin: "PLAYLISTS";
   playlist_name: string;
@@ -61,57 +71,14 @@ export interface AnalyzedPlaylistContextItem {
   confidence: "low" | "medium" | "high";
 }
 
-// NEW: Raw interfaces for Gemini's direct output (less strict) - internal to analyze.mjs conceptual scope
-export interface RawAudioPhysics {
-  energy_level: string; 
-  energy_confidence: string;
-  tempo_feel: string;
-  tempo_confidence: string;
-  vocals_type: string;
-  vocals_confidence: string;
-  texture_type: string;
-  texture_confidence: string;
-  danceability_hint: string;
-  danceability_confidence: string;
-}
-
-export interface RawSemanticTags {
-  primary_genre: string;
-  primary_genre_confidence: string;
-  secondary_genres: string[];
-  secondary_genres_confidence: string;
-  emotional_tags: string[];
-  emotional_confidence: string;
-  cognitive_tags: string[];
-  cognitive_confidence: string;
-  somatic_tags: string[];
-  somatic_confidence: string;
-  language_iso_639_1: string;
-  language_confidence: string;
-}
-
-export interface RawAnalyzedTopTrack {
-  origin: "TOP_50_TRACKS_LIST";
-  song_name: string;
-  artist_name: string;
-  audio_physics: RawAudioPhysics; 
-  semantic_tags: RawSemanticTags;
-}
-
-export interface UnifiedTasteGeminiResponse {
-  analyzed_top_50_tracks: RawAnalyzedTopTrack[];
-  analyzed_playlist_context: AnalyzedPlaylistContextItem[];
-}
-
-
-// NEW: Combination item for intents (for UserTasteProfileV1)
+// NEW: Combination item for intents
 export interface IntentCombinationItem {
   mood: string;
   weight: number;
   track_examples: Array<{ title: string; artist: string }>;
 }
 
-// NEW: Intent Profile Signals Structure (for UserTasteProfileV1)
+// NEW: Intent Profile Signals Structure
 export interface IntentProfileSignals {
   intent: string;
   confidence: ConfidenceLevel;
@@ -301,11 +268,17 @@ export interface UnifiedTasteAnalysis {
   overall_mood_confidence: number;
   session_semantic_profile: SessionSemanticProfile;
   playlist_contexts: AnalyzedPlaylistContextItem[]; // NEW
+  analyzed_top_tracks?: AnalyzedTopTrack[]; // NEW: Added for itemized top track analysis
   user_taste_profile_v1?: UserTasteProfileV1; // NEW: The aggregated taste profile v1
 }
 
-// NEW: Error interface for analyzeFullTasteProfile (to include serverErrorName)
-// MODIFIED: Updated to reflect that analyzeFullTasteProfile now returns UnifiedTasteAnalysis
+// NEW: Gemini's raw unified response for taste analysis (for two parallel calls)
+export interface UnifiedTasteGeminiResponse {
+  analyzed_50_top_tracks: AnalyzedTopTrack[]; // MODIFIED: Type now reflects new AnalyzedTopTrack
+  analyzed_playlist_context: AnalyzedPlaylistContextItem[];
+}
+
+// NEW: Error interface for UnifiedTasteGeminiResponse (to include serverErrorName)
 export interface UnifiedTasteGeminiError {
   error: string;
   serverErrorName?: string;
