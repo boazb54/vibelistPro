@@ -8,7 +8,6 @@ import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import PostSavePopup from './components/PostSavePopup';
 import { BurgerIcon } from './components/Icons'; 
-import AdminDataInspector from './components/AdminDataInspector';
 import { 
   Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse,
   UnifiedTasteAnalysis, UnifiedTasteGeminiResponse 
@@ -56,7 +55,6 @@ const App: React.FC = () => {
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showAdminDataInspector, setShowAdminDataInspector] = useState(false);
   const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]);
   const [isConfirmationStep, setIsConfirmationStep] = useState(false);
   const [validationError, setValidationError] = useState<{ message: string; key: number } | null>(null);
@@ -835,16 +833,6 @@ const App: React.FC = () => {
                   <div key={i} className="mb-1 break-words whitespace-pre-wrap">{log}</div>
               ))}
           </div>
-      )}
-
-      {showAdminDataInspector && (
-          <AdminDataInspector
-              isOpen={showAdminDataInspector}
-              onClose={() => setShowAdminDataInspector(false)}
-              userTaste={userTaste}
-              aggregatedPlaylists={userAggregatedPlaylists}
-              debugLogs={debugLogs}
-          />
       )}
 
       <main className="relative z-10 flex-grow w-full">
