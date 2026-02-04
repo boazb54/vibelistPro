@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -43,7 +44,8 @@ export default async function handler(req, res) {
       console.log(`[API/ANALYZE] Performing unified taste analysis for ${playlists?.length || 0} playlists and ${topTracks?.length || 0} top tracks.`);
 
       // --- SYSTEM INSTRUCTION TASK A ---
-      const systemInstruction_taskA = `You are a Music Attribute Inference Engine for VibeList Pro. Your primary function is to analyze song and artist names to infer detailed musical attributes, including audio physics, semantic tags, and structured mood profiles, with granular confidence scores.
+      // MODIFIED: Instruct Gemini to provide raw string outputs without strict enum enforcement.
+      const systemInstruction_taskA = `You are a Music Attribute RAW Signal Extractor for VibeList Pro. Your primary function is to quickly analyze song and artist names to extract musical attributes. Your goal is SPEED and RAW EXTRACTION, not strict validation or interpretation.
 
 ──────────────────────────────
 ## CRITICAL POSITION RULES NO 1 ##
@@ -68,9 +70,16 @@ They reflect:
 - Do NOT treat them as a search query or a recommendation list.
 
 ─────────────────────────────
-## YOUR TASK — Analyzed Top 50 Tracks ##:
+## YOUR TASK — Analyzed Top 50 Tracks (RAW, FAST, NON-STRICT) ##:
 ───────────────────────────────
-For each individual song from the "top 50 tracks" list, generate detailed musical attributes along with a specific confidence score for *each individual attribute*.
+For each individual song from the "top 50 tracks" list, rapidly generate detailed musical attributes along with a specific confidence score for *each individual attribute*.
+
+**KEY RULES (REPEAT TO DEVS):**
+- **Strings Only:** For attributes like \`energy_level\`, \`tempo_feel\`, \`vocals_type\`, \`texture_type\`, \`danceability_hint\`, \`primary_genre\`, \`secondary_genres\`, \`emotional_tags\`, \`cognitive_tags\`, \`somatic_tags\`, and \`language_iso_639_1\`, return them as **RAW STRING VALUES**. Do NOT enforce strict enum values.
+- **No Aggregation:** Do NOT combine or summarize attributes across tracks.
+- **No Normalization:** Return attribute values as inferred, without attempting to standardize them (e.g., "medium low energy" is acceptable for \`energy_level\` if you infer it).
+- **No Intent Logic:** Do NOT perform any interpretation or derive user intents.
+- **One Pass Per Track:** Focus on extracting attributes for each track independently in a single, fast pass.
 
 You must provide per-attribute confidence for:
 - All audio physics parameters.
@@ -102,28 +111,28 @@ These inferences form the PRIMARY reference for:
 //    - Prefer artist origin, known discography.
 
 ──────────────────────────────
-## Attribute Inference Guidelines ##
+## Attribute Extraction Guidelines ##
 ───────────────────────────────
 1.  **Audio Physics (Objective-ish, arrangement/production driven):**
     *   Infer \`energy_level\`, \`tempo_feel\`, \`vocals_type\`, \`texture_type\`, \`danceability_hint\`.
-    *   Use expanded enum values:
-        *   \`vocals_type\`: instrumental | sparse | lead_vocal | harmonies | choral | background_vocal
-        *   \`texture_type\`: organic | acoustic | electric | synthetic | hybrid | ambient
-        *   \`danceability_hint\`: low | medium | high
+    *   Return these as **raw strings**.
     *   Each must have its own confidence: \`energy_confidence\`, \`tempo_confidence\`, \`vocals_confidence\`, \`texture_confidence\`, \`danceability_confidence\`.
 
 2.  **Genres (Best-guess taxonomy, avoid overly broad defaults):**
     *   Infer \`primary_genre\` (specific, lowercase) and \`secondary_genres\` (up to 3 strings, lowercase).
+    *   Return these as **raw strings**.
     *   Each must have its own confidence: \`primary_genre_confidence\`, \`secondary_genres_confidence\`.
     *   **Rule:** If unsure, choose fewer genres and lower confidence. Avoid broad/Western defaults.
 
 3.  **Language (ISO-639-1):**
     *   Infer a single \`language_iso_639_1\` for the track.
+    *   Return as a **raw string**.
     *   Must have its own confidence: \`language_confidence\`.
     *   **Rule:** Do NOT privilege English. Detect language from known lyrics/performance. If public metadata is scarce, prefer artist origin/discography.
 
 4.  **Mood Profile (3 axes: Emotional, Cognitive, Somatic):**
     *   Replaces a simple mood array with a structured \`semantic_tags\` object containing three distinct tag lists: \`emotional_tags\`, \`cognitive_tags\`, \`somatic_tags\`.
+    *   Return these as **raw string arrays**.
     *   Each must have its own confidence: \`emotional_confidence\`, \`cognitive_confidence\`, \`somatic_confidence\`.
     *   **Definitions:**
         *   **EMOTIONAL MOODS:** What the listener FEELS emotionally (e.g., melancholic, joyful, dark, romantic, angry, calm).
@@ -163,19 +172,19 @@ Use lowercase for genres and tags. If unknown, use minimal empty lists or defaul
       "artist_name": "<string>",
 
       "audio_physics": {
-        "energy_level": "low|low_medium|medium|medium_high|high",
+        "energy_level": "<string>",
         "energy_confidence": "low|medium|high",
 
-        "tempo_feel": "slow|mid|fast",
+        "tempo_feel": "<string>",
         "tempo_confidence": "low|medium|high",
 
-        "vocals_type": "instrumental|sparse|lead_vocal|harmonies|choral|background_vocal",
+        "vocals_type": "<string>",
         "vocals_confidence": "low|medium|high",
 
-        "texture_type": "organic|acoustic|electric|synthetic|hybrid|ambient",
+        "texture_type": "<string>",
         "texture_confidence": "low|medium|high",
 
-        "danceability_hint": "low|medium|high",
+        "danceability_hint": "<string>",
         "danceability_confidence": "low|medium|high"
       },
 
@@ -316,6 +325,7 @@ Return ONLY raw JSON matching schema:
         promptBuildTimeMsB = t_prompt_B_end - t_prompt_B_start;
 
         // Response schema for TASK A
+        // MODIFIED: All musical attribute fields are now Type.STRING for raw output.
         const responseSchema_taskA = {
           type: Type.OBJECT,
           properties: {
@@ -331,15 +341,15 @@ Return ONLY raw JSON matching schema:
                   audio_physics: {
                     type: Type.OBJECT,
                     properties: {
-                      energy_level: { type: Type.STRING },
+                      energy_level: { type: Type.STRING }, // Raw string
                       energy_confidence: { type: Type.STRING },
-                      tempo_feel: { type: Type.STRING },
+                      tempo_feel: { type: Type.STRING },   // Raw string
                       tempo_confidence: { type: Type.STRING },
-                      vocals_type: { type: Type.STRING },
+                      vocals_type: { type: Type.STRING },  // Raw string
                       vocals_confidence: { type: Type.STRING },
-                      texture_type: { type: Type.STRING },
+                      texture_type: { type: Type.STRING }, // Raw string
                       texture_confidence: { type: Type.STRING },
-                      danceability_hint: { type: Type.STRING },
+                      danceability_hint: { type: Type.STRING }, // Raw string
                       danceability_confidence: { type: Type.STRING },
                     },
                     required: [
@@ -353,17 +363,17 @@ Return ONLY raw JSON matching schema:
                   semantic_tags: {
                     type: Type.OBJECT,
                     properties: {
-                      primary_genre: { type: Type.STRING },
+                      primary_genre: { type: Type.STRING }, // Raw string
                       primary_genre_confidence: { type: Type.STRING },
-                      secondary_genres: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      secondary_genres: { type: Type.ARRAY, items: { type: Type.STRING } }, // Raw string array
                       secondary_genres_confidence: { type: Type.STRING },
-                      emotional_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      emotional_tags: { type: Type.ARRAY, items: { type: Type.STRING } }, // Raw string array
                       emotional_confidence: { type: Type.STRING },
-                      cognitive_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      cognitive_tags: { type: Type.ARRAY, items: { type: Type.STRING } }, // Raw string array
                       cognitive_confidence: { type: Type.STRING },
-                      somatic_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      somatic_tags: { type: Type.ARRAY, items: { type: Type.STRING } }, // Raw string array
                       somatic_confidence: { type: Type.STRING },
-                      language_iso_639_1: { type: Type.STRING },
+                      language_iso_639_1: { type: Type.STRING }, // Raw string
                       language_confidence: { type: Type.STRING },
                     },
                     required: [
