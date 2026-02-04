@@ -1,4 +1,5 @@
 
+
 import { 
   AnalyzedTopTrack, 
   SessionSemanticProfile, 
@@ -10,7 +11,10 @@ import {
   SemanticTags,
   UserTasteProfileV1,
   IntentProfileSignals,
-  IntentCombinationItem
+  IntentCombinationItem,
+  RawAnalyzedTopTrack, // NEW: Import RawAnalyzedTopTrack
+  RawAudioPhysics,      // NEW: Import RawAudioPhysics
+  RawSemanticTags       // NEW: Import RawSemanticTags
 } from '../types';
 
 // Helper for RTL detection (Hebrew + Arabic ranges) - Moved here for internal use
@@ -72,9 +76,70 @@ function getWeight(confidence: ConfidenceLevel | undefined): number {
   return CONFIDENCE_WEIGHTS[confidence.toLowerCase()] || 0.3;
 }
 
+// NEW HELPER FUNCTIONS FOR NORMALIZATION AND VALIDATION (CRITICAL for v2.5.1)
+const normalizeAudioPhysicsValue = <T extends keyof AudioPhysics>(key: T, rawValue: string): AudioPhysics[T] => {
+  const lowerCaseValue = rawValue?.toLowerCase().trim();
+  switch (key) {
+    case 'energy_level':
+      if (['low', 'low_medium', 'medium', 'medium_high', 'high'].includes(lowerCaseValue)) {
+        return lowerCaseValue as AudioPhysics[T];
+      }
+      // Map common synonyms or general terms to canonical enums
+      if (lowerCaseValue.includes('mellow') || lowerCaseValue.includes('calm')) return 'low' as AudioPhysics[T];
+      if (lowerCaseValue.includes('mid') || lowerCaseValue.includes('average')) return 'medium' as AudioPhysics[T];
+      if (lowerCaseValue.includes('high') || lowerCaseValue.includes('energetic') || lowerCaseValue.includes('explosive')) return 'high' as AudioPhysics[T];
+      return 'medium' as AudioPhysics[T]; // Default if unmappable
+    case 'tempo_feel':
+      if (['slow', 'mid', 'fast'].includes(lowerCaseValue)) {
+        return lowerCaseValue as AudioPhysics[T];
+      }
+      if (lowerCaseValue.includes('chill') || lowerCaseValue.includes('relaxed')) return 'slow' as AudioPhysics[T];
+      if (lowerCaseValue.includes('upbeat') || lowerCaseValue.includes('dance')) return 'fast' as AudioPhysics[T];
+      return 'mid' as AudioPhysics[T]; // Default
+    case 'vocals_type':
+      if (['instrumental', 'sparse', 'lead_vocal', 'harmonies', 'choral', 'background_vocal'].includes(lowerCaseValue)) {
+        return lowerCaseValue as AudioPhysics[T];
+      }
+      if (lowerCaseValue.includes('no vocals')) return 'instrumental' as AudioPhysics[T];
+      if (lowerCaseValue.includes('main vocal')) return 'lead_vocal' as AudioPhysics[T];
+      if (lowerCaseValue.includes('choir')) return 'choral' as AudioPhysics[T];
+      return 'lead_vocal' as AudioPhysics[T]; // Default
+    case 'texture_type':
+      if (['organic', 'acoustic', 'electric', 'synthetic', 'hybrid', 'ambient'].includes(lowerCaseValue)) {
+        return lowerCaseValue as AudioPhysics[T];
+      }
+      if (lowerCaseValue.includes('natural')) return 'organic' as AudioPhysics[T];
+      if (lowerCaseValue.includes('digital')) return 'synthetic' as AudioPhysics[T];
+      if (lowerCaseValue.includes('mixed')) return 'hybrid' as AudioPhysics[T];
+      return 'hybrid' as AudioPhysics[T]; // Default
+    case 'danceability_hint':
+      if (['low', 'medium', 'high'].includes(lowerCaseValue)) {
+        return lowerCaseValue as AudioPhysics[T];
+      }
+      if (lowerCaseValue.includes('groove') || lowerCaseValue.includes('rhythmic')) return 'high' as AudioPhysics[T];
+      if (lowerCaseValue.includes('background') || lowerCaseValue.includes('no beat')) return 'low' as AudioPhysics[T];
+      return 'medium' as AudioPhysics[T]; // Default
+    default:
+      return lowerCaseValue as AudioPhysics[T]; // Should not happen for defined keys
+  }
+};
+
+const normalizeSemanticTag = (rawValue: string): string => {
+  return rawValue?.toLowerCase().trim();
+};
+
+const cleanAndValidateConfidence = (rawValue: string | undefined): ConfidenceLevel => {
+  const lowerCaseValue = rawValue?.toLowerCase().trim();
+  if (['low', 'medium', 'high'].includes(lowerCaseValue)) {
+    return lowerCaseValue as ConfidenceLevel;
+  }
+  return 'medium'; // Default to medium for any unparsable confidence
+};
+
+
 // Renamed and now extracts SessionSemanticProfile from AnalyzedTopTrack[]
 const createSessionSemanticProfile = (
-  tracks: AnalyzedTopTrack[],
+  tracks: AnalyzedTopTrack[], // NOW expects validated AnalyzedTopTrack
   playlists: AnalyzedPlaylistContextItem[]
 ): SessionSemanticProfile => {
   // If no tracks and no playlists, return a default empty profile
@@ -366,7 +431,39 @@ const createSessionSemanticProfile = (
 
 
 // NEW: Function to build the comprehensive UserTasteProfileV1
-const buildUserTasteProfileV1 = (tracks: AnalyzedTopTrack[], playlists: AnalyzedPlaylistContextItem[]): UserTasteProfileV1 => {
+const buildUserTasteProfileV1 = (rawTracks: RawAnalyzedTopTrack[], playlists: AnalyizedPlaylistContextItem[]): UserTasteProfileV1 => {
+  // First, normalize raw tracks into strict AnalyzedTopTrack objects
+  const tracks: AnalyzedTopTrack[] = rawTracks.map(rawTrack => ({
+    ...rawTrack,
+    audio_physics: {
+      energy_level: normalizeAudioPhysicsValue('energy_level', rawTrack.audio_physics.energy_level),
+      energy_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.energy_confidence),
+      tempo_feel: normalizeAudioPhysicsValue('tempo_feel', rawTrack.audio_physics.tempo_feel),
+      tempo_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.tempo_confidence),
+      vocals_type: normalizeAudioPhysicsValue('vocals_type', rawTrack.audio_physics.vocals_type),
+      vocals_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.vocals_confidence),
+      texture_type: normalizeAudioPhysicsValue('texture_type', rawTrack.audio_physics.texture_type),
+      texture_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.texture_confidence),
+      danceability_hint: normalizeAudioPhysicsValue('danceability_hint', rawTrack.audio_physics.danceability_hint),
+      danceability_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.danceability_confidence),
+    },
+    semantic_tags: {
+      primary_genre: normalizeSemanticTag(rawTrack.semantic_tags.primary_genre),
+      primary_genre_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.primary_genre_confidence),
+      secondary_genres: rawTrack.semantic_tags.secondary_genres.map(normalizeSemanticTag),
+      secondary_genres_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.secondary_genres_confidence),
+      emotional_tags: rawTrack.semantic_tags.emotional_tags.map(normalizeSemanticTag),
+      emotional_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.emotional_confidence),
+      cognitive_tags: rawTrack.semantic_tags.cognitive_tags.map(normalizeSemanticTag),
+      cognitive_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.cognitive_confidence),
+      somatic_tags: rawTrack.semantic_tags.somatic_tags.map(normalizeSemanticTag),
+      somatic_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.somatic_confidence),
+      language_iso_639_1: normalizeSemanticTag(rawTrack.semantic_tags.language_iso_639_1),
+      language_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.language_confidence),
+    },
+  }));
+
+
   const userTasteProfile: UserTasteProfileV1 = {
     origin: "TOP_50_TRACKS_ANALYZE",
     overall_profile_confidence: 'low', // Will be calculated
@@ -457,15 +554,15 @@ const buildUserTasteProfileV1 = (tracks: AnalyzedTopTrack[], playlists: Analyzed
     
     // Fix: Use a type assertion to the specific literal type for each bias
     if (biasKey === 'energy_bias') {
-        userTasteProfile.audio_physics_profile[biasKey] = maxVal as AudioPhysics['energy_level'];
+        userTasteProfile.audio_physics_profile.energy_bias = maxVal as AudioPhysics['energy_level'];
     } else if (biasKey === 'tempo_bias') {
-        userTasteProfile.audio_physics_profile[biasKey] = maxVal as AudioPhysics['tempo_feel'];
+        userTasteProfile.audio_physics_profile.tempo_bias = maxVal as AudioPhysics['tempo_feel'];
     } else if (biasKey === 'danceability_bias') {
-        userTasteProfile.audio_physics_profile[biasKey] = maxVal as AudioPhysics['danceability_hint'];
+        userTasteProfile.audio_physics_profile.danceability_bias = maxVal as AudioPhysics['danceability_hint'];
     } else if (biasKey === 'vocals_bias') {
-        userTasteProfile.audio_physics_profile[biasKey] = maxVal as AudioPhysics['vocals_type'];
+        userTasteProfile.audio_physics_profile.vocals_bias = maxVal as AudioPhysics['vocals_type'];
     } else if (biasKey === 'texture_bias') {
-        userTasteProfile.audio_physics_profile[biasKey] = maxVal as AudioPhysics['texture_type'];
+        userTasteProfile.audio_physics_profile.texture_bias = maxVal as AudioPhysics['texture_type'];
     }
 
     ratio_dims[`ratio_${d.replace('_level', '').replace('_feel', '').replace('_hint', '')}`] = weighted_ratio(phys_score[d][argmax(phys_score[d])], phys_score[d]);
@@ -770,7 +867,38 @@ export const aggregateSessionData = (unifiedGeminiResponse: UnifiedTasteGeminiRe
   const { analyzed_top_50_tracks, analyzed_playlist_context } = unifiedGeminiResponse; // Renamed
 
   // Original SessionSemanticProfile (for client-side display and legacy vibe generation)
-  const sessionSemanticProfile = createSessionSemanticProfile(analyzed_top_50_tracks, analyzed_playlist_context);
+  const sessionSemanticProfile = createSessionSemanticProfile(
+    analyzed_top_50_tracks.map(rawTrack => ({
+      ...rawTrack,
+      audio_physics: {
+        energy_level: normalizeAudioPhysicsValue('energy_level', rawTrack.audio_physics.energy_level),
+        energy_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.energy_confidence),
+        tempo_feel: normalizeAudioPhysicsValue('tempo_feel', rawTrack.audio_physics.tempo_feel),
+        tempo_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.tempo_confidence),
+        vocals_type: normalizeAudioPhysicsValue('vocals_type', rawTrack.audio_physics.vocals_type),
+        vocals_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.vocals_confidence),
+        texture_type: normalizeAudioPhysicsValue('texture_type', rawTrack.audio_physics.texture_type),
+        texture_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.texture_confidence),
+        danceability_hint: normalizeAudioPhysicsValue('danceability_hint', rawTrack.audio_physics.danceability_hint),
+        danceability_confidence: cleanAndValidateConfidence(rawTrack.audio_physics.danceability_confidence),
+      },
+      semantic_tags: {
+        primary_genre: normalizeSemanticTag(rawTrack.semantic_tags.primary_genre),
+        primary_genre_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.primary_genre_confidence),
+        secondary_genres: rawTrack.semantic_tags.secondary_genres.map(normalizeSemanticTag),
+        secondary_genres_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.secondary_genres_confidence),
+        emotional_tags: rawTrack.semantic_tags.emotional_tags.map(normalizeSemanticTag),
+        emotional_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.emotional_confidence),
+        cognitive_tags: rawTrack.semantic_tags.cognitive_tags.map(normalizeSemanticTag),
+        cognitive_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.cognitive_confidence),
+        somatic_tags: rawTrack.semantic_tags.somatic_tags.map(normalizeSemanticTag),
+        somatic_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.somatic_confidence),
+        language_iso_639_1: normalizeSemanticTag(rawTrack.semantic_tags.language_iso_639_1),
+        language_confidence: cleanAndValidateConfidence(rawTrack.semantic_tags.language_confidence),
+      },
+    })), 
+    analyzed_playlist_context
+  );
 
   // NEW: Build the comprehensive UserTasteProfileV1
   const userTasteProfileV1 = buildUserTasteProfileV1(analyzed_top_50_tracks, analyzed_playlist_context);
