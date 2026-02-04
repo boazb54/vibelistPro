@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -17,7 +16,6 @@ import {
 import { 
   generatePlaylistFromMood, 
   analyzeFullTasteProfile, 
-  isPreviewEnvironment 
 } from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
@@ -331,14 +329,6 @@ const App: React.FC = () => {
 
   const handleLogin = async () => {
     try {
-      if (isPreviewEnvironment()) {
-        addLog("Preview environment detected. Using top-level redirect for Spotify login.");
-        const currentUrl = window.location.href.split('#')[0];
-        const url = getLoginUrl(spotifyClientId, currentUrl);
-        window.open(url, '_top');
-        return;
-      }
-
       addLog(`Initiating Spotify PKCE Login. Native: ${isNative()}`);
       
       const verifier = generateRandomString(128);
@@ -583,12 +573,8 @@ const App: React.FC = () => {
         console.error("Playlist generation failed:", error);
         addLog(`Playlist generation failed. Error Name: ${error.name || 'UnknownError'}, Message: ${error.message || 'No message provided.'}`);
         
-        if (error.name === 'ApiKeyRequiredError') {
-            setValidationError({ message: error.message, key: Date.now() });
-        } else {
-            setLoadingMessage("Error generating playlist. Please check debug logs for details.");
-            setValidationError({ message: `Error generating playlist. Details: ${error.message || 'Unknown error.'}`, key: Date.now() });
-        }
+        setLoadingMessage("Error generating playlist. Please check debug logs for details.");
+        setValidationError({ message: `Error generating playlist. Details: ${error.message || 'Unknown error.'}`, key: Date.now() });
         
         const t_fail = performance.now();
         const failDuration = Math.round(t_fail - t0_start);
@@ -798,12 +784,8 @@ const App: React.FC = () => {
         
         <div className="flex items-center gap-4">
            <button 
-             onClick={(e) => {
-               if (e.ctrlKey) {
-                 setShowAdminDataInspector(prev => !prev);
-               } else {
+             onClick={() => {
                  setShowDebug(prev => !prev);
-               }
              }} 
              className="text-xs text-slate-700 hover:text-slate-500 font-mono px-3"
              title="Debug"
