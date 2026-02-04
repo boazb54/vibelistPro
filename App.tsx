@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -9,7 +8,6 @@ import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
 import PostSavePopup from './components/PostSavePopup';
 import { BurgerIcon } from './components/Icons'; 
-// Changed `AdminDataInspector` import to default export as component file was fixed
 import AdminDataInspector from './components/AdminDataInspector';
 import { 
   Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse,
