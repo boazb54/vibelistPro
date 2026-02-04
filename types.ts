@@ -23,20 +23,6 @@ export interface AudioPhysics {
   danceability_confidence: ConfidenceLevel;
 }
 
-// NEW: Raw Audio Physics (string for flexible input from Gemini)
-export interface RawAudioPhysics {
-  energy_level: string; // Was enum, now raw string
-  energy_confidence: ConfidenceLevel;
-  tempo_feel: string;   // Was enum, now raw string
-  tempo_confidence: ConfidenceLevel;
-  vocals_type: string;  // Was enum, now raw string
-  vocals_confidence: ConfidenceLevel;
-  texture_type: string; // Was enum, now raw string
-  texture_confidence: ConfidenceLevel;
-  danceability_hint: string; // Was enum, now raw string
-  danceability_confidence: ConfidenceLevel;
-}
-
 // NEW: Semantic Tags structure (refined and flattened)
 export interface SemanticTags {
   primary_genre: string;
@@ -44,22 +30,6 @@ export interface SemanticTags {
   secondary_genres: string[];
   secondary_genres_confidence: ConfidenceLevel;
   // Flattened mood analysis properties
-  emotional_tags: string[];
-  emotional_confidence: ConfidenceLevel;
-  cognitive_tags: string[];
-  cognitive_confidence: ConfidenceLevel;
-  somatic_tags: string[];
-  somatic_confidence: ConfidenceLevel;
-  language_iso_639_1: string;
-  language_confidence: ConfidenceLevel;
-}
-
-// NEW: Raw Semantic Tags (strings for flexible input from Gemini)
-export interface RawSemanticTags {
-  primary_genre: string;
-  primary_genre_confidence: ConfidenceLevel;
-  secondary_genres: string[];
-  secondary_genres_confidence: ConfidenceLevel;
   emotional_tags: string[];
   emotional_confidence: ConfidenceLevel;
   cognitive_tags: string[];
@@ -79,15 +49,6 @@ export interface AnalyzedTopTrack {
   // REMOVED: Top-level overall track confidence
 }
 
-// NEW: Raw Analyzed Top Track (uses RawAudioPhysics and RawSemanticTags)
-export interface RawAnalyzedTopTrack {
-  origin: "TOP_50_TRACKS_LIST";
-  song_name: string;
-  artist_name: string;
-  audio_physics: RawAudioPhysics; // Uses raw string types
-  semantic_tags: RawSemanticTags; // Uses raw string types
-}
-
 // NEW: Analyzed playlist context item for TASK B
 export interface AnalyzedPlaylistContextItem {
   origin: "PLAYLISTS";
@@ -99,6 +60,49 @@ export interface AnalyzedPlaylistContextItem {
   playlist_language_distribution: Array<{ language: string; percentage: number; }>; 
   confidence: "low" | "medium" | "high";
 }
+
+// NEW: Raw interfaces for Gemini's direct output (less strict) - internal to analyze.mjs conceptual scope
+export interface RawAudioPhysics {
+  energy_level: string; 
+  energy_confidence: string;
+  tempo_feel: string;
+  tempo_confidence: string;
+  vocals_type: string;
+  vocals_confidence: string;
+  texture_type: string;
+  texture_confidence: string;
+  danceability_hint: string;
+  danceability_confidence: string;
+}
+
+export interface RawSemanticTags {
+  primary_genre: string;
+  primary_genre_confidence: string;
+  secondary_genres: string[];
+  secondary_genres_confidence: string;
+  emotional_tags: string[];
+  emotional_confidence: string;
+  cognitive_tags: string[];
+  cognitive_confidence: string;
+  somatic_tags: string[];
+  somatic_confidence: string;
+  language_iso_639_1: string;
+  language_confidence: string;
+}
+
+export interface RawAnalyzedTopTrack {
+  origin: "TOP_50_TRACKS_LIST";
+  song_name: string;
+  artist_name: string;
+  audio_physics: RawAudioPhysics; 
+  semantic_tags: RawSemanticTags;
+}
+
+export interface UnifiedTasteGeminiResponse {
+  analyzed_top_50_tracks: RawAnalyzedTopTrack[];
+  analyzed_playlist_context: AnalyzedPlaylistContextItem[];
+}
+
 
 // NEW: Combination item for intents (for UserTasteProfileV1)
 export interface IntentCombinationItem {
@@ -297,17 +301,11 @@ export interface UnifiedTasteAnalysis {
   overall_mood_confidence: number;
   session_semantic_profile: SessionSemanticProfile;
   playlist_contexts: AnalyzedPlaylistContextItem[]; // NEW
-  // REMOVED: analyzed_top_tracks?: RawAnalyzedTopTrack[]; // MODIFIED: For itemized raw top track analysis
   user_taste_profile_v1?: UserTasteProfileV1; // NEW: The aggregated taste profile v1
 }
 
-// NEW: Gemini's raw unified response for taste analysis (for two parallel calls)
-export interface UnifiedTasteGeminiResponse {
-  analyzed_top_50_tracks: RawAnalyzedTopTrack[]; // MODIFIED: Type now reflects new RawAnalyzedTopTrack
-  analyzed_playlist_context: AnalyzedPlaylistContextItem[];
-}
-
-// NEW: Error interface for UnifiedTasteGeminiResponse (to include serverErrorName)
+// NEW: Error interface for analyzeFullTasteProfile (to include serverErrorName)
+// MODIFIED: Updated to reflect that analyzeFullTasteProfile now returns UnifiedTasteAnalysis
 export interface UnifiedTasteGeminiError {
   error: string;
   serverErrorName?: string;
