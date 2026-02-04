@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -13,14 +10,13 @@ import PostSavePopup from './components/PostSavePopup';
 import { BurgerIcon } from './components/Icons'; 
 import { 
   Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse,
-  UnifiedTasteAnalysis, 
-  TranscriptionResult, // Keep this if MoodSelector uses it directly
-  TranscriptionRequestMeta, // Keep this if MoodSelector uses it directly
+  UnifiedTasteAnalysis, UnifiedTasteGeminiResponse 
 } from './types';
 import { 
   generatePlaylistFromMood, 
   analyzeFullTasteProfile, 
 } from './services/geminiService';
+import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
   getLoginUrl, 
@@ -242,13 +238,13 @@ const App: React.FC = () => {
                   topArtists: [], // These are not stored in unified_analysis
                   topGenres: [],  // These are not stored in unified_analysis
                   topTracks: [],  // These are not stored in unified_analysis
-                  unified_analysis: parsedAnalysis, 
+                  unified_analysis: parsedAnalysis,
                   last_analyzed_at: cachedLastAnalyzedAt,
               };
               setUserTaste(loadedTaste);
-              saveUserProfile(profile, loadedTaste); 
+              saveUserProfile(profile, null); // Only save profile to DB, not taste data
               addLog("[Client-side Taste Cache] Unified analysis loaded from local storage. Skipping Gemini API call.");
-              return; 
+              return; // Exit early as we have cached data
           }
 
           addLog("[Wave 1: Spotify Data Acquisition] Initiating concurrent data acquisition...");
@@ -274,7 +270,7 @@ const App: React.FC = () => {
 
           if (!taste || (taste.topTracks.length === 0 && aggregatedPlaylists.length === 0)) {
              addLog("[Wave 1: Spotify] No meaningful taste data available for AI analysis. Saving profile without analysis.");
-             saveUserProfile(profile, null);
+             saveUserProfile(profile, null); // Only save profile to DB
              setUserTaste(null);
              return;
           }
@@ -283,20 +279,20 @@ const App: React.FC = () => {
           
           if (taste.topTracks.length > 0 || aggregatedPlaylists.length > 0) {
             try {
-              // MODIFIED: analyzeFullTasteProfile now returns UnifiedTasteAnalysis directly from server
-              const unifiedAnalysis: UnifiedTasteAnalysis | { error: string } = await analyzeFullTasteProfile(aggregatedPlaylists, taste.topTracks);
+              const unifiedGeminiResponse: UnifiedTasteGeminiResponse | { error: string } = await analyzeFullTasteProfile(aggregatedPlaylists, taste.topTracks);
               
-              if ('error' in unifiedAnalysis) { // Check for error object
-                throw new Error(unifiedAnalysis.error);
+              if ('error' in unifiedGeminiResponse) {
+                throw new Error(unifiedGeminiResponse.error);
               }
 
               addLog(`[Wave 2: Gemini] Unified Taste Analysis successful. Processing session fingerprint...`);
+              const unifiedAnalysis: UnifiedTasteAnalysis = aggregateSessionData(unifiedGeminiResponse);
               const currentTimestamp = new Date().toISOString();
               
               const enhancedTaste: UserTasteProfile = {
                   ...taste,
                   unified_analysis: unifiedAnalysis,
-                  last_analyzed_at: currentTimestamp,
+                  last_analyzed_at: currentTimestamp, // Store the timestamp
               };
 
               // Persist to client-side storage
@@ -306,17 +302,17 @@ const App: React.FC = () => {
 
               addLog(">>> UNIFIED SESSION SEMANTIC PROFILE GENERATED <<<");
               setUserTaste(enhancedTaste);
-              saveUserProfile(profile, enhancedTaste); 
+              saveUserProfile(profile, null); // Only save profile to DB, not taste data
             } catch (geminiError: any) {
               addLog(`[Wave 2: Gemini] Unified Taste Analysis failed: ${geminiError.message || 'Unknown error'}`);
               console.warn("Unified Gemini analysis failed", geminiError);
               setUserTaste(taste);
-              saveUserProfile(profile, taste); 
+              saveUserProfile(profile, null); // Only save profile to DB, not taste data
             }
           } else {
             addLog("[Wave 2: Gemini] Skipping unified analysis: No track or playlist data available.");
             setUserTaste(taste);
-            saveUserProfile(profile, taste); 
+            saveUserProfile(profile, null); // Only save profile to DB, not taste data
           }
 
           addLog(">>> ALL PROFILE DATA REFRESH COMPLETE <<<");
@@ -324,7 +320,7 @@ const App: React.FC = () => {
       } catch (e: any) {
           console.warn("Could not perform parallel profile/taste refresh", e);
           addLog(`Critical Error during Profile Refresh: ${e.message || e}`);
-          saveUserProfile(profile, null);
+          saveUserProfile(profile, null); // Only save profile to DB, not taste data
           setUserTaste(null);
       }
   };
@@ -362,8 +358,8 @@ const App: React.FC = () => {
     setUserTaste(null);
     await storageService.removeItem('spotify_token');
     await storageService.removeItem('spotify_refresh_token');
-    await storageService.removeItem('user_unified_analysis'); 
-    await storageService.removeItem('user_taste_analyzed_at'); 
+    await storageService.removeItem('user_unified_analysis'); // Clear cached taste profile
+    await storageService.removeItem('user_taste_analyzed_at'); // Clear cached taste profile timestamp
     setShowSettings(false);
     isProcessingAuth.current = false;
     handleReset();
@@ -475,6 +471,7 @@ const App: React.FC = () => {
             
             await storageService.setItem('vibelist_pending_vibe_id', savedVibe.id);
             setTeaserPlaylist({ ...teaserPayload, mood: mood, id: savedVibe.id });
+            addLog(`Teaser generated and saved for mood: "${mood}" (ID: ${savedVibe.id})`);
             setIsLoading(false);
             return;
         }
@@ -684,6 +681,7 @@ const App: React.FC = () => {
       if (playlist.id) {
           await markVibeAsExported(playlist.id);
       }
+      // v2.2.0 - Decouple export from redirect. Trigger Decision Popup.
       setExportedPlaylistUrl(url);
       setShowPostSavePopup(true);
       addLog(`Playlist "${playlist.title}" successfully exported to Spotify. Waiting for user decision.`);
@@ -711,6 +709,7 @@ const App: React.FC = () => {
       addLog('User chose "Create new vibe". Returning to Home.');
     }
 
+    // In both scenarios, the nav stack is reset to Home state.
     handleReset();
   };
 
