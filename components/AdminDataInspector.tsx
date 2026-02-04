@@ -36,7 +36,7 @@ const renderAudioPhysics = (physics: AudioPhysics | undefined) => {
       <p><strong>Tempo:</strong> {physics.tempo_feel} (Conf: {physics.tempo_confidence})</p>
       <p><strong>Vocals:</strong> {physics.vocals_type} (Conf: {physics.vocals_confidence})</p>
       <p><strong>Texture:</strong> {physics.texture_type} (Conf: {physics.texture_confidence})</p>
-      <p><strong>Danceability:</b> {physics.danceability_hint} (Conf: {physics.danceability_confidence})</p>
+      <p><strong>Danceability:</strong> {physics.danceability_hint} (Conf: {physics.danceability_confidence})</p>
     </div>
   );
 };
@@ -61,16 +61,16 @@ const renderSemanticTags = (tags: SemanticTags | undefined) => {
   return (
     <div className="pl-4 border-l border-slate-700 space-y-1">
       <p><strong>Primary Genre:</strong> {tags.primary_genre} (Conf: {tags.primary_genre_confidence})</p>
-      {tags.secondary_genres?.length > 0 && <p><strong>Secondary Genres:</b> {tags.secondary_genres.join(', ')} (Conf: {tags.secondary_genres_confidence})</p>}
+      {tags.secondary_genres?.length > 0 && <p><strong>Secondary Genres:</strong> {tags.secondary_genres.join(', ')} (Conf: {tags.secondary_genres_confidence})</p>}
       
       {/* Flattened Mood Analysis Display */}
       <div className="mt-2">
         <p className="font-semibold text-slate-400">Mood Analysis:</p>
         <div className="pl-4 border-l border-slate-700 space-y-1">
-          <p><strong>Emotional Tags:</b> {tags.emotional_tags?.join(', ') || 'N/A'} (Conf: {tags.emotional_confidence})</p>
-          <p><strong>Cognitive Tags:</b> {tags.cognitive_tags?.join(', ') || 'N/A'} (Conf: {tags.cognitive_confidence})</p>
-          <p><strong>Somatic Tags:</b> {tags.somatic_tags?.join(', ') || 'N/A'} (Conf: {tags.somatic_confidence})</p>
-          <p><strong>Language:</b> {tags.language_iso_639_1 || 'N/A'} (Conf: {tags.language_confidence})</p>
+          <p><strong>Emotional Tags:</strong> {tags.emotional_tags?.join(', ') || 'N/A'} (Conf: {tags.emotional_confidence})</p>
+          <p><strong>Cognitive Tags:</strong> {tags.cognitive_tags?.join(', ') || 'N/A'} (Conf: {tags.cognitive_confidence})</p>
+          <p><strong>Somatic Tags:</strong> {tags.somatic_tags?.join(', ') || 'N/A'} (Conf: {tags.somatic_confidence})</p>
+          <p><strong>Language:</strong> {tags.language_iso_639_1 || 'N/A'} (Conf: {tags.language_confidence})</p>
         </div>
       </div>
     </div>
@@ -115,7 +115,7 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
           <CollapsibleSection title="Unified Taste Analysis (Gemini)">
             {userTaste?.unified_analysis ? (
               <div className="space-y-3">
-                <p><strong>Overall Mood Category:</b> {userTaste.unified_analysis.overall_mood_category} (Confidence: {userTaste.unified_analysis.overall_mood_confidence.toFixed(2)})</p>
+                <p><strong>Overall Mood Category:</strong> {userTaste.unified_analysis.overall_mood_category} (Confidence: {userTaste.unified_analysis.overall_mood_confidence.toFixed(2)})</p>
                 
                 {userTaste.unified_analysis.user_taste_profile_v1 && ( 
                   <>
@@ -150,10 +150,10 @@ const AdminDataInspector: React.FC<AdminDataInspectorProps> = ({ isOpen, onClose
                         <div className="space-y-3">
                             {userTaste.unified_analysis.analyzed_top_tracks.map((track: AnalyzedTopTrack, index: number) => ( 
                                 <div key={index} className="bg-slate-800/50 p-3 rounded-md overflow-x-auto text-xs">
-                                    <p><strong>Origin:</b> {track.origin || 'N/A'}</p>
-                                    <p><strong>Song:</b> {track.song_name}</p>
-                                    <p><strong>Artist:</b> {track.artist_name}</p>
-                                    <p><strong>Overall Confidence:</b> {track.confidence}</p> 
+                                    <p><strong>Origin:</strong> {track.origin || 'N/A'}</p>
+                                    <p><strong>Song:</strong> {track.song_name}</p>
+                                    <p><strong>Artist:</strong> {track.artist_name}</p>
+                                    <p><strong>Overall Confidence:</strong> {track.confidence}</p> 
                                     {/* NEW: Render AudioPhysics and SemanticTags with confidence */}
                                     <div className="mt-2">
                                       <p className="font-semibold text-slate-400">Audio Physics:</p>
