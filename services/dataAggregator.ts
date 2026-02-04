@@ -1,3 +1,4 @@
+
 import { 
   AnalyzedTopTrack, 
   SessionSemanticProfile, 
@@ -19,7 +20,7 @@ const CONFIDENCE_WEIGHTS: Record<ConfidenceLevel | string, number> = {
   'low': 0.3
 };
 
-function getWeight(confidence: ConfidenceLevel | string | undefined): number { 
+function getWeight(confidence: ConfidenceLevel | undefined): number { 
   if (!confidence) return 0.3; 
   return CONFIDENCE_WEIGHTS[confidence.toLowerCase()] || 0.3;
 }
@@ -51,8 +52,7 @@ const createSessionSemanticProfile = (
   tracks.forEach(track => {
     const artist = track.artist_name.trim();
     // In v2.3.0, 'track.confidence' is re-introduced and used directly.
-    // MODIFIED: top-level track confidence removed, default to 'medium' for artist scoring.
-    const w = getWeight('medium'); 
+    const w = getWeight(track.confidence || 'medium'); // Use re-introduced top-level track confidence
 
     if (!artistScores[artist]) {
       artistScores[artist] = { score: 0, count: 0 };
@@ -76,27 +76,16 @@ const createSessionSemanticProfile = (
   let totalGenreWeight = 0;
 
   tracks.forEach(track => {
-    // MODIFIED: Extract semantic_tags and audio_physics from raw_ai_analysis_data
-    const rawAnalysis = track.raw_ai_analysis_data;
-    const semanticTags: SemanticTags = {
-        primary_genre: rawAnalysis.primary_genre,
-        primary_genre_confidence: rawAnalysis.primary_genre_confidence,
-        secondary_genres: rawAnalysis.secondary_genres || [],
-        secondary_genres_confidence: rawAnalysis.secondary_genres_confidence,
-        emotional_tags: rawAnalysis.emotional_tags || [],
-        emotional_confidence: rawAnalysis.emotional_confidence,
-        cognitive_tags: rawAnalysis.cognitive_tags || [],
-        cognitive_confidence: rawAnalysis.cognitive_confidence,
-        somatic_tags: rawAnalysis.somatic_tags || [],
-        somatic_confidence: rawAnalysis.somatic_confidence,
-        language_iso_639_1: rawAnalysis.language_iso_639_1,
-        language_confidence: rawAnalysis.language_confidence,
-    };
-    
+    // For v2.3.0, `track.confidence` is always available.
+    const trackOverallConfidence = track.confidence; 
+
+    // Access semantic_tags directly, as its structure is now flattened.
+    const tags: SemanticTags = track.semantic_tags; 
+
     // Primary Genre
-    const pGenre = semanticTags.primary_genre?.toLowerCase().trim();
+    const pGenre = tags.primary_genre?.toLowerCase().trim();
     // Use `tags.primary_genre_confidence` directly.
-    const pGenreWeight = getWeight(semanticTags.primary_genre_confidence || 'medium');
+    const pGenreWeight = getWeight(tags.primary_genre_confidence || trackOverallConfidence || 'medium');
 
     if (pGenre) {
       genreScores[pGenre] = (genreScores[pGenre] || 0) + (1.0 * pGenreWeight);
@@ -104,10 +93,10 @@ const createSessionSemanticProfile = (
     }
 
     // Secondary Genres
-    if (semanticTags.secondary_genres && Array.isArray(semanticTags.secondary_genres)) {
+    if (tags.secondary_genres && Array.isArray(tags.secondary_genres)) {
       // Use `tags.secondary_genres_confidence` directly.
-      const sGenreWeight = getWeight(semanticTags.secondary_genres_confidence || 'medium');
-      semanticTags.secondary_genres.forEach((g: string) => {
+      const sGenreWeight = getWeight(tags.secondary_genres_confidence || trackOverallConfidence || 'medium');
+      tags.secondary_genres.forEach((g: string) => {
         const sGenre = g.toLowerCase().trim();
         genreScores[sGenre] = (genreScores[sGenre] || 0) + (0.5 * sGenreWeight);
         totalGenreWeight += (0.5 * sGenreWeight);
@@ -150,21 +139,11 @@ const createSessionSemanticProfile = (
   let totalEnergyWeight = 0;
 
   tracks.forEach(track => {
-     // MODIFIED: Extract audio_physics from raw_ai_analysis_data
-     const rawAnalysis = track.raw_ai_analysis_data;
-     const audioPhysics: AudioPhysics = {
-         energy_level: rawAnalysis.energy_level,
-         energy_confidence: rawAnalysis.energy_confidence,
-         tempo_feel: rawAnalysis.tempo_feel,
-         tempo_confidence: rawAnalysis.tempo_confidence,
-         vocals_type: rawAnalysis.vocals_type,
-         vocals_confidence: rawAnalysis.vocals_confidence,
-         texture_type: rawAnalysis.texture_type,
-         texture_confidence: rawAnalysis.texture_confidence,
-         danceability_hint: rawAnalysis.danceability_hint,
-         danceability_confidence: rawAnalysis.danceability_confidence,
-     };
-     
+     // Access audio_physics directly, as it's guaranteed to be present.
+     const audioPhysics: AudioPhysics = track.audio_physics; 
+     // For v2.3.0, `track.confidence` is always available.
+     const trackOverallConfidence = track.confidence; 
+
      // Use new field, no fallback needed to old `semantic_tags.energy`
      const energyLevel = audioPhysics.energy_level?.toLowerCase(); 
 
@@ -177,8 +156,7 @@ const createSessionSemanticProfile = (
      if (!['low', 'medium', 'high'].includes(bucket)) return;
 
      // Use new energy_confidence if available, else fallback to old track.confidence
-     // MODIFIED: Removed trackOverallConfidence, default to 'medium' if energy_confidence is missing.
-     const w = getWeight(audioPhysics.energy_confidence || 'medium');
+     const w = getWeight(audioPhysics.energy_confidence || trackOverallConfidence || 'medium');
      
      energyCounts[bucket] = (energyCounts[bucket] || 0) + w;
      totalEnergyWeight += w;
@@ -203,27 +181,13 @@ const createSessionSemanticProfile = (
   const moodScores: Record<string, number> = {}; // This will aggregate ALL mood tags (emotional, cognitive, somatic)
 
   tracks.forEach(track => {
-    // MODIFIED: Extract semantic_tags from raw_ai_analysis_data
-    const rawAnalysis = track.raw_ai_analysis_data;
-    const semanticTags: SemanticTags = {
-        primary_genre: rawAnalysis.primary_genre,
-        primary_genre_confidence: rawAnalysis.primary_genre_confidence,
-        secondary_genres: rawAnalysis.secondary_genres || [],
-        secondary_genres_confidence: rawAnalysis.secondary_genres_confidence,
-        emotional_tags: rawAnalysis.emotional_tags || [],
-        emotional_confidence: rawAnalysis.emotional_confidence,
-        cognitive_tags: rawAnalysis.cognitive_tags || [],
-        cognitive_confidence: rawAnalysis.cognitive_confidence,
-        somatic_tags: rawAnalysis.somatic_tags || [],
-        somatic_confidence: rawAnalysis.somatic_confidence,
-        language_iso_639_1: rawAnalysis.language_iso_639_1,
-        language_confidence: rawAnalysis.language_confidence,
-    };
+    // For v2.3.0, `track.confidence` is always available.
+    const trackOverallConfidence = track.confidence; 
+    const semanticTags: SemanticTags = track.semantic_tags; // Access semantic_tags directly
 
     // Aggregate emotional_tags
     if (semanticTags.emotional_tags && Array.isArray(semanticTags.emotional_tags)) {
-        // MODIFIED: Removed trackOverallConfidence
-        const w = getWeight(semanticTags.emotional_confidence || 'medium');
+        const w = getWeight(semanticTags.emotional_confidence || trackOverallConfidence || 'medium');
         semanticTags.emotional_tags.forEach(m => {
             const mood = m.toLowerCase().trim();
             moodScores[mood] = (moodScores[mood] || 0) + w;
@@ -231,8 +195,7 @@ const createSessionSemanticProfile = (
     }
     // Aggregate cognitive_tags
     if (semanticTags.cognitive_tags && Array.isArray(semanticTags.cognitive_tags)) {
-        // MODIFIED: Removed trackOverallConfidence
-        const w = getWeight(semanticTags.cognitive_confidence || 'medium');
+        const w = getWeight(semanticTags.cognitive_confidence || trackOverallConfidence || 'medium');
         semanticTags.cognitive_tags.forEach(m => {
             const mood = m.toLowerCase().trim();
             moodScores[mood] = (moodScores[mood] || 0) + w;
@@ -240,8 +203,7 @@ const createSessionSemanticProfile = (
     }
     // Aggregate somatic_tags
     if (semanticTags.somatic_tags && Array.isArray(semanticTags.somatic_tags)) {
-        // MODIFIED: Removed trackOverallConfidence
-        const w = getWeight(semanticTags.somatic_confidence || 'medium');
+        const w = getWeight(semanticTags.somatic_confidence || trackOverallConfidence || 'medium');
         semanticTags.somatic_tags.forEach(m => {
             const mood = m.toLowerCase().trim();
             moodScores[mood] = (moodScores[mood] || 0) + w;
@@ -257,9 +219,8 @@ const createSessionSemanticProfile = (
 
   // 5. TEMPO / VOCALS / TEXTURE (Weighted Majority Vote) - Adapted for AudioPhysics
   const calculateBias = (
-    // MODIFIED: Value and confidence extractors now work with raw_ai_analysis_data
     valueExtractor: (t: AnalyzedTopTrack) => string | undefined,
-    confidenceExtractor: (t: AnalyzedTopTrack) => ConfidenceLevel | string | undefined
+    confidenceExtractor: (t: AnalyzedTopTrack) => ConfidenceLevel | undefined
   ): string => { 
       const scores: Record<string, number> = {};
       let maxScore = -1;
@@ -268,8 +229,8 @@ const createSessionSemanticProfile = (
       tracks.forEach(t => {
           const val = valueExtractor(t)?.toLowerCase();
           if (!val) return;
-          // MODIFIED: Removed t.confidence fallback
-          const w = getWeight(confidenceExtractor(t) || 'medium');
+          // Use confidenceExtractor directly, fallback to track.confidence
+          const w = getWeight(confidenceExtractor(t) || t.confidence || 'medium');
           scores[val] = (scores[val] || 0) + w;
       });
 
@@ -284,18 +245,18 @@ const createSessionSemanticProfile = (
 
   // Tempo Bias
   const tempoBias = calculateBias(
-    t => t.raw_ai_analysis_data.tempo_feel, 
-    t => t.raw_ai_analysis_data.tempo_confidence 
+    t => t.audio_physics.tempo_feel, 
+    t => t.audio_physics.tempo_confidence 
   );
   // Vocals Bias
   const vocalsBias = calculateBias(
-    t => t.raw_ai_analysis_data.vocals_type, 
-    t => t.raw_ai_analysis_data.vocals_confidence 
+    t => t.audio_physics.vocals_type, 
+    t => t.audio_physics.vocals_confidence 
   );
   // Texture Bias
   const textureBias = calculateBias(
-    t => t.raw_ai_analysis_data.texture_type, 
-    t => t.raw_ai_analysis_data.texture_confidence 
+    t => t.audio_physics.texture_type, 
+    t => t.audio_physics.texture_confidence 
   );
 
 
@@ -305,28 +266,13 @@ const createSessionSemanticProfile = (
 
   // Aggregate from AnalyzedTopTrack (new logic)
   tracks.forEach(track => {
-    // MODIFIED: Extract semantic_tags from raw_ai_analysis_data
-    const rawAnalysis = track.raw_ai_analysis_data;
-    const semanticTags: SemanticTags = {
-        primary_genre: rawAnalysis.primary_genre,
-        primary_genre_confidence: rawAnalysis.primary_genre_confidence,
-        secondary_genres: rawAnalysis.secondary_genres || [],
-        secondary_genres_confidence: rawAnalysis.secondary_genres_confidence,
-        emotional_tags: rawAnalysis.emotional_tags || [],
-        emotional_confidence: rawAnalysis.emotional_confidence,
-        cognitive_tags: rawAnalysis.cognitive_tags || [],
-        cognitive_confidence: rawAnalysis.cognitive_confidence,
-        somatic_tags: rawAnalysis.somatic_tags || [],
-        somatic_confidence: rawAnalysis.somatic_confidence,
-        language_iso_639_1: rawAnalysis.language_iso_639_1,
-        language_confidence: rawAnalysis.language_confidence,
-    };
+    // For v2.3.0, `track.confidence` is always available.
+    const trackOverallConfidence = track.confidence; 
 
     // Use new semantic_tags.language_iso_639_1 directly
-    const newLang = semanticTags.language_iso_639_1;
-    const newLangConfidence = semanticTags.language_confidence;
-    // MODIFIED: Removed trackOverallConfidence
-    const newLangWeight = getWeight(newLangConfidence || 'medium');
+    const newLang = track.semantic_tags.language_iso_639_1;
+    const newLangConfidence = track.semantic_tags.language_confidence;
+    const newLangWeight = getWeight(newLangConfidence || trackOverallConfidence || 'medium');
 
     if (newLang) {
       const normalizedLang = newLang.toLowerCase().trim();
@@ -378,10 +324,9 @@ const createSessionSemanticProfile = (
 
 // NEW: Main aggregation function that takes the unified Gemini response
 export const aggregateSessionData = (unifiedGeminiResponse: UnifiedTasteGeminiResponse): UnifiedTasteAnalysis => { 
-  // MODIFIED: Use new field name analyzed_top_50_tracks
-  const { analyzed_top_50_tracks, analyzed_playlist_context } = unifiedGeminiResponse; 
+  const { analyzed_50_top_tracks, analyzed_playlist_context } = unifiedGeminiResponse; 
 
-  const sessionSemanticProfile = createSessionSemanticProfile(analyzed_top_50_tracks, analyzed_playlist_context);
+  const sessionSemanticProfile = createSessionSemanticProfile(analyzed_50_top_tracks, analyzed_playlist_context);
 
   let overallMoodCategory: string = "Mixed Moods";
   let overallMoodConfidence: number = 0.5;
@@ -397,7 +342,7 @@ export const aggregateSessionData = (unifiedGeminiResponse: UnifiedTasteGeminiRe
     overall_mood_confidence: overallMoodConfidence, 
     session_semantic_profile: sessionSemanticProfile,
     playlist_contexts: analyzed_playlist_context, 
-    analyzed_top_tracks: analyzed_top_50_tracks, // MODIFIED: Use new field name
+    analyzed_top_tracks: analyzed_50_top_tracks,
     user_taste_profile_v1: undefined, // NEW: Placeholder for future aggregation (v2.4.0)
   };
 };
