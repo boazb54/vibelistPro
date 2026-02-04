@@ -1,4 +1,5 @@
 
+
 import { supabase } from './supabaseClient';
 import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from '../types';
 
