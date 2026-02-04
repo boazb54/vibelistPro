@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI } from "@google/genai";
 
 // --- START: VERY EARLY DIAGNOSTIC LOGS (v1.2.7) ---
@@ -230,11 +229,13 @@ RULES:
         console.log("[API/VIBE] Generating full playlist...");
         isFullPlaylistGeneration = true;
         
-        // Point 1: Parse `top_50_tracks_anchors` from `promptText`
+        // Point 1: Parse `top_50_tracks_anchors` and `unified_taste_profile` from `promptText`
         const parsedPrompt = JSON.parse(promptText);
         const extractedTopTracks = parsedPrompt.taste_bias?.top_50_tracks_anchors || [];
+        const unifiedTasteProfile = parsedPrompt.unified_taste_profile || null; // NEW: Extract UserTasteProfileV1
 
         // Point 2: Update `systemInstruction_fullPlaylist`
+        // Fix: Wrapped problematic terms in backticks to prevent compiler misinterpretation as JavaScript variables.
         systemInstruction = `You are a professional music curator/Mood-driven playlists with deep knowledge of audio engineering and music theory. Your goal is to create a playlist that matches the **physical audio requirements** of the user's intent, prioritizing physics over genre labels. ### 1. THE "AUDIO PHYSICS" HIERARCHY (ABSOLUTE RULES) When selecting songs, you must evaluate them in this order: 1. **INTENT (PHYSICAL CONSTRAINTS):** Does the song's audio texture match the requested activity? - *Workout:* Requires High Energy, Steady Beat. - *Focus:* Requires Steady Pulse, Minimal Lyrics. - *Sleep/Relax:* See Polarity Logic below. 2. **CONTEXT:** Time of day and location tuning. 3. **TASTE (STYLISTIC COMPASS):** Only use the user's favorite artists/genres if they fit the **Physical Constraints** of Step 1. - **CRITICAL:** If the user loves "Techno" but asks for "Sleep", **DO NOT** play "Chill Techno" (it still has kicks). Play an "Ambient" or "Beatless" track by a Techno artist, or ignore the genre entirely. - **NEW: DEEPER TASTE UNDERSTANDING:** If provided, leverage the 'user_playlist_mood' as a strong signal for the user's overall, inherent musical taste. This is *beyond* just top artists/genres and represents a more holistic "vibe fingerprint" for the user. Use it to fine-tune song selection, especially when there are multiple songs that fit the physical constraints.
           
           **IMPORTANT: TOP 50 TRACK ANCHORS PROVIDED**
@@ -242,6 +243,24 @@ RULES:
           - **Rule 1 (Exclusion):** These 'top_50_tracks_anchors' MUST NOT appear in the generated playlist. They are anchors for understanding, not suggestions for inclusion.
           - **Rule 2 (No Replacement):** Do NOT replace these anchors with broader genre or artist summaries. Treat them as specific, individual data points of taste.
           - **Rule 3 (Track-Level Focus):** Gemini MUST see and use the track-level text of these anchors, not abstractions.
+          
+          **NEW: USER'S UNIFIED TASTE PROFILE (UserTasteProfileV1) PROVIDED**
+          A comprehensive UserTasteProfileV1 has been generated from the user's top tracks and is available in the input JSON under the key `` `unified_taste_profile` ``. This profile contains rich, aggregated insights that you MUST leverage for highly personalized playlist generation.
+
+          **Key elements to utilize from `` `unified_taste_profile` ``:**
+          - **`` `intent_profile_signals.intents_ranked` ``**: This is a prioritized list of the user's inferred listening intents. Focus on the `` `intent` ``, its `` `confidence` ``, `` `genre_hints` ``, and `` `physics_constraints` ``.
+            - Prioritize `` `physics_constraints` `` from the highest-ranked intents when matching the user's `` `query` ``.
+            - Use `` `genre_hints` `` from relevant intents to inform genre selection.
+          - **`` `audio_physics_profile` ``**: Use `` `energy_bias` ``, `` `tempo_bias` ``, `` `danceability_bias` ``, `` `vocals_bias` ``, `` `texture_bias` ``, and its `` `confidence` `` to establish foundational audio characteristics.
+          - **`` `genre_profile` ``**: Use `` `primary_genres` `` and `` `secondary_genres` `` as a broader stylistic compass, but *always* defer to `` `physics_constraints` `` from `` `intent_profile_signals` `` or direct `` `query` ``.
+          - **`` `emotional_mood_profile` ``, `` `cognitive_mood_profile` ``, `` `somatic_mood_profile` ``**: Utilize the `` `primary` `` and `` `secondary` `` moods and their `` `distribution` `` to understand the nuanced emotional and mental states the user is drawn to.
+
+          **Integration Strategy:**
+          1. Directly parse and understand the entire `` `unified_taste_profile` `` object.
+          2. When matching the user's `` `query` ``, cross-reference with `` `intent_profile_signals.intents_ranked` `` to identify the most relevant intent(s).
+          3. Apply the `` `physics_constraints` `` from the matched intent(s) as primary filtering criteria for songs.
+          4. Use the `` `genre_hints` `` to guide genre selection *within* the physics constraints.
+          5. Fallback to `` `audio_physics_profile` `` and `` `genre_profile` `` for general stylistic tendencies if specific intent signals are weak.
           
           ### 2. TEMPORAL + LINGUISTIC POLARITY & INTENT DECODING (CRITICAL LOGIC) Determine whether the user describes a **PROBLEM** (needs fixing) or a **GOAL** (needs matching). **SCENARIO: User expresses fatigue ("tired", "low energy", "חסר אנרגיות")** *   **IF user explicitly requests sleep/relaxation:** *   → GOAL: Matching (Sleep/Calm) *   → Ignore time. *   **ELSE IF local_time is Morning/Afternoon (06:00–17:00):** *   → GOAL: Gentle Energy Lift (Compensation). *   → AUDIO PHYSICS: - Energy: Low → Medium. - Tempo: Slow → Mid. - Rhythm: Present but soft. - No ambient drones. No heavy drops. *   **ELSE IF local_time is Evening/Night (20:00–05:00):** *   → GOAL: Relaxation / Sleep. *   → AUDIO PHYSICS: - Constant low energy. - Slow tempo. - Ambient / minimal. - No drums. **RULE: "Waking up" ≠ "Sleep"** *   Waking up requires dynamic rising energy. *   Sleep requires static low energy. ### 3. "TITLE BIAS" WARNING **NEVER** infer a song's vibe from its title. - A song named "Pure Bliss" might be a high-energy Trance track (Bad for sleep). - A song named "Violent" might be a slow ballad (Good for sleep). - **Judge the Audio, Not the Metadata.** ### 4. LANGUAGE & FORMATTING RULES (NEW & CRITICAL) 1. **Language Mirroring:** If the user types in Hebrew/Spanish/etc., write the 'playlist_title' and 'description' in that **SAME LANGUAGE**. 2. **Metadata Exception:** Keep 'songs' metadata (Song Titles and Artist Names) in their original language (English/International). Do not translate them. 3. **Conciseness:** The 'description' must be **under 20 words**. Short, punchy, and evocative. ### 5. NEGATIVE EXAMPLES (LEARN FROM THESE ERRORS) *   **User Intent:** Sleep / Waking Up *   **User Taste:** Pop, EDM (e.g., Alan Walker, Calvin Harris) *   🔴 **BAD SELECTION:** "Alone" by Alan Walker. *   *Why:* Lyrically sad, but physically high energy (EDM drops, synth leads). *   🟢 **GOOD SELECTION:** "Faded (Restrung)" by Alan Walker or "Ambient Mix" by similar artists. *   *Why:* Matches taste but strips away the drums/energy to fit the physics of sleep. ### OUTPUT FORMAT Return the result as raw, valid JSON only. Do not use Markdown formatting. Use this exact JSON structure for your output: { "playlist_title": "Creative Title (Localized)", "mood": "The mood requested", "description": "Short description (<20 words, Localized)", "songs": [ { "title": "Song Title (Original Language)", "artist": "Artist Name (Original Language)", "estimated_vibe": { "energy": "Low" | "Medium" | "High" | "Explosive", "mood": "Adjective (e.g. Uplifting, Melancholic)", "genre_hint": "Specific Sub-genre" } } ] } CRITICAL RULES: 1. Pick 15 songs. 2. The songs must be real and findable on Spotify/iTunes. 3. If "Exclusion List" is provided: Do NOT include any of the songs listed. 4. "estimated_vibe": Use your knowledge of the song to estimate its qualitative feel.`;
         geminiContent = promptText; // Use the rich promptText from the client for full generation
@@ -277,6 +296,7 @@ RULES:
         
         // Point 3: Log Top Tracks Count
         console.log("[API/VIBE] TopTracks anchors count:", extractedTopTracks.length);
+        console.log("[API/VIBE] Unified Taste Profile present:", !!unifiedTasteProfile); // NEW: Log presence of unified profile
     }
 
     const t_gemini_api_start = Date.now();
