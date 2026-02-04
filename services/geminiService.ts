@@ -1,3 +1,4 @@
+
 import {
   GeneratedPlaylistRaw, AnalyzedTopTrack, ContextualSignals, UserTasteProfile, GeneratedTeaserRaw, VibeValidationResponse, UnifiedVibeResponse, GeminiResponseMetrics,
   UnifiedTasteAnalysis,
@@ -5,9 +6,10 @@ import {
   TranscriptionResult,
   TranscriptionStatus,
   TranscriptionRequestMeta,
-  AggregatedPlaylist, // NEW: Import AggregatedPlaylist
-  AnalyzedPlaylistContextItem, // NEW: Import AnalyzedPlaylistContextItem
-  UnifiedTasteGeminiError, // NEW: Import UnifiedTasteGeminiError
+  AggregatedPlaylist,
+  AnalyzedPlaylistContextItem,
+  UnifiedTasteGeminiError,
+  UserTasteProfileV1 // NEW: Import UserTasteProfileV1
 } from "../types";
 // REMOVED: GoogleGenAI, Type, HarmCategory, HarmBlockThreshold are no longer imported here as Gemini calls are proxied.
 // import { GoogleGenAI, Type, GenerateContentResponse, HarmCategory, HarmBlockThreshold } from "@google/genai";
@@ -134,14 +136,18 @@ export const generatePlaylistFromMood = async (
           browser_language: contextSignals.browser_language,
           country: contextSignals.country || 'Unknown'
       },
+      // MODIFIED: Pass user_taste_profile_v1 for advanced aggregation and use topTracks for exclusion
       taste_bias: tasteProfile ? {
+          // This top-level taste_bias structure is what api/vibe.mjs currently expects for general taste.
+          // It will be augmented by the new `unified_taste_profile` at the root.
           type: tasteProfile.unified_analysis?.session_semantic_profile?.taste_profile_type || 'unknown',
           top_artists: tasteProfile.topArtists.slice(0, 20),
           top_genres: tasteProfile.topGenres.slice(0, 10),
           vibe_fingerprint: tasteProfile.unified_analysis?.session_semantic_profile ? { energy: tasteProfile.unified_analysis.session_semantic_profile.energy_bias, favored_genres: tasteProfile.unified_analysis.session_semantic_profile.dominant_genres } : null,
           user_playlist_mood: tasteProfile.unified_analysis?.overall_mood_category ? { playlist_mood_category: tasteProfile.unified_analysis.overall_mood_category, confidence_score: tasteProfile.unified_analysis.overall_mood_confidence } : null,
-          top_50_tracks_anchors: tasteProfile.topTracks.slice(0, 50)
+          top_50_tracks_anchors: tasteProfile.topTracks.slice(0, 50) // Now passed explicitly for exclusion
       } : null,
+      unified_taste_profile: tasteProfile?.unified_analysis?.user_taste_profile_v1 || null, // NEW: Full UserTasteProfileV1
       exclusions: excludeSongs || []
   }, null, 2);
   const promptBuildTimeMs = Math.round(performance.now() - t_prompt_start);
