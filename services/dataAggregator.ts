@@ -431,7 +431,7 @@ const createSessionSemanticProfile = (
 
 
 // NEW: Function to build the comprehensive UserTasteProfileV1
-const buildUserTasteProfileV1 = (rawTracks: RawAnalyzedTopTrack[], playlists: AnalyizedPlaylistContextItem[]): UserTasteProfileV1 => {
+const buildUserTasteProfileV1 = (rawTracks: RawAnalyzedTopTrack[], playlists: AnalyzedPlaylistContextItem[]): UserTasteProfileV1 => {
   // First, normalize raw tracks into strict AnalyzedTopTrack objects
   const tracks: AnalyzedTopTrack[] = rawTracks.map(rawTrack => ({
     ...rawTrack,
@@ -920,7 +920,7 @@ export const aggregateSessionData = (unifiedGeminiResponse: UnifiedTasteGeminiRe
     overall_mood_confidence: overallMoodConfidence, 
     session_semantic_profile: sessionSemanticProfile,
     playlist_contexts: analyzed_playlist_context, 
-    analyzed_top_tracks: analyzed_top_50_tracks, // Use renamed key
+    // REMOVED: analyzed_top_tracks: analyzed_top_50_tracks, // Use renamed key
     user_taste_profile_v1: userTasteProfileV1, // NEW: Populate the aggregated taste profile
   };
 };
