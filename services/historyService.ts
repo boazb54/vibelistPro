@@ -1,5 +1,3 @@
-
-
 import { supabase } from './supabaseClient';
 import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from '../types';
 
@@ -155,7 +153,8 @@ export const markVibeAsExported = async (vibeId: string) => {
 };
 
 /**
- * Saves essential user account info and the new UserTasteProfileV1.
+ * Saves essential user account info only.
+ * REMOVED: Saving of top_artists and top_genres to comply with Spotify Developer Terms.
  */
 export const saveUserProfile = async (
   profile: SpotifyUserProfile,
@@ -172,10 +171,8 @@ export const saveUserProfile = async (
         last_login: new Date().toISOString()
     };
 
-    // NEW: Save the UserTasteProfileV1 to a dedicated column
-    if (tasteProfile?.unified_analysis?.user_taste_profile_v1) {
-      payload.unified_taste_profile_v1_json = tasteProfile.unified_analysis.user_taste_profile_v1;
-    }
+    // NOTE: We deliberately do NOT save tasteProfile.topArtists or topGenres to the database
+    // to strictly adhere to data minimization principles.
 
     const { error } = await supabase
       .from('users')
@@ -194,10 +191,9 @@ export const saveUserProfile = async (
  */
 export const fetchUserProfile = async (userId: string) => {
   try {
-    // NEW: Also select the unified_taste_profile_v1_json column
     const { data, error } = await supabase
       .from('users')
-      .select('email, display_name, country, product, created_at, unified_taste_profile_v1_json')
+      .select('email, display_name, country, product, created_at')
       .eq('id', userId)
       .single();
 
