@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -230,6 +231,7 @@ const App: React.FC = () => {
       try {
           addLog("[Client-side Taste Cache] Attempting to load unified analysis from local storage...");
           const cachedUnifiedAnalysis = await storageService.getItem('user_unified_analysis');
+          // Fix: Corrected typo 'cachedLastAnalyyzedAt' to 'cachedLastAnalyzedAt'
           const cachedLastAnalyzedAt = await storageService.getItem('user_taste_analyzed_at');
 
           if (cachedUnifiedAnalysis && cachedLastAnalyzedAt) {
@@ -238,11 +240,11 @@ const App: React.FC = () => {
                   topArtists: [], // These are not stored in unified_analysis
                   topGenres: [],  // These are not stored in unified_analysis
                   topTracks: [],  // These are not stored in unified_analysis
-                  unified_analysis: parsedAnalysis,
+                  unified_analysis: parsedAnalysis, // NEW: parsedAnalysis now includes user_taste_profile_v1
                   last_analyzed_at: cachedLastAnalyzedAt,
               };
               setUserTaste(loadedTaste);
-              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+              saveUserProfile(profile, loadedTaste); // NEW: Pass loadedTaste for persistence
               addLog("[Client-side Taste Cache] Unified analysis loaded from local storage. Skipping Gemini API call.");
               return; // Exit early as we have cached data
           }
@@ -286,12 +288,13 @@ const App: React.FC = () => {
               }
 
               addLog(`[Wave 2: Gemini] Unified Taste Analysis successful. Processing session fingerprint...`);
+              // MODIFIED: `analyzed_top_50_tracks` now matches `UnifiedTasteGeminiResponse`
               const unifiedAnalysis: UnifiedTasteAnalysis = aggregateSessionData(unifiedGeminiResponse);
               const currentTimestamp = new Date().toISOString();
               
               const enhancedTaste: UserTasteProfile = {
                   ...taste,
-                  unified_analysis: unifiedAnalysis,
+                  unified_analysis: unifiedAnalysis, // NEW: unifiedAnalysis now contains user_taste_profile_v1
                   last_analyzed_at: currentTimestamp, // Store the timestamp
               };
 
@@ -302,17 +305,17 @@ const App: React.FC = () => {
 
               addLog(">>> UNIFIED SESSION SEMANTIC PROFILE GENERATED <<<");
               setUserTaste(enhancedTaste);
-              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+              saveUserProfile(profile, enhancedTaste); // NEW: Pass enhancedTaste for persistence
             } catch (geminiError: any) {
               addLog(`[Wave 2: Gemini] Unified Taste Analysis failed: ${geminiError.message || 'Unknown error'}`);
               console.warn("Unified Gemini analysis failed", geminiError);
               setUserTaste(taste);
-              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+              saveUserProfile(profile, taste); // NEW: Pass taste profile even on Gemini error
             }
           } else {
             addLog("[Wave 2: Gemini] Skipping unified analysis: No track or playlist data available.");
             setUserTaste(taste);
-            saveUserProfile(profile, null); // Only save profile to DB, not taste data
+            saveUserProfile(profile, taste); // NEW: Pass taste profile even when skipping
           }
 
           addLog(">>> ALL PROFILE DATA REFRESH COMPLETE <<<");
