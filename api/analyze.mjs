@@ -42,8 +42,7 @@ export default async function handler(req, res) {
       console.log(`[API/ANALYZE] Performing unified taste analysis for ${playlists?.length || 0} playlists and ${topTracks?.length || 0} top tracks.`);
 
       // --- SYSTEM INSTRUCTION TASK A ---
-      // MODIFIED: Simplified system instruction for Task A to return raw analysis data
-      const systemInstruction_taskA = `You are a Music Attribute Inference Engine for VibeList Pro. Your primary function is to analyze song and artist names to infer detailed musical attributes. You MUST return ALL inferred attributes as a single, raw JSON object per track, without adhering to a strict, nested schema for audio physics or semantic tags at this stage.
+      const systemInstruction_taskA = `You are a Music Attribute Inference Engine for VibeList Pro. Your primary function is to analyze song and artist names to infer detailed musical attributes, including audio physics, semantic tags, and structured mood profiles, with granular confidence scores.
 
 ──────────────────────────────
 ## CRITICAL POSITION RULES NO 1 ##
@@ -70,7 +69,7 @@ They reflect:
 ─────────────────────────────
 ## YOUR TASK — Analyzed Top 50 Tracks ##:
 ───────────────────────────────
-For each individual song from the "top 50 tracks" list, generate detailed musical attributes. Return ALL inferred attributes for each track as a raw, single-level JSON object. DO NOT nest properties like 'audio_physics' or 'semantic_tags' into sub-objects; keep them at the top-level of each track's analysis object. Include specific confidence scores for each individual attribute you return.
+For each individual song from the "top 50 tracks" list, generate detailed musical attributes along with a specific confidence score for *each individual attribute*.
 
 You must provide per-attribute confidence for:
 - All audio physics parameters.
@@ -123,7 +122,7 @@ These inferences form the PRIMARY reference for:
     *   **Rule:** Do NOT privilege English. Detect language from known lyrics/performance. If public metadata is scarce, prefer artist origin/discography.
 
 4.  **Mood Profile (3 axes: Emotional, Cognitive, Somatic):**
-    *   Generate three distinct tag lists: \`emotional_tags\`, \`cognitive_tags\`, \`somatic_tags\`.
+    *   Replaces a simple mood array with a structured \`semantic_tags\` object containing three distinct tag lists: \`emotional_tags\`, \`cognitive_tags\`, \`somatic_tags\`.
     *   Each must have its own confidence: \`emotional_confidence\`, \`cognitive_confidence\`, \`somatic_confidence\`.
     *   **Definitions:**
         *   **EMOTIONAL MOODS:** What the listener FEELS emotionally (e.g., melancholic, joyful, dark, romantic, angry, calm).
@@ -150,40 +149,60 @@ Use: low | medium | high
 - **low:** weak evidence, uncommon track, or you’re guessing.
 
 ──────────────────────────────
+## Overall Track Confidence ##
+───────────────────────────────
+In addition to per-attribute confidences, also provide a single \`confidence\` score for the entire track's overall analysis (low | medium | high). This reflects your general certainty about the composite assessment of the track.
+
+──────────────────────────────
 ## OUTPUT FORMAT RULES ##
 ───────────────────────────────
 Return ONLY raw JSON matching this schema exactly. Do NOT add extra keys or explanations.
-The output should be a single JSON object containing an array named "analyzed_top_50_tracks". Each item in this array MUST be a flat JSON object (no nested 'audio_physics' or 'semantic_tags' sub-objects) containing all derived attributes and their confidence scores directly as top-level properties within the track object.
 Use lowercase for genres and tags. If unknown, use minimal empty lists or default "und" with low confidence.
 
 {
-  "analyzed_top_50_tracks": [
+  "analyzed_50_top_tracks": [
     {
       "origin": "TOP_50_TRACKS_LIST",
       "song_name": "<string>",
       "artist_name": "<string>",
-      "energy_level": "low|low_medium|medium|medium_high|high",
-      "energy_confidence": "low|medium|high",
-      "tempo_feel": "slow|mid|fast",
-      "tempo_confidence": "low|medium|high",
-      "vocals_type": "instrumental|sparse|lead_vocal|harmonies|choral|background_vocal",
-      "vocals_confidence": "low|medium|high",
-      "texture_type": "organic|acoustic|electric|synthetic|hybrid|ambient",
-      "texture_confidence": "low|medium|high",
-      "danceability_hint": "low|medium|high",
-      "danceability_confidence": "low|medium|high",
-      "primary_genre": "<string>",
-      "primary_genre_confidence": "low|medium|high",
-      "secondary_genres": ["<string>"],
-      "secondary_genres_confidence": "low|medium|high",
-      "emotional_tags": ["<string>"],
-      "emotional_confidence": "low|medium|high",
-      "cognitive_tags": ["<string>"],
-      "cognitive_confidence": "low|medium|high",
-      "somatic_tags": ["<string>"],
-      "somatic_confidence": "low|medium|high",
-      "language_iso_639_1": "<string>",
-      "language_confidence": "low|medium|high"
+      "confidence": "low|medium|high",
+
+      "audio_physics": {
+        "energy_level": "low|low_medium|medium|medium_high|high",
+        "energy_confidence": "low|medium|high",
+
+        "tempo_feel": "slow|mid|fast",
+        "tempo_confidence": "low|medium|high",
+
+        "vocals_type": "instrumental|sparse|lead_vocal|harmonies|choral|background_vocal",
+        "vocals_confidence": "low|medium|high",
+
+        "texture_type": "organic|acoustic|electric|synthetic|hybrid|ambient",
+        "texture_confidence": "low|medium|high",
+
+        "danceability_hint": "low|medium|high",
+        "danceability_confidence": "low|medium|high"
+      },
+
+      "semantic_tags": {
+        "primary_genre": "<string>",
+        "primary_genre_confidence": "low|medium|high",
+
+        "secondary_genres": ["<string>"],
+        "secondary_genres_confidence": "low|medium|high",
+
+        "emotional_tags": ["<string>"],
+        "emotional_confidence": "low|medium|high",
+
+        "cognitive_tags": ["<string>"],
+        "cognitive_confidence": "low|medium|high",
+
+        "somatic_tags": ["<string>"],
+        "somatic_confidence": "low|medium|high",
+
+        "language_iso_639_1": "<string>",
+        "language_confidence": "low|medium|high"
+      }
     }
   ]
 }
@@ -302,28 +321,74 @@ Return ONLY raw JSON matching schema:
         promptBuildTimeMsB = t_prompt_B_end - t_prompt_B_start;
 
         // Response schema for TASK A
-        // MODIFIED: Simplified response schema for Task A
         const responseSchema_taskA = {
           type: Type.OBJECT,
           properties: {
-            analyzed_top_50_tracks: { // RENAMED: from analyzed_50_top_tracks
+            analyzed_50_top_tracks: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
                   origin: { type: Type.STRING },
                   song_name: { type: Type.STRING },
-                  artist_name: { type: Type.STRING }, // 'artist_name' remains
-                  // Consolidating all other analysis into a raw_ai_analysis_data object
-                  // The actual content will be flexible based on model output, but it must be an object.
-                  raw_ai_analysis_data: { type: Type.OBJECT, additionalProperties: true },
+                  artist_name: { type: Type.STRING },
+                  // Corrected to use Type.STRING for confidence levels
+                  confidence: { type: Type.STRING }, // Top-level track confidence
+                  audio_physics: {
+                    type: Type.OBJECT,
+                    properties: {
+                      // Corrected to use Type.STRING for these properties
+                      energy_level: { type: Type.STRING },
+                      energy_confidence: { type: Type.STRING },
+                      tempo_feel: { type: Type.STRING },
+                      tempo_confidence: { type: Type.STRING },
+                      vocals_type: { type: Type.STRING },
+                      vocals_confidence: { type: Type.STRING },
+                      texture_type: { type: Type.STRING },
+                      texture_confidence: { type: Type.STRING },
+                      danceability_hint: { type: Type.STRING },
+                      danceability_confidence: { type: Type.STRING },
+                    },
+                    required: [
+                      "energy_level", "energy_confidence",
+                      "tempo_feel", "tempo_confidence",
+                      "vocals_type", "vocals_confidence",
+                      "texture_type", "texture_confidence",
+                      "danceability_hint", "danceability_confidence"
+                    ],
+                  },
+                  semantic_tags: {
+                    type: Type.OBJECT,
+                    properties: {
+                      // Corrected to use Type.STRING for these properties
+                      primary_genre: { type: Type.STRING },
+                      primary_genre_confidence: { type: Type.STRING },
+                      secondary_genres: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      secondary_genres_confidence: { type: Type.STRING },
+                      emotional_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      emotional_confidence: { type: Type.STRING },
+                      cognitive_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      cognitive_confidence: { type: Type.STRING },
+                      somatic_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      somatic_confidence: { type: Type.STRING },
+                      language_iso_639_1: { type: Type.STRING },
+                      language_confidence: { type: Type.STRING },
+                    },
+                    required: [
+                      "primary_genre", "primary_genre_confidence",
+                      "secondary_genres", "secondary_genres_confidence",
+                      "emotional_tags", "emotional_confidence",
+                      "cognitive_tags", "cognitive_confidence",
+                      "somatic_tags", "somatic_confidence",
+                      "language_iso_639_1", "language_confidence"
+                    ],
+                  },
                 },
-                // Removed top-level confidence, audio_physics, semantic_tags as direct fields
-                required: ["origin", "song_name", "artist_name", "raw_ai_analysis_data"],
+                required: ["origin", "song_name", "artist_name", "confidence", "audio_physics", "semantic_tags"],
               },
             },
           },
-          required: ["analyzed_top_50_tracks"], // RENAMED: from analyzed_50_top_tracks
+          required: ["analyzed_50_top_tracks"],
         };
 
         // Response schema for TASK B
@@ -474,9 +539,8 @@ Return ONLY raw JSON matching schema:
           const parsedDataA = JSON.parse(geminiResponseTextA.replace(/```json|```/g, '').trim());
           const parsedDataB = JSON.parse(geminiResponseTextB.replace(/```json|```/g, '').trim());
 
-          // RENAMED: analyzed_50_top_tracks to analyzed_top_50_tracks
           const unifiedResponse = {
-            analyzed_top_50_tracks: parsedDataA.analyzed_top_50_tracks,
+            analyzed_50_top_tracks: parsedDataA.analyzed_50_top_tracks,
             analyzed_playlist_context: parsedDataB.analyzed_playlist_context,
           };
 
