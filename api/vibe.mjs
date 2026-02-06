@@ -1,6 +1,10 @@
 
 
+import { config as dotenvConfig } from 'dotenv';
 import { GoogleGenAI } from "@google/genai";
+
+// Load environment variables from .env file (for local development)
+dotenvConfig();
 
 // --- START: VERY EARLY DIAGNOSTIC LOGS (v1.2.7) ---
 console.log(`[API/VIBE] Module start: ${new Date().toISOString()}.`);
@@ -188,7 +192,23 @@ Return ONLY raw JSON matching schema:
     const t_validation_api_end = Date.now();
     // [DEBUG LOG][api/vibe.mjs] Point 3: Log Raw Gemini Response Text (Validation Stage)
     console.log("[DEBUG LOG][api/vibe.mjs] Raw Gemini response text (validation):", validationResponse.text);
-    const validationData = JSON.parse(validationResponse.text);
+    console.log("[DEBUG LOG][api/vibe.mjs] Raw Gemini response text length:", validationResponse.text?.length);
+    console.log("[DEBUG LOG][api/vibe.mjs] Raw Gemini response text first 500 chars:", validationResponse.text?.slice(0, 500));
+    
+    // Defensive parsing with error details
+    let validationData;
+    try {
+      validationData = JSON.parse(validationResponse.text);
+    } catch (parseError) {
+      console.error("[API/VIBE] JSON.parse error:", parseError.message);
+      console.error("[API/VIBE] Failed to parse validationResponse.text. Full response object:");
+      console.error("[API/VIBE] Response:", JSON.stringify(validationResponse, null, 2));
+      return res.status(500).json({
+        error: "Failed to parse Gemini validation response as JSON",
+        details: validationResponse.text?.slice(0, 500),
+        parseError: parseError.message
+      });
+    }
     // [DEBUG LOG][api/vibe.mjs] Point 4: Log Parsed Gemini Data (Validation Stage)
     console.log("[DEBUG LOG][api/vibe.mjs] Parsed Gemini data (validation):", JSON.stringify(validationData, null, 2));
     console.log(`[API/VIBE] Validation status: ${validationData.validation_status}`);
@@ -313,7 +333,23 @@ RULES:
 
     // [DEBUG LOG][api/vibe.mjs] Point 6: Log Raw Gemini Response Text (Teaser/Full Generation Stage)
     console.log("[DEBUG LOG][api/vibe.mjs] Raw Gemini response text (generation):", geminiModelResponse.text);
-    const rawData = JSON.parse(geminiModelResponse.text);
+    console.log("[DEBUG LOG][api/vibe.mjs] Raw Gemini response text length:", geminiModelResponse.text?.length);
+    console.log("[DEBUG LOG][api/vibe.mjs] Raw Gemini response text first 500 chars:", geminiModelResponse.text?.slice(0, 500));
+    
+    // Defensive parsing with error details
+    let rawData;
+    try {
+      rawData = JSON.parse(geminiModelResponse.text);
+    } catch (parseError) {
+      console.error("[API/VIBE] JSON.parse error (generation stage):", parseError.message);
+      console.error("[API/VIBE] Failed to parse geminiModelResponse.text. Full response object:");
+      console.error("[API/VIBE] Response:", JSON.stringify(geminiModelResponse, null, 2));
+      return res.status(500).json({
+        error: "Failed to parse Gemini generation response as JSON",
+        details: geminiModelResponse.text?.slice(0, 500),
+        parseError: parseError.message
+      });
+    }
     // [DEBUG LOG][api/vibe.mjs] Point 7: Log Parsed Gemini Data (Teaser/Full Generation Stage)
     console.log("[DEBUG LOG][api/vibe.mjs] Parsed Gemini data (generation):", JSON.stringify(rawData, null, 2));
     console.log(`[API/VIBE] Gemini generation successful. Is Full Playlist: ${isFullPlaylistGeneration}`);

@@ -1,5 +1,9 @@
 
-import { GoogleGenAI } from "@google/genai"; // Keep import even if not directly used, for consistency/future
+import { config as dotenvConfig } from 'dotenv';
+import { GoogleGenAI } from "@google/genai";
+
+// Load environment variables from .env file (for local development)
+dotenvConfig(); // Keep import even if not directly used, for consistency/future
 
 export default async function handler(req, res) {
   const { term } = req.query;
