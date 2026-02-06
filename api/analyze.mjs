@@ -1,4 +1,8 @@
+import { config as dotenvConfig } from 'dotenv';
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
+
+// Load environment variables from .env file (for local development)
+dotenvConfig();
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
