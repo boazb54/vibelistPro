@@ -1,13 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 import MoodSelector from './components/MoodSelector';
 import PlaylistView from './components/PlaylistView';
 import TeaserPlaylistView from './components/TeaserPlaylistView';
 import PlayerControls from './components/PlayerControls';
 import SettingsOverlay from './components/SettingsOverlay';
-import { CogIcon } from './components/Icons'; 
-import AdminDataInspector from './components/AdminDataInspector';
-import { Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse } from './types';
-import { generatePlaylistFromMood, analyzeUserTopTracks, analyzeUserPlaylistsForMood, isPreviewEnvironment } from './services/geminiService';
+import PostSavePopup from './components/PostSavePopup';
+import { BurgerIcon } from './components/Icons'; 
+import { 
+  Playlist, Song, PlayerState, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, ContextualSignals, AggregatedPlaylist, UnifiedVibeResponse,
+  UnifiedTasteAnalysis, UnifiedTasteGeminiResponse 
+} from './types';
+import { 
+  generatePlaylistFromMood, 
+  analyzeFullTasteProfile, 
+} from './services/geminiService';
 import { aggregateSessionData } from './services/dataAggregator';
 import { fetchSongMetadata } from './services/itunesService';
 import { 
@@ -21,8 +29,10 @@ import {
   fetchUserPlaylistsAndTracks
 } from './services/spotifyService';
 import { generateRandomString, generateCodeChallenge } from './services/pkceService';
+import { storageService } from './services/storageService';
 import { saveVibe, markVibeAsExported, saveUserProfile, logGenerationFailure, fetchVibeById } from './services/historyService';
-import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI } from './constants';
+import { DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI, ANDROID_REDIRECT_URI } from './constants';
+import { isNative, getRedirectUri } from './utils/platformUtils';
 
 interface TeaserPlaylist {
   id: string;
@@ -30,9 +40,6 @@ interface TeaserPlaylist {
   description: string;
   mood: string;
 }
-
-// Module-level guard to survive React remounts
-let authProcessedGlobal = false;
 
 const App: React.FC = () => {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
@@ -48,11 +55,15 @@ const App: React.FC = () => {
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showAdminDataInspector, setShowAdminDataInspector] = useState(false);
   const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]);
   const [isConfirmationStep, setIsConfirmationStep] = useState(false);
   const [validationError, setValidationError] = useState<{ message: string; key: number } | null>(null);
+  
+  // v2.2.0 - Post-Save States
+  const [showPostSavePopup, setShowPostSavePopup] = useState(false);
+  const [exportedPlaylistUrl, setExportedPlaylistUrl] = useState<string | null>(null);
 
+  const isProcessingAuth = useRef(false);
   const generationSessionId = useRef(0);
   const spotifyClientId = localStorage.getItem('spotify_client_id') || DEFAULT_SPOTIFY_CLIENT_ID;
 
@@ -60,72 +71,116 @@ const App: React.FC = () => {
     setDebugLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`]);
   }, []);
 
-  const handleSpotifyAuth = useCallback(async (signal: AbortSignal) => {
-    if (authProcessedGlobal) return;
+  const processAuthCode = useCallback(async (code: string, incomingState: string | null, signal?: AbortSignal) => {
+    if (isProcessingAuth.current) return;
+    isProcessingAuth.current = true;
 
-    const code = new URLSearchParams(window.location.search).get('code');
-    const token = getTokenFromHash();
-
-    if (code) {
-      authProcessedGlobal = true;
-      window.history.replaceState({}, '', window.location.pathname);
-      const verifier = localStorage.getItem('code_verifier');
-      if (verifier) {
-        try {
-          const data = await exchangeCodeForToken(spotifyClientId, DEFAULT_REDIRECT_URI, code, verifier, signal);
-          if (!signal.aborted) {
-            handleSuccessFullAuth(data.access_token, data.refresh_token);
-          }
-        } catch (e) {
-          if (e instanceof Error && e.name === 'AbortError') return;
-          authProcessedGlobal = false; // Reset on failure so retry is possible
-          addLog(`PKCE Exchange failed: ${e instanceof Error ? e.message : String(e)}`);
-          console.error("PKCE Exchange failed", e);
-        }
+    try {
+      addLog(`Initiating auth code exchange. Native: ${isNative()}`);
+      
+      const storedState = await storageService.getItem('auth_state');
+      if (incomingState && storedState && incomingState !== storedState) {
+        throw new Error("CSRF State Mismatch. Authentication aborted.");
       }
-    } else if (token) {
-      authProcessedGlobal = true;
-      window.location.hash = "";
-      handleSuccessFullAuth(token);
+
+      const verifier = await storageService.getItem('code_verifier');
+      const usedRedirectUri = await storageService.getItem('used_redirect_uri') || DEFAULT_REDIRECT_URI;
+      
+      if (!verifier) {
+        throw new Error("PKCE Verifier lost. Session may have expired.");
+      }
+
+      const data = await exchangeCodeForToken(spotifyClientId, usedRedirectUri, code, verifier, signal);
+      
+      if (!signal?.aborted) {
+        await handleSuccessFullAuth(data.access_token, data.refresh_token);
+        // Clean up
+        await storageService.removeItem('auth_state');
+        await storageService.removeItem('code_verifier');
+        await storageService.removeItem('used_redirect_uri');
+      }
+    } catch (e: any) {
+      if (e instanceof Error && e.name === 'AbortError') return;
+      addLog(`Auth processing failed: ${e.message}`);
+      console.error("Auth processing failed", e);
+    } finally {
+      isProcessingAuth.current = false;
     }
   }, [spotifyClientId, addLog]);
 
   useEffect(() => {
     (window as any).addLog = addLog;
 
-    const storedToken = localStorage.getItem('spotify_token');
-    if (storedToken) {
-      setSpotifyToken(storedToken);
-      fetchProfile(storedToken);
-    }
-    
-    const controller = new AbortController();
-    handleSpotifyAuth(controller.signal);
+    const initApp = async () => {
+      const storedToken = await storageService.getItem('spotify_token');
+      if (storedToken) {
+        setSpotifyToken(storedToken);
+        fetchProfile(storedToken);
+      }
 
-    const params = new URLSearchParams(window.location.search);
-    const sharedMood = params.get('mood');
-    if (sharedMood) {
-       window.history.replaceState({}, '', window.location.pathname);
-       setTimeout(() => {
-         if (!playlist) handleMoodSelect(sharedMood, 'text');
-       }, 500);
-    }
+      // 1. WEB CALLBACK HANDLING
+      if (!isNative()) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const state = urlParams.get('state');
+        const hashToken = getTokenFromHash();
+
+        if (code) {
+          window.history.replaceState({}, '', window.location.pathname);
+          processAuthCode(code, state);
+        } else if (hashToken) {
+          window.location.hash = "";
+          handleSuccessFullAuth(hashToken);
+        }
+      }
+      
+      // 2. NATIVE CALLBACK HANDLING
+      if (isNative()) {
+        CapacitorApp.addListener('appUrlOpen', async (data) => {
+          addLog(`Native Deep Link Captured: ${data.url}`);
+          const url = new URL(data.url);
+          const code = url.searchParams.get('code');
+          const state = url.searchParams.get('state');
+          
+          if (code) {
+            // Close the browser if it's still open
+            await Browser.close();
+            // Process the code
+            processAuthCode(code, state);
+          }
+        });
+      }
+
+      // 3. SHARED MOOD HANDLING
+      const params = new URLSearchParams(window.location.search);
+      const sharedMood = params.get('mood');
+      if (sharedMood) {
+         window.history.replaceState({}, '', window.location.pathname);
+         setTimeout(() => {
+           if (!playlist) handleMoodSelect(sharedMood, 'text');
+         }, 500);
+      }
+    };
+
+    initApp();
 
     return () => {
-      controller.abort();
+      if (isNative()) {
+        CapacitorApp.removeAllListeners();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addLog, handleSpotifyAuth]);
+  }, [addLog, processAuthCode]);
 
   const handleSuccessFullAuth = async (accessToken: string, refreshToken?: string) => {
     setSpotifyToken(accessToken);
-    localStorage.setItem('spotify_token', accessToken);
+    await storageService.setItem('spotify_token', accessToken);
     if (refreshToken) {
-      localStorage.setItem('spotify_refresh_token', refreshToken);
+      await storageService.setItem('spotify_refresh_token', refreshToken);
     }
     fetchProfile(accessToken);
 
-    const pendingVibeId = localStorage.getItem('vibelist_pending_vibe_id');
+    const pendingVibeId = await storageService.getItem('vibelist_pending_vibe_id');
     if (pendingVibeId) {
       try {
         addLog(`Found pending vibe ID: ${pendingVibeId}. Fetching from DB...`);
@@ -144,12 +199,12 @@ const App: React.FC = () => {
           addLog(`Successfully retrieved pending vibe "${teaserData.title}" from DB.`);
         } else {
            addLog(`Pending vibe ID ${pendingVibeId} not found in DB or has no data. Clearing.`);
-           localStorage.removeItem('vibelist_pending_vibe_id');
+           await storageService.removeItem('vibelist_pending_vibe_id');
         }
       } catch(e: any) {
         console.error("Failed to retrieve pending vibe from database", e);
         addLog(`DB Error retrieving vibe: ${e.message}`);
-        localStorage.removeItem('vibelist_pending_vibe_id');
+        await storageService.removeItem('vibelist_pending_vibe_id');
       }
     }
   };
@@ -162,23 +217,41 @@ const App: React.FC = () => {
     } catch (e) {
       addLog(`Failed to fetch Spotify profile: ${e instanceof Error ? e.message : String(e)}`);
       console.error("Failed to fetch profile", e);
-      localStorage.removeItem('spotify_token');
+      await storageService.removeItem('spotify_token');
+      await storageService.removeItem('spotify_refresh_token'); // Clear refresh token as well
+      await storageService.removeItem('user_unified_analysis'); // Clear cached taste profile
+      await storageService.removeItem('user_taste_analyzed_at'); // Clear cached taste profile timestamp
       setSpotifyToken(null);
+      setUserTaste(null); // Clear taste profile from state
     }
   };
 
-  /**
-   * [Release v1.2.0 - API Parallelization]
-   * Refactored into a Wave-Based Concurrent Architecture.
-   */
   const refreshProfileAndTaste = async (token: string, profile: SpotifyUserProfile) => {
       try {
-          // --- WAVE 1: CONCURRENT DATA ACQUISITION ---
-          addLog("[Wave 1: Spotify] Initiating concurrent data acquisition...");
+          addLog("[Client-side Taste Cache] Attempting to load unified analysis from local storage...");
+          const cachedUnifiedAnalysis = await storageService.getItem('user_unified_analysis');
+          const cachedLastAnalyzedAt = await storageService.getItem('user_taste_analyzed_at');
+
+          if (cachedUnifiedAnalysis && cachedLastAnalyzedAt) {
+              const parsedAnalysis: UnifiedTasteAnalysis = JSON.parse(cachedUnifiedAnalysis);
+              const loadedTaste: UserTasteProfile = {
+                  topArtists: [], // These are not stored in unified_analysis
+                  topGenres: [],  // These are not stored in unified_analysis
+                  topTracks: [],  // These are not stored in unified_analysis
+                  unified_analysis: parsedAnalysis,
+                  last_analyzed_at: cachedLastAnalyzedAt,
+              };
+              setUserTaste(loadedTaste);
+              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+              addLog("[Client-side Taste Cache] Unified analysis loaded from local storage. Skipping Gemini API call.");
+              return; // Exit early as we have cached data
+          }
+
+          addLog("[Wave 1: Spotify Data Acquisition] Initiating concurrent data acquisition...");
           
           const [tasteResult, playlistsResult] = await Promise.allSettled([
             fetchUserTasteProfile(token),
-            fetchUserPlaylistsAndTracks(token)
+            fetchUserPlaylistsAndTracks(token, profile.id)
           ]);
 
           let taste: UserTasteProfile | null = null;
@@ -186,128 +259,116 @@ const App: React.FC = () => {
 
           if (tasteResult.status === 'fulfilled' && tasteResult.value) {
             taste = tasteResult.value;
-            addLog("[Wave 1: Spotify] Taste Profile branch successful (Artists/Tracks acquired).");
-          } else {
-            addLog(`[Wave 1: Spotify] Taste Profile branch failed or returned null.`);
+            addLog("[Wave 1: Spotify] Taste Profile (Artists/Tracks) acquired successfully.");
           }
 
           if (playlistsResult.status === 'fulfilled') {
             aggregatedPlaylists = playlistsResult.value;
             setUserAggregatedPlaylists(aggregatedPlaylists);
-            addLog(`[Wave 1: Spotify] Playlists branch successful. Hydrated ${aggregatedPlaylists.length} playlists.`);
-          } else {
-            addLog(`[Wave 1: Spotify] Playlists branch failed.`);
+            addLog(`[Wave 1: Spotify] Playlists acquired successfully. Hydrated ${aggregatedPlaylists.length} playlists.`);
           }
 
-          if (!taste) {
-             addLog("[Wave 1: Spotify] Critical failure: No taste data available. Saving profile without analysis.");
-             saveUserProfile(profile, null);
+          if (!taste || (taste.topTracks.length === 0 && aggregatedPlaylists.length === 0)) {
+             addLog("[Wave 1: Spotify] No meaningful taste data available for AI analysis. Saving profile without analysis.");
+             saveUserProfile(profile, null); // Only save profile to DB
+             setUserTaste(null);
              return;
           }
 
-          let enhancedTaste: UserTasteProfile = { ...taste };
-          const rawAggregatedPlaylistTracks = aggregatedPlaylists.flatMap(p => p.tracks);
-
-          // --- WAVE 2: CONCURRENT AI ANALYSIS ---
-          addLog("[Wave 2: Gemini] Initiating concurrent AI analysis...");
-
-          const analysisPromises: Promise<any>[] = [];
-          const analysisTypes: ('mood' | 'tracks')[] = [];
-
-          if (rawAggregatedPlaylistTracks.length > 0) {
-            analysisPromises.push(analyzeUserPlaylistsForMood(rawAggregatedPlaylistTracks));
-            analysisTypes.push('mood');
-            addLog("[Wave 2: Gemini] Branch Queued: User Playlist Mood Inference.");
-          }
-
-          if (enhancedTaste.topTracks.length > 0) {
-            analysisPromises.push(analyzeUserTopTracks(enhancedTaste.topTracks));
-            analysisTypes.push('tracks');
-            addLog("[Wave 2: Gemini] Branch Queued: Top Tracks Audio Feature Analysis.");
-          }
-
-          if (analysisPromises.length > 0) {
-            const results = await Promise.allSettled(analysisPromises);
-            
-            results.forEach((res, index) => {
-              const type = analysisTypes[index];
-              if (res.status === 'fulfilled' && res.value) {
-                if (type === 'mood') {
-                  enhancedTaste.playlistMoodAnalysis = res.value;
-                  addLog(`[Wave 2: Gemini] Playlist Mood Analysis successful: "${res.value.playlist_mood_category}"`);
-                } else if (type === 'tracks') {
-                  const analysis = res.value;
-                  if (analysis && !('error' in analysis)) {
-                    addLog(`[Wave 2: Gemini] Top Tracks Analysis successful. Processing session fingerprint...`);
-                    const sessionProfile = aggregateSessionData(analysis as any);
-                    enhancedTaste.session_analysis = sessionProfile;
-                    addLog(">>> SESSION SEMANTIC PROFILE GENERATED <<<");
-                  } else {
-                    addLog(`[Wave 2: Gemini] Top Tracks Analysis returned error: ${analysis?.error || 'Unknown'}`);
-                  }
-                }
-              } else {
-                addLog(`[Wave 2: Gemini] ${type === 'mood' ? 'Playlist Mood' : 'Top Tracks'} branch failed to resolve.`);
+          addLog("[Wave 2: Gemini] Initiating unified AI taste analysis...");
+          
+          if (taste.topTracks.length > 0 || aggregatedPlaylists.length > 0) {
+            try {
+              const unifiedGeminiResponse: UnifiedTasteGeminiResponse | { error: string } = await analyzeFullTasteProfile(aggregatedPlaylists, taste.topTracks);
+              
+              if ('error' in unifiedGeminiResponse) {
+                throw new Error(unifiedGeminiResponse.error);
               }
-            });
+
+              addLog(`[Wave 2: Gemini] Unified Taste Analysis successful. Processing session fingerprint...`);
+              const unifiedAnalysis: UnifiedTasteAnalysis = aggregateSessionData(unifiedGeminiResponse);
+              const currentTimestamp = new Date().toISOString();
+              
+              const enhancedTaste: UserTasteProfile = {
+                  ...taste,
+                  unified_analysis: unifiedAnalysis,
+                  last_analyzed_at: currentTimestamp, // Store the timestamp
+              };
+
+              // Persist to client-side storage
+              await storageService.setItem('user_unified_analysis', JSON.stringify(unifiedAnalysis));
+              await storageService.setItem('user_taste_analyzed_at', currentTimestamp);
+              addLog("[Client-side Taste Cache] Unified analysis saved to local storage.");
+
+              addLog(">>> UNIFIED SESSION SEMANTIC PROFILE GENERATED <<<");
+              setUserTaste(enhancedTaste);
+              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+            } catch (geminiError: any) {
+              addLog(`[Wave 2: Gemini] Unified Taste Analysis failed: ${geminiError.message || 'Unknown error'}`);
+              console.warn("Unified Gemini analysis failed", geminiError);
+              setUserTaste(taste);
+              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+            }
           } else {
-            addLog("[Wave 2: Gemini] Skipping analysis: No track data available.");
+            addLog("[Wave 2: Gemini] Skipping unified analysis: No track or playlist data available.");
+            setUserTaste(taste);
+            saveUserProfile(profile, null); // Only save profile to DB, not taste data
           }
 
-          // --- FINAL ATOMIC STATE UPDATE ---
-          addLog(">>> PARALLEL DATA REFRESH COMPLETE <<<");
-          setUserTaste(enhancedTaste);
-          saveUserProfile(profile, enhancedTaste);
+          addLog(">>> ALL PROFILE DATA REFRESH COMPLETE <<<");
 
       } catch (e: any) {
           console.warn("Could not perform parallel profile/taste refresh", e);
-          addLog(`Critical Error during Parallel Refresh: ${e.message || e}`);
-          saveUserProfile(profile, null);
+          addLog(`Critical Error during Profile Refresh: ${e.message || e}`);
+          saveUserProfile(profile, null); // Only save profile to DB, not taste data
+          setUserTaste(null);
       }
   };
 
   const handleLogin = async () => {
-    if (isPreviewEnvironment()) {
-      addLog("Preview environment detected. Using top-level redirect for Spotify login.");
-      const currentUrl = window.location.href.split('#')[0];
-      const url = getLoginUrl(spotifyClientId, currentUrl);
-      window.top.location.href = url;
-    } else {
-      addLog("Production environment detected. Using PKCE flow for Spotify login.");
+    try {
+      addLog(`Initiating Spotify PKCE Login. Native: ${isNative()}`);
+      
       const verifier = generateRandomString(128);
+      const state = generateRandomString(16);
       const challenge = await generateCodeChallenge(verifier);
-      localStorage.setItem('code_verifier', verifier);
-      const url = getPkceLoginUrl(spotifyClientId, DEFAULT_REDIRECT_URI, challenge);
-      window.location.href = url;
+      const redirectUri = getRedirectUri();
+
+      // Store flow state securely
+      await storageService.setItem('code_verifier', verifier);
+      await storageService.setItem('auth_state', state);
+      await storageService.setItem('used_redirect_uri', redirectUri);
+
+      const url = getPkceLoginUrl(spotifyClientId, redirectUri, challenge, state);
+
+      if (isNative()) {
+        await Browser.open({ url });
+      } else {
+        window.location.href = url; // Full page redirect is more reliable on web
+      }
+    } catch (e: any) {
+      addLog(`Login initiation failed: ${e.message}`);
+      console.error(e);
     }
   };
 
-  const handleSettings = () => {
-    if (spotifyToken) {
-        setShowSettings(true);
-    } else {
-        alert("Please login first to manage your settings.");
-        handleLogin();
-    }
-  };
-
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     setSpotifyToken(null);
     setUserProfile(null);
     setUserTaste(null);
-    localStorage.removeItem('spotify_token');
-    localStorage.removeItem('spotify_refresh_token');
+    await storageService.removeItem('spotify_token');
+    await storageService.removeItem('spotify_refresh_token');
+    await storageService.removeItem('user_unified_analysis'); // Clear cached taste profile
+    await storageService.removeItem('user_taste_analyzed_at'); // Clear cached taste profile timestamp
     setShowSettings(false);
-    authProcessedGlobal = false;
+    isProcessingAuth.current = false;
     handleReset();
-    addLog("User signed out.");
+    addLog("User signed out. Client-side taste profile cleared.");
   };
 
-  // --- START: Unified handleMoodSelect (v1.2.0) ---
   const handleMoodSelect = async (mood: string, modality: 'text' | 'voice' = 'text', isRemix: boolean = false) => {
     setValidationError(null);
 
-    // --- STAGE 1: CLIENT-SIDE PRE-FLIGHT CHECK ---
     if (mood.trim().length < 3) {
       setValidationError({ message: "Please describe the vibe in a bit more detail.", key: Date.now() });
       return;
@@ -358,21 +419,16 @@ const App: React.FC = () => {
         const unifiedResponse: UnifiedVibeResponse = await generatePlaylistFromMood(
             mood, 
             contextSignals, 
-            !!spotifyToken, // isAuthenticated flag
+            !!spotifyToken,
             userTaste || undefined, 
             excludeSongs
         );
 
-        capturedPromptText = unifiedResponse.promptText;
+        capturedPromptText = unifiedResponse.promptText || "";
         t1_gemini_end = performance.now(); 
-
-        addLog("--- CONTEXTUAL PROMPT PAYLOAD ---");
-        addLog(unifiedResponse.promptText);
-        addLog(`Unified response status: ${unifiedResponse.validation_status || 'N/A'}`);
 
         if (currentSessionId !== generationSessionId.current) return;
 
-        // --- Handle Validation Errors ---
         if (unifiedResponse.validation_status && unifiedResponse.validation_status !== 'VIBE_VALID') {
             setValidationError({ message: unifiedResponse.reason!, key: Date.now() });
             setIsLoading(false);
@@ -388,13 +444,12 @@ const App: React.FC = () => {
                     localTime, dayOfWeek, browserLanguage, deviceType, ipAddress,
                     inputModality: modality,
                 },
-                'validation_failure' // New phase for explicit validation failures
+                'validation_failure'
             );
             return;
         }
 
-        // --- Handle Teaser Generation ---
-        if (!spotifyToken && !unifiedResponse.songs) { // No songs means it's a teaser
+        if (!spotifyToken && !unifiedResponse.songs) {
             const teaserPayload = { 
                 title: unifiedResponse.playlist_title!,
                 description: unifiedResponse.description!,
@@ -414,14 +469,13 @@ const App: React.FC = () => {
                 throw new Error(saveError?.message || "Failed to save initial vibe to DB.");
             }
             
-            localStorage.setItem('vibelist_pending_vibe_id', savedVibe.id);
+            await storageService.setItem('vibelist_pending_vibe_id', savedVibe.id);
             setTeaserPlaylist({ ...teaserPayload, mood: mood, id: savedVibe.id });
             addLog(`Teaser generated and saved for mood: "${mood}" (ID: ${savedVibe.id})`);
             setIsLoading(false);
             return;
         }
 
-        // --- Handle Full Playlist Generation ---
         if (unifiedResponse.songs) {
             addLog("AI generation complete. Fetching metadata (Safe Mode)...");
             t2_itunes_start = performance.now();
@@ -458,8 +512,8 @@ const App: React.FC = () => {
 
             if (currentSessionId !== generationSessionId.current) return;
 
-            const pendingVibeId = localStorage.getItem('vibelist_pending_vibe_id');
-            localStorage.removeItem('vibelist_pending_vibe_id');
+            const pendingVibeId = await storageService.getItem('vibelist_pending_vibe_id');
+            await storageService.removeItem('vibelist_pending_vibe_id');
 
             const finalPlaylist: Playlist = {
                 id: pendingVibeId || undefined,
@@ -482,9 +536,9 @@ const App: React.FC = () => {
                 totalDurationMs: Math.round(t4_total_end - t0_start),
                 
                 contextTimeMs: capturedContextTime, 
-                promptBuildTimeMs: unifiedResponse.metrics.promptBuildTimeMs, 
-                geminiApiTimeMs: unifiedResponse.metrics.geminiApiTimeMs, 
-                promptText: unifiedResponse.promptText,
+                promptBuildTimeMs: unifiedResponse.metrics?.promptBuildTimeMs || 0, 
+                geminiApiTimeMs: unifiedResponse.metrics?.geminiApiTimeMs || 0, 
+                promptText: capturedPromptText,
 
                 successCount: validSongs.length,
                 failCount: failureDetails.length,
@@ -517,19 +571,8 @@ const App: React.FC = () => {
         console.error("Playlist generation failed:", error);
         addLog(`Playlist generation failed. Error Name: ${error.name || 'UnknownError'}, Message: ${error.message || 'No message provided.'}`);
         
-        if (error.name === 'ApiKeyRequiredError') {
-            alert(error.message);
-            setLoadingMessage(error.message);
-        } else {
-            setLoadingMessage("Error generating playlist. Please check debug logs for details.");
-        }
-
-        if ((error as any).details) {
-            addLog(`Server Details: ${JSON.stringify((error as any).details, null, 2)}`);
-        }
-        if (error.stack) {
-            addLog(`Stack: ${error.stack}`);
-        }
+        setLoadingMessage("Error generating playlist. Please check debug logs for details.");
+        setValidationError({ message: `Error generating playlist. Details: ${error.message || 'Unknown error.'}`, key: Date.now() });
         
         const t_fail = performance.now();
         const failDuration = Math.round(t_fail - t0_start);
@@ -557,10 +600,9 @@ const App: React.FC = () => {
         setTimeout(() => setIsLoading(false), 3000);
     }
   };
-  // --- END: Unified handleMoodSelect (v1.2.0) ---
 
-  const handleReset = () => {
-    localStorage.removeItem('vibelist_pending_vibe_id');
+  const handleReset = async () => {
+    await storageService.removeItem('vibelist_pending_vibe_id');
     setPlaylist(null);
     setTeaserPlaylist(null);
     setCurrentSong(null);
@@ -639,14 +681,36 @@ const App: React.FC = () => {
       if (playlist.id) {
           await markVibeAsExported(playlist.id);
       }
-      window.open(url, '_blank');
-      addLog(`Playlist "${playlist.title}" successfully exported to Spotify: ${url}`);
+      // v2.2.0 - Decouple export from redirect. Trigger Decision Popup.
+      setExportedPlaylistUrl(url);
+      setShowPostSavePopup(true);
+      addLog(`Playlist "${playlist.title}" successfully exported to Spotify. Waiting for user decision.`);
     } catch (e: any) {
       alert(`Failed to export: ${e.message}`);
       addLog(`Failed to export playlist to Spotify: ${e.message || e}`);
     } finally {
       setExporting(false);
     }
+  };
+
+  const handlePostSaveDecision = async (choice: 'play' | 'new') => {
+    const url = exportedPlaylistUrl;
+    setShowPostSavePopup(false);
+    setExportedPlaylistUrl(null);
+
+    if (choice === 'play' && url) {
+      addLog(`User chose "Play on Spotify". Initiating handoff to ${url}`);
+      if (isNative()) {
+        await Browser.open({ url });
+      } else {
+        window.open(url, '_blank');
+      }
+    } else {
+      addLog('User chose "Create new vibe". Returning to Home.');
+    }
+
+    // In both scenarios, the nav stack is reset to Home state.
+    handleReset();
   };
 
   const handleClosePlayer = () => {
@@ -704,31 +768,22 @@ const App: React.FC = () => {
         <div className="absolute -bottom-20 left-1/2 w-96 h-96 bg-pink-900 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
       </div>
 
-      <header className="relative z-20 w-full p-4 md:p-6 px-6 flex justify-between items-center glass-panel border-b border-white/5 flex-shrink-0">
+      <header className="sticky top-0 z-20 w-full p-4 md:p-6 px-6 flex justify-between items-center glass-panel border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
-           <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 to-cyan-400 rounded-lg flex items-center justify-center">
-             <span className="font-bold text-white">V+</span>
-           </div>
+           <img
+  src="/vibelist-header-icon-final-64-v3.png"
+  alt="VibeList Pro"
+  className="w-9 h-9"
+ />
            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden md:block">
-             VibeList+
+             VibeList Pro
            </h1>
         </div>
         
         <div className="flex items-center gap-4">
-           <button onClick={handleSettings} className="text-slate-400 hover:text-white transition-colors" title="Settings">
-               <CogIcon className="w-6 h-6" />
-           </button>
-
            <button 
-             onClick={(e) => {
-               addLog(`'π' button clicked. Ctrl key pressed: ${e.ctrlKey}. Current Admin Inspector state: ${showAdminDataInspector}.`);
-               if (e.ctrlKey) {
-                 addLog(`Ctrl+Click detected for 'π'. Toggling AdminDataInspector to ${!showAdminDataInspector}.`);
-                 setShowAdminDataInspector(prev => !prev);
-               } else {
-                 addLog(`Regular click detected for 'π'. Toggling debug logs to ${!showDebug}.`);
+             onClick={() => {
                  setShowDebug(prev => !prev);
-               }
              }} 
              className="text-xs text-slate-700 hover:text-slate-500 font-mono px-3"
              title="Debug"
@@ -737,14 +792,22 @@ const App: React.FC = () => {
            </button>
 
            {!spotifyToken ? (
-             <button 
-               onClick={handleLogin}
-               className="text-sm font-medium bg-[#1DB954] text-black px-5 py-2 rounded-full hover:bg-[#1ed760] transition-all shadow-lg hover:shadow-[#1DB954]/20"
-             >
-               Login with Spotify
-             </button>
+             <>
+               <button 
+                 onClick={handleLogin}
+                 className="text-sm font-medium bg-[#1DB954] text-black px-5 py-2 rounded-full hover:bg-[#1ed760] transition-all shadow-lg hover:shadow-[#1DB954]/20"
+               >
+                 Login with Spotify
+               </button>
+               <button onClick={() => setShowSettings(true)} className="text-slate-400 hover:text-white transition-colors" title="Settings">
+                  <BurgerIcon className="w-6 h-6" />
+               </button>
+             </>
            ) : (
-             <div className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10">
+             <div 
+               className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10 cursor-pointer hover:bg-white/10 transition-colors"
+               onClick={() => setShowSettings(true)}
+             >
                {userProfile?.images?.[0] ? (
                  <img src={userProfile.images[0].url} alt="Profile" className="w-6 h-6 rounded-full border border-white/20" />
                ) : (
@@ -770,16 +833,6 @@ const App: React.FC = () => {
                   <div key={i} className="mb-1 break-words whitespace-pre-wrap">{log}</div>
               ))}
           </div>
-      )}
-
-      {showAdminDataInspector && (
-          <AdminDataInspector
-              isOpen={showAdminDataInspector}
-              onClose={() => setShowAdminDataInspector(false)}
-              userTaste={userTaste}
-              aggregatedPlaylists={userAggregatedPlaylists}
-              debugLogs={debugLogs}
-          />
       )}
 
       <main className="relative z-10 flex-grow w-full">
@@ -811,6 +864,12 @@ const App: React.FC = () => {
         onClose={() => setShowSettings(false)}
         userProfile={userProfile}
         onSignOut={handleSignOut}
+        isAuthenticated={!!spotifyToken}
+      />
+
+      <PostSavePopup 
+        isOpen={showPostSavePopup}
+        onDecision={handlePostSaveDecision}
       />
     </div>
   );

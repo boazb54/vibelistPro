@@ -1,7 +1,7 @@
 {
   "name": "vibelist-pro",
   "private": true,
-  "version": "1.2.0",
+  "version": "2.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,8 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/browser": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/preferences": "^6.0.0",
     "@google/genai": "^1.31.0",
     "@supabase/supabase-js": "^2.39.7",
+    "dotenv": "^17.2.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

@@ -15,13 +15,13 @@ export const getLoginUrl = (clientId: string, redirectUri: string, showDialog: b
 
 // --- PKCE ADDITIONS ---
 
-export const getPkceLoginUrl = (clientId: string, redirectUri: string, codeChallenge: string, showDialog: boolean = false): string => {
+export const getPkceLoginUrl = (clientId: string, redirectUri: string, codeChallenge: string, state: string, showDialog: boolean = false): string => {
   const scopes = SPOTIFY_SCOPES.join("%20");
   const cleanId = clientId.replace(/[^a-zA-Z0-9]/g, '');
   const cleanUri = redirectUri.trim();
   
   // Note: response_type is 'code' for PKCE
-  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}${showDialog ? '&show_dialog=true' : ''}`;
+  return `${SPOTIFY_AUTH_ENDPOINT}?client_id=${cleanId}&redirect_uri=${encodeURIComponent(cleanUri)}&scope=${scopes}&response_type=code&code_challenge_method=S256&code_challenge=${codeChallenge}&state=${state}${showDialog ? '&show_dialog=true' : ''}`;
 };
 
 export const exchangeCodeForToken = async (clientId: string, redirectUri: string, code: string, codeVerifier: string, signal?: AbortSignal) => {
@@ -242,7 +242,7 @@ export const fetchUserTasteProfile = async (token: string): Promise<UserTastePro
 };
 
 // NEW: Fetches user's playlists and their tracks, aggregating them into a single list of "Song by Artist" strings.
-export const fetchUserPlaylistsAndTracks = async (token: string): Promise<AggregatedPlaylist[]> => {
+export const fetchUserPlaylistsAndTracks = async (token: string, currentUserId: string): Promise<AggregatedPlaylist[]> => { // MODIFIED: Added currentUserId
   const aggregatedPlaylists: AggregatedPlaylist[] = [];
   try {
     // 1. Fetch user playlists (limit 50)
@@ -256,39 +256,67 @@ export const fetchUserPlaylistsAndTracks = async (token: string): Promise<Aggreg
     const playlistsData = await playlistsRes.json();
     const userPlaylists = playlistsData.items || [];
 
-    let playlistsProcessed = 0;
+    const playlistsToFetchTracksFor: any[] = [];
+    let playlistsCount = 0;
     for (const playlist of userPlaylists) {
-      if (playlistsProcessed >= 5) break; // Limit to first 5 non-empty playlists
+      if (playlistsCount >= 5) break; // Limit to first 5 non-empty playlists
 
-      // Check if playlist is not empty before fetching tracks
       if (playlist.tracks.total > 0) {
-        const playlistTracks: string[] = []; // Tracks for current playlist
-        // 2. Fetch tracks for each playlist (limit 20 per playlist as per scope)
+        playlistsToFetchTracksFor.push(playlist);
+        playlistsCount++;
+      }
+    }
+
+    const trackFetchPromises = playlistsToFetchTracksFor.map(async (playlist) => {
+      try {
         const tracksRes = await fetch(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks?limit=20`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!tracksRes.ok) {
           const errorText = await tracksRes.text();
-          console.warn(`Failed to fetch tracks for playlist ${playlist.name} (ID: ${playlist.id}): ${errorText}`);
-          continue; // Skip to next playlist if this one fails
+          throw new Error(`Failed to fetch tracks for playlist ${playlist.name} (ID: ${playlist.id}): ${errorText}`);
         }
         const tracksData = await tracksRes.json();
         const items = tracksData.items || [];
 
+        const playlistTracks: string[] = [];
         items.forEach((item: any) => {
           if (item.track && item.track.name && item.track.artists && item.track.artists.length > 0) {
             playlistTracks.push(`${item.track.name} by ${item.track.artists.map((a: any) => a.name).join(', ')}`);
           }
         });
-        if (playlistTracks.length > 0) {
-            aggregatedPlaylists.push({ playlistName: playlist.name, tracks: playlistTracks });
-        }
-        playlistsProcessed++;
+
+        // NEW: Extract playlist creator and track count
+        const creator = playlist.owner.id === currentUserId ? 'user' : playlist.owner.display_name;
+        const trackCount = playlist.tracks.total;
+
+        return { 
+          playlistName: playlist.name, 
+          playlistCreator: creator, // NEW
+          playlistTrackCount: trackCount, // NEW
+          tracks: playlistTracks 
+        };
+      } catch (error: any) {
+        // Log individual playlist fetch errors but don't re-throw to allow others to succeed
+        console.warn(`Error fetching tracks for playlist ${playlist.name} (ID: ${playlist.id}): ${error.message}`);
+        return null; // Return null to indicate failure for this specific playlist
       }
-    }
+    });
+
+    const results = await Promise.allSettled(trackFetchPromises);
+
+    results.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value !== null) {
+        if (result.value.tracks.length > 0) { // Only add if the playlist actually has tracks after processing
+          aggregatedPlaylists.push(result.value);
+        }
+      }
+      // Rejected promises are already logged by the individual catch block in the map function
+    });
+
   } catch (e: any) {
     console.error("Critical error during Spotify playlist/track fetching:", e.message);
-    throw e; // Re-throw to be handled by App.tsx
+    throw e; // Re-throw the initial fetch error or any unhandled critical errors
   }
   return aggregatedPlaylists;
 };

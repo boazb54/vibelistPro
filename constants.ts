@@ -28,6 +28,10 @@ export const DEFAULT_REDIRECT_URI = typeof window !== 'undefined' && window.loca
   ? `${window.location.origin}/` 
   : "https://example.com/";
 
+// Android Native Redirect Config
+export const ANDROID_REDIRECT_URI = "vibelistpro://callback";
+export const APP_SCHEME = "vibelistpro";
+
 /**
  * SYSTEM STABILITY LOCK (V1.1.0)
  * 
