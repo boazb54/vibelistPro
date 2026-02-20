@@ -125,6 +125,9 @@ export const generatePlaylistFromMood = async (
   // the validation and teaser generation internally based on isAuthenticated flag.
   // Here, we just build the raw JSON payload for Gemini to process.
 
+   // REMOVED: `session_semantic_profile`, `overall_mood_category` logic
+   // REPLACED: `top_genres` with `genre_profile_distribution`
+   // Mapped other `taste_bias` fields to `user_taste_profile_v1`
    const promptText = JSON.stringify({
       user_target: { query: mood, modality: contextSignals.input_modality },
       environmental_context: {
@@ -134,12 +137,26 @@ export const generatePlaylistFromMood = async (
           browser_language: contextSignals.browser_language,
           country: contextSignals.country || 'Unknown'
       },
-      taste_bias: tasteProfile ? {
-          type: tasteProfile.unified_analysis?.session_semantic_profile?.taste_profile_type || 'unknown',
-          top_artists: tasteProfile.topArtists.slice(0, 20),
-          top_genres: tasteProfile.topGenres.slice(0, 10),
-          vibe_fingerprint: tasteProfile.unified_analysis?.session_semantic_profile ? { energy: tasteProfile.unified_analysis.session_semantic_profile.energy_bias, favored_genres: tasteProfile.unified_analysis.session_semantic_profile.dominant_genres } : null,
-          user_playlist_mood: tasteProfile.unified_analysis?.overall_mood_category ? { playlist_mood_category: tasteProfile.unified_analysis.overall_mood_category, confidence_score: tasteProfile.unified_analysis.overall_mood_confidence } : null,
+      taste_bias: tasteProfile?.unified_analysis?.user_taste_profile_v1 ? { // Use the new V1 profile
+          type: tasteProfile.unified_analysis.user_taste_profile_v1.overall_profile_confidence === 'high' ? 'focused' : 'diverse', // Derive from overall confidence
+          top_artists: tasteProfile.topArtists.slice(0, 20), // Still use Spotify top artists
+          top_genres: tasteProfile.unified_analysis.user_taste_profile_v1.genre_profile.primary_genres, // Use primary_genres from V1 profile
+          primary_genre_distribution: tasteProfile.unified_analysis.user_taste_profile_v1.genre_profile.primary_genre_profile_distribution, // NEW
+          secondary_genre_distribution: tasteProfile.unified_analysis.user_taste_profile_v1.genre_profile.secondary_genre_profile_distribution, // NEW
+          energy_bias: tasteProfile.unified_analysis.user_taste_profile_v1.audio_physics_profile.energy_bias, // From V1 profile
+          tempo_bias: tasteProfile.unified_analysis.user_taste_profile_v1.audio_physics_profile.tempo_bias, // From V1 profile
+          vocals_bias: tasteProfile.unified_analysis.user_taste_profile_v1.audio_physics_profile.vocals_bias, // From V1 profile
+          texture_bias: tasteProfile.unified_analysis.user_taste_profile_v1.audio_physics_profile.texture_bias, // From V1 profile
+          language_distribution: tasteProfile.unified_analysis.user_taste_profile_v1.language_profile.language_profile_distribution, // From V1 profile
+          vibe_fingerprint: { // Re-map vibe_fingerprint
+            energy: tasteProfile.unified_analysis.user_taste_profile_v1.audio_physics_profile.energy_bias,
+            favored_genres: tasteProfile.unified_analysis.user_taste_profile_v1.genre_profile.primary_genres,
+            primary_mood: tasteProfile.unified_analysis.user_taste_profile_v1.emotional_mood_profile.primary,
+          },
+          user_playlist_mood: { // Re-map user_playlist_mood if needed, or remove if no direct equivalent
+            playlist_mood_category: tasteProfile.unified_analysis.user_taste_profile_v1.emotional_mood_profile.primary, // Using primary emotional mood
+            confidence_score: tasteProfile.unified_analysis.user_taste_profile_v1.emotional_mood_profile.emotional_mood_profile_confidence // Using emotional mood confidence
+          },
           top_50_tracks_anchors: tasteProfile.topTracks.slice(0, 50)
       } : null,
       exclusions: excludeSongs || []
@@ -234,17 +251,14 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, aco
 };
 
 // MODIFIED: analyzeFullTasteProfile now calls the server-side /api/analyze.mjs endpoint
+// It no longer takes 'playlists' as an argument.
 export const analyzeFullTasteProfile = async (
-  playlists: AggregatedPlaylist[],
-  topTracks: string[]
+  topTracks: string[] // Removed 'playlists: AggregatedPlaylist[]'
 ): Promise<UnifiedTasteGeminiResponse | UnifiedTasteGeminiError> => {
-  if ((!playlists || playlists.length === 0) && (!topTracks || topTracks.length === 0)) {
-    addLog("Skipping full taste profile analysis: No tracks or playlist data provided.");
-    return { error: "No tracks or playlist data to analyze" };
+  if (!topTracks || topTracks.length === 0) { // Simplified check
+    addLog("Skipping full taste profile analysis: No top track data provided.");
+    return { error: "No top track data to analyze" };
   }
-
-  // Removed: Direct GoogleGenAI client initialization and API_KEY access.
-  // This function now acts as a client-side proxy to the /api/analyze.mjs endpoint.
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
@@ -254,7 +268,7 @@ export const analyzeFullTasteProfile = async (
     const response = await fetch('/api/analyze.mjs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'unified_taste', topTracks, playlists }), // Pass data to the server proxy
+      body: JSON.stringify({ type: 'unified_taste', topTracks }), // Removed 'playlists' from body
       signal: controller.signal,
     });
     clearTimeout(timeoutId);

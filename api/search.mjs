@@ -3,6 +3,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { GoogleGenAI } from "@google/genai";
 
 // Load environment variables from .env file (for local development)
+dotenvConfig({ path: '.env.local' });
 dotenvConfig(); // Keep import even if not directly used, for consistency/future
 
 export default async function handler(req, res) {

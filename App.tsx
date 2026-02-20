@@ -55,7 +55,7 @@ const App: React.FC = () => {
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]);
+  const [userAggregatedPlaylists, setUserAggregatedPlaylists] = useState<AggregatedPlaylist[]>([]); // This will no longer be used for AI analysis input
   const [isConfirmationStep, setIsConfirmationStep] = useState(false);
   const [validationError, setValidationError] = useState<{ message: string; key: number } | null>(null);
   
@@ -242,7 +242,7 @@ const App: React.FC = () => {
                   last_analyzed_at: cachedLastAnalyzedAt,
               };
               setUserTaste(loadedTaste);
-              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+              saveUserProfile(profile, parsedAnalysis); // Save profile and cached taste data to DB
               addLog("[Client-side Taste Cache] Unified analysis loaded from local storage. Skipping Gemini API call.");
               return; // Exit early as we have cached data
           }
@@ -255,7 +255,7 @@ const App: React.FC = () => {
           ]);
 
           let taste: UserTasteProfile | null = null;
-          let aggregatedPlaylists: AggregatedPlaylist[] = [];
+          let aggregatedPlaylists: AggregatedPlaylist[] = []; // This will not be passed to Gemini anymore
 
           if (tasteResult.status === 'fulfilled' && tasteResult.value) {
             taste = tasteResult.value;
@@ -264,28 +264,34 @@ const App: React.FC = () => {
 
           if (playlistsResult.status === 'fulfilled') {
             aggregatedPlaylists = playlistsResult.value;
-            setUserAggregatedPlaylists(aggregatedPlaylists);
+            setUserAggregatedPlaylists(aggregatedPlaylists); // Still store, but not for AI analysis
             addLog(`[Wave 1: Spotify] Playlists acquired successfully. Hydrated ${aggregatedPlaylists.length} playlists.`);
           }
 
-          if (!taste || (taste.topTracks.length === 0 && aggregatedPlaylists.length === 0)) {
-             addLog("[Wave 1: Spotify] No meaningful taste data available for AI analysis. Saving profile without analysis.");
-             saveUserProfile(profile, null); // Only save profile to DB
+          // CRITICAL: Now only check taste.topTracks for AI analysis input
+          if (!taste || taste.topTracks.length === 0) { 
+             addLog("[Wave 1: Spotify] No meaningful top track data available for AI analysis. Saving profile without analysis.");
+             saveUserProfile(profile, null); // No taste data to save if no top tracks
              setUserTaste(null);
              return;
           }
 
           addLog("[Wave 2: Gemini] Initiating unified AI taste analysis...");
           
-          if (taste.topTracks.length > 0 || aggregatedPlaylists.length > 0) {
+          if (taste.topTracks.length > 0) { // Only check topTracks
             try {
-              const unifiedGeminiResponse: UnifiedTasteGeminiResponse | { error: string } = await analyzeFullTasteProfile(aggregatedPlaylists, taste.topTracks);
+              // CRITICAL: Pass only topTracks to analyzeFullTasteProfile
+              const unifiedGeminiResponse: UnifiedTasteGeminiResponse | { error: string } = await analyzeFullTasteProfile(taste.topTracks);
               
               if ('error' in unifiedGeminiResponse) {
                 throw new Error(unifiedGeminiResponse.error);
               }
 
               addLog(`[Wave 2: Gemini] Unified Taste Analysis successful. Processing session fingerprint...`);
+              // CRITICAL: aggregateSessionData now takes only unifiedGeminiResponse. 
+              // The `playlist_contexts` and `analyzed_top_tracks` fields in UnifiedTasteAnalysis
+              // will be populated within aggregateSessionData if needed for compatibility with the old interface, 
+              // but the new UserTasteProfileV1 will be the primary output.
               const unifiedAnalysis: UnifiedTasteAnalysis = aggregateSessionData(unifiedGeminiResponse);
               const currentTimestamp = new Date().toISOString();
               
@@ -300,17 +306,17 @@ const App: React.FC = () => {
               await storageService.setItem('user_taste_analyzed_at', currentTimestamp);
               addLog("[Client-side Taste Cache] Unified analysis saved to local storage.");
 
-              addLog(">>> UNIFIED SESSION SEMANTIC PROFILE GENERATED <<<");
+              addLog(">>> UNIFIED SESSION SEMANTIC PROFILE GENERATED <<<"); // Log for transition period
               setUserTaste(enhancedTaste);
-              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+              saveUserProfile(profile, unifiedAnalysis); // Save profile and newly aggregated taste data to DB
             } catch (geminiError: any) {
               addLog(`[Wave 2: Gemini] Unified Taste Analysis failed: ${geminiError.message || 'Unknown error'}`);
               console.warn("Unified Gemini analysis failed", geminiError);
               setUserTaste(taste);
-              saveUserProfile(profile, null); // Only save profile to DB, not taste data
+              saveUserProfile(profile, null); // No taste data to save if Gemini analysis failed
             }
           } else {
-            addLog("[Wave 2: Gemini] Skipping unified analysis: No track or playlist data available.");
+            addLog("[Wave 2: Gemini] Skipping unified analysis: No track data available.");
             setUserTaste(taste);
             saveUserProfile(profile, null); // Only save profile to DB, not taste data
           }
@@ -320,7 +326,7 @@ const App: React.FC = () => {
       } catch (e: any) {
           console.warn("Could not perform parallel profile/taste refresh", e);
           addLog(`Critical Error during Profile Refresh: ${e.message || e}`);
-          saveUserProfile(profile, null); // Only save profile to DB, not taste data
+          saveUserProfile(profile, null); // No taste data to save if critical error during refresh
           setUserTaste(null);
       }
   };

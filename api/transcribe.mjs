@@ -4,6 +4,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { GoogleGenAI } from "@google/genai";
 
 // Load environment variables from .env file (for local development)
+dotenvConfig({ path: '.env.local' });
 dotenvConfig();
 
 const GEMINI_MODEL = 'gemini-2.5-flash';

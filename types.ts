@@ -7,47 +7,25 @@ export interface AiVibeEstimate {
 // NEW: Interface for per-attribute confidence (low|medium|high)
 export type ConfidenceLevel = "low" | "medium" | "high";
 
-// NEW: Audio Physics attributes with per-attribute confidence
+// NEW: Audio Physics attributes with bucket-level confidence
 export interface AudioPhysics {
   energy_level: "low" | "low_medium" | "medium" | "medium_high" | "high";
-  energy_confidence: ConfidenceLevel;
   tempo_feel: "slow" | "mid" | "fast";
-  tempo_confidence: ConfidenceLevel;
   vocals_type: "instrumental" | "sparse" | "lead_vocal" | "harmonies" | "choral" | "background_vocal"; // Expanded enum
-  vocals_confidence: ConfidenceLevel;
   texture_type: "organic" | "acoustic" | "electric" | "synthetic" | "hybrid" | "ambient"; // Expanded enum
-  texture_confidence: ConfidenceLevel;
   danceability_hint: "low" | "medium" | "high"; // New dimension
-  danceability_confidence: ConfidenceLevel;
+  audio_physics_profile_confidence: ConfidenceLevel; // NEW: Bucket-level confidence
 }
 
-// REMOVED: Mood Analysis structure with 3 axes and confidence (now flattened into SemanticTags)
-// export interface MoodAnalysis {
-//   emotional_tags: string[];
-//   emotional_confidence: ConfidenceLevel;
-//   cognitive_tags: string[];
-//   cognitive_confidence: ConfidenceLevel;
-//   somatic_tags: string[];
-//   somatic_confidence: ConfidenceLevel;
-//   language_iso_639_1: string; // Changed to string for single primary language
-//   language_confidence: ConfidenceLevel;
-// }
-
-// NEW: Semantic Tags structure (refined and flattened)
+// NEW: Semantic Tags structure (refined and flattened with bucket-level confidence)
 export interface SemanticTags {
   primary_genre: string;
-  primary_genre_confidence: ConfidenceLevel;
   secondary_genres: string[];
-  secondary_genres_confidence: ConfidenceLevel;
-  // Flattened mood analysis properties
   emotional_tags: string[];
-  emotional_confidence: ConfidenceLevel;
   cognitive_tags: string[];
-  cognitive_confidence: ConfidenceLevel;
   somatic_tags: string[];
-  somatic_confidence: ConfidenceLevel;
   language_iso_639_1: string;
-  language_confidence: ConfidenceLevel;
+  semantic_tags_profile_confidence: ConfidenceLevel; // NEW: Bucket-level confidence
 }
 
 export interface AnalyzedTopTrack { 
@@ -56,7 +34,7 @@ export interface AnalyzedTopTrack {
   artist_name: string;
   audio_physics: AudioPhysics; // NEW: Split out audio physics
   semantic_tags: SemanticTags; // NEW: Updated semantic tags structure (flattened mood)
-  confidence: ConfidenceLevel; // RE-INTRODUCED: Top-level overall track confidence
+
 }
 
 // NEW: Analyzed playlist context item for TASK B (No changes in this version)
@@ -113,8 +91,10 @@ export interface UserTasteProfileV1 {
     audio_physics_profile_confidence: ConfidenceLevel;
   };
   genre_profile: {
-    primary_genres: string[];
-    secondary_genres: string[];
+    primary_genre_profile_distribution: Record<string, number>; // NEW: Detailed distribution
+    secondary_genre_profile_distribution: Record<string, number>; // NEW: Detailed distribution
+    primary_genres: string[]; // Keep for convenience
+    secondary_genres: string[]; // Keep for convenience
     genre_profile_confidence: ConfidenceLevel;
   };
   emotional_mood_profile: {
@@ -142,7 +122,7 @@ export interface UserTasteProfileV1 {
 
 
 // Existing types follow...
-export interface SessionSemanticProfile {
+export interface SessionSemanticProfile { // THIS INTERFACE IS DEPRECATED AND WILL BE REMOVED IN FUTURE VERSIONS
   taste_profile_type: 'diverse' | 'focused'; 
   dominant_genres: string[];
   energy_bias: string;
@@ -264,18 +244,19 @@ export interface SpotifyTrack {
 
 // NEW: Unified Taste Analysis (combines SessionSemanticProfile and AnalyzedPlaylistContextItem[])
 export interface UnifiedTasteAnalysis {
-  overall_mood_category: string;
-  overall_mood_confidence: number;
-  session_semantic_profile: SessionSemanticProfile;
-  playlist_contexts: AnalyzedPlaylistContextItem[]; // NEW
-  analyzed_top_tracks?: AnalyzedTopTrack[]; // NEW: Added for itemized top track analysis
-  user_taste_profile_v1?: UserTasteProfileV1; // NEW: The aggregated taste profile v1
+  user_taste_profile_v1: UserTasteProfileV1; // NEW: The aggregated taste profile v1, now mandatory
+  // The following fields are deprecated and will be removed in future versions:
+  overall_mood_category?: string;
+  overall_mood_confidence?: number;
+  session_semantic_profile?: SessionSemanticProfile;
+  playlist_contexts?: AnalyzedPlaylistContextItem[]; 
+  analyzed_top_tracks?: AnalyzedTopTrack[]; 
 }
 
 // NEW: Gemini's raw unified response for taste analysis (for two parallel calls)
 export interface UnifiedTasteGeminiResponse {
   analyzed_50_top_tracks: AnalyzedTopTrack[]; // MODIFIED: Type now reflects new AnalyzedTopTrack
-  analyzed_playlist_context: AnalyzedPlaylistContextItem[];
+  // Removed analyzed_playlist_context: AnalyzedPlaylistContextItem[];
 }
 
 // NEW: Error interface for UnifiedTasteGeminiResponse (to include serverErrorName)

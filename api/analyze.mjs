@@ -1,11 +1,11 @@
 import { config as dotenvConfig } from 'dotenv';
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
-// Load environment variables from .env file (for local development)
+// Load environment variables from .env.local first, then .env (for local development)
+dotenvConfig({ path: '.env.local' });
 dotenvConfig();
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
-
 export default async function handler(req, res) {
   const t_handler_start = Date.now();
   console.log(`[API/ANALYZE] Handler started at ${new Date().toISOString()}. Region: ${process.env.VERCEL_REGION || 'unknown'}`);
@@ -17,9 +17,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Removed redundant debug log for incoming request body
-  // console.log(`[API/ANALYZE] Incoming request body size (chars): ${JSON.stringify(req.body).length}`);
-
   const API_KEY = process.env.API_KEY;
   if (!API_KEY) {
     console.error("[API/ANALYZE] API_KEY environment variable is not set or is empty.");
@@ -28,30 +25,28 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'API_KEY environment variable is missing from serverless function. Please ensure it is correctly configured in your deployment environment (e.g., Vercel environment variables or AI Studio settings).' });
   }
 
-  const { type, topTracks, playlists } = req.body;
+  const { type, topTracks } = req.body; // Removed 'playlists' from destructuring
 
   console.log(`[API/ANALYZE] Incoming request type: "${type}"`);
   console.log(`[API/ANALYZE] Using GEMINI_MODEL: ${GEMINI_MODEL}`);
 
   let promptBuildTimeMsA = 0;
-  let promptBuildTimeMsB = 0;
   let geminiApiDurationA = 0;
-  let geminiApiDurationB = 0;
 
   try {
     const ai = new GoogleGenAI({ apiKey: API_KEY });
     console.log("[API/ANALYZE] DEBUG: GoogleGenAI client initialized.");
 
     if (type === 'unified_taste') {
-      console.log(`[API/ANALYZE] Performing unified taste analysis for ${playlists?.length || 0} playlists and ${topTracks?.length || 0} top tracks.`);
+      console.log(`[API/ANALYZE] Performing unified taste analysis for ${topTracks?.length || 0} top tracks.`); // Removed playlists count
 
-      // --- SYSTEM INSTRUCTION TASK A ---
-      const systemInstruction_taskA = `You are a Music Attribute Inference Engine for VibeList Pro. Your primary function is to analyze song and artist names to infer detailed musical attributes, including audio physics, semantic tags, and structured mood profiles, with granular confidence scores.
+      // --- SYSTEM INSTRUCTION TASK A (UPDATED FOR BUCKET-LEVEL CONFIDENCE) ---
+      const systemInstruction_taskA = `You are a Music Attribute Inference Engine for VibeList Pro. Your primary function is to analyze song and artist names to infer detailed musical attributes, including audio physics, semantic tags, and structured mood profiles.
 
 ──────────────────────────────
 ## CRITICAL POSITION RULES NO 1 ##
 ───────────────────────────────
-- TOP 50 TRACKS always outweigh playlist-derived insights.
+- TOP 50 TRACKS always outweigh any other source's insights.
 - No other source may override Top 50 conclusions.
 - Other sources may only refine, never contradict.
 
@@ -73,13 +68,11 @@ They reflect:
 ─────────────────────────────
 ## YOUR TASK — Analyzed Top 50 Tracks ##:
 ───────────────────────────────
-For each individual song from the "top 50 tracks" list, generate detailed musical attributes along with a specific confidence score for *each individual attribute*.
+For each individual song from the "top 50 tracks" list, generate detailed musical attributes.
 
-You must provide per-attribute confidence for:
-- All audio physics parameters.
-- All genre parameters.
-- All mood analysis parameters.
-- Language.
+You must provide a *single bucket-level confidence score* for:
+- The overall audio physics section.
+- The overall semantic tags section (which includes genres, moods, and language).
 
 These inferences form the PRIMARY reference for:
 1) Audio physics baselines (energy, tempo, vocals, texture, danceability).
@@ -113,21 +106,18 @@ These inferences form the PRIMARY reference for:
         *   \`vocals_type\`: instrumental | sparse | lead_vocal | harmonies | choral | background_vocal
         *   \`texture_type\`: organic | acoustic | electric | synthetic | hybrid | ambient
         *   \`danceability_hint\`: low | medium | high
-    *   Each must have its own confidence: \`energy_confidence\`, \`tempo_confidence\`, \`vocals_confidence\`, \`texture_confidence\`, \`danceability_confidence\`.
+    *   Include a single \`audio_physics_profile_confidence\` for the entire audio_physics object.
 
 2.  **Genres (Best-guess taxonomy, avoid overly broad defaults):**
     *   Infer \`primary_genre\` (specific, lowercase) and \`secondary_genres\` (up to 3 strings, lowercase).
-    *   Each must have its own confidence: \`primary_genre_confidence\`, \`secondary_genres_confidence\`.
     *   **Rule:** If unsure, choose fewer genres and lower confidence. Avoid broad/Western defaults.
 
 3.  **Language (ISO-639-1):**
     *   Infer a single \`language_iso_639_1\` for the track.
-    *   Must have its own confidence: \`language_confidence\`.
     *   **Rule:** Do NOT privilege English. Detect language from known lyrics/performance. If public metadata is scarce, prefer artist origin/discography.
 
 4.  **Mood Profile (3 axes: Emotional, Cognitive, Somatic):**
-    *   Replaces a simple mood array with a structured \`semantic_tags\` object containing three distinct tag lists: \`emotional_tags\`, \`cognitive_tags\`, \`somatic_tags\`.
-    *   Each must have its own confidence: \`emotional_confidence\`, \`cognitive_confidence\`, \`somatic_confidence\`.
+    *   Structured \`semantic_tags\` object containing three distinct tag lists: \`emotional_tags\`, \`cognitive_tags\`, \`somatic_tags\`.
     *   **Definitions:**
         *   **EMOTIONAL MOODS:** What the listener FEELS emotionally (e.g., melancholic, joyful, dark, romantic, angry, calm).
         *   **COGNITIVE MOODS:** What mental or reflective state the music induces (e.g., reflective, introspective, focused, meditative, thoughtful).
@@ -138,29 +128,29 @@ These inferences form the PRIMARY reference for:
         *   Avoid poetic/metaphorical labels. Keep tags simple, culturally stable, reusable.
         *   A track may express multiple mood types simultaneously.
         *   Do NOT invent new labels that cannot be expressed with confidence.
+    *   Include a single \`semantic_tags_profile_confidence\` for the entire semantic_tags object.
 
 ──────────────────────────────
-## Confidence Rules (Per Attribute, Unique Keys) ##
+## Confidence Rules (Bucket-Level and Overall Track) ##
 ───────────────────────────────
-RULE (NON-NEGOTIABLE): YOU MUST PROVIDE A UNIQUE CONFIDENCE FOR EVERY ATTRIBUTE YOU RETURN.
-ALWAYS CONSIDER How strongly the track matches the tags you assigned.
-It is NOT about whether the song is “good” or “popular”.
-It is NOT about the user’s preference.
-It is about certainty in your classification.
 Use: low | medium | high
 - **high:** widely recognized characteristics; strong consensus; clear arrangement cues.
 - **medium:** reasonable inference; some ambiguity (remix/version uncertainty, mixed sections).
 - **low:** weak evidence, uncommon track, or you’re guessing.
 
-──────────────────────────────
-## Overall Track Confidence ##
-───────────────────────────────
-In addition to per-attribute confidences, also provide a single \`confidence\` score for the entire track's overall analysis (low | medium | high). This reflects your general certainty about the composite assessment of the track.
+RULE (NON-NEGOTIABLE):
+- You MUST provide a unique confidence for the entire \`audio_physics\` object (\`audio_physics_profile_confidence\`).
+- You MUST provide a unique confidence for the entire \`semantic_tags\` object (\`semantic_tags_profile_confidence\`).
+
+It is NOT about whether the song is “good” or “popular”.
+It is NOT about the user’s preference.
+It is about certainty in your classification.
 
 ──────────────────────────────
 ## OUTPUT FORMAT RULES ##
 ───────────────────────────────
 Return ONLY raw JSON matching this schema exactly. Do NOT add extra keys or explanations.
+Do NOT calculate or include "confidence" at the top-level of each track.
 Use lowercase for genres and tags. If unknown, use minimal empty lists or default "und" with low confidence.
 
 {
@@ -169,162 +159,40 @@ Use lowercase for genres and tags. If unknown, use minimal empty lists or defaul
       "origin": "TOP_50_TRACKS_LIST",
       "song_name": "<string>",
       "artist_name": "<string>",
-      "confidence": "low|medium|high",
+
 
       "audio_physics": {
         "energy_level": "low|low_medium|medium|medium_high|high",
-        "energy_confidence": "low|medium|high",
-
         "tempo_feel": "slow|mid|fast",
-        "tempo_confidence": "low|medium|high",
-
         "vocals_type": "instrumental|sparse|lead_vocal|harmonies|choral|background_vocal",
-        "vocals_confidence": "low|medium|high",
-
         "texture_type": "organic|acoustic|electric|synthetic|hybrid|ambient",
-        "texture_confidence": "low|medium|high",
-
         "danceability_hint": "low|medium|high",
-        "danceability_confidence": "low|medium|high"
+        "audio_physics_profile_confidence": "low|medium|high"
       },
 
       "semantic_tags": {
         "primary_genre": "<string>",
-        "primary_genre_confidence": "low|medium|high",
-
         "secondary_genres": ["<string>"],
-        "secondary_genres_confidence": "low|medium|high",
-
         "emotional_tags": ["<string>"],
-        "emotional_confidence": "low|medium|high",
-
         "cognitive_tags": ["<string>"],
-        "cognitive_confidence": "low|medium|high",
-
         "somatic_tags": ["<string>"],
-        "somatic_confidence": "low|medium|high",
-
         "language_iso_639_1": "<string>",
-        "language_confidence": "low|medium|high"
+        "semantic_tags_profile_confidence": "low|medium|high"
       }
     }
   ]
 }
 `;
-      // --- SYSTEM INSTRUCTION TASK B ---
-      const systemInstruction_taskB = `You are an AI system analyzing user-created playlists to extract contextual signals.
-Your role is to understand what each playlist represents from the user’s point of view.
-Your job is to infer:
-1. The primary function of the playlist
-2. The dominant emotional direction
-3. The language distribution
-4. How confident you are in these inferences
-───────────────────────────────
-OUTPUT RULES (STRICT)
-- Return ONLY raw JSON matching the response schema.
-- Do NOT add fields that are not defined.
-- Do NOT include explanations or commentary outside the JSON.
-- Do NOT guess when signals are weak.
-────────────────────────────────
-FIELD DEFINITIONS & RULES
-1) playlist_primary_function
-Choose the main use-case of the playlist.
-Allowed values:
-- focus, workout, relax, sleep, commute, study, party, background, other
+      // --- REMOVED SYSTEM INSTRUCTION TASK B ---
 
-Rules:
-- Base this on playlist name AND track patterns together.
-- Genre-only names (e.g. “Alternative”, “Rock”) do NOT imply function.
-- If no clear functional intent exists, prefer:
-  - background
-  - or other (only if none apply)
-Never force a function if signals are unclear.
-────────────────────────────────
-2) playlist_emotional_direction
-Choose the dominant emotional direction of the playlist.
-Allowed values:, calming, energizing, uplifting, melancholic, romantic, dark, nostalgic, neutral, other
-
-Rules:
-- Describe the overall emotional tone, not individual tracks.
-- Use neutral when the playlist is functional or unobtrusive.
-- Use other only if no category reasonably fits.
-
-────────────────────────────────
-### PLAYLIST NAME BIAS CONTROL (CRITICAL)
-The playlist_name is NOT the emotional label. It is only a weak hint.
-RULES:
-1) Track-derived signals MUST override playlist_name keywords.
-2) Do NOT classify "playlist_emotional_direction" from name words like: love, sad, happy, chill, party, focus, workout.
-3) If playlist_name suggests an emotion/function but the tracks disagree, choose the track-based emotion/function and LOWER confidence by one level.
-4) Only use playlist_name as a tiebreaker when track signals are genuinely ambiguous.
-────────────────────────────────
-PLAYLIST NAME INTERPRETATION RULE:
-If a playlist_name expresses personal attachment (e.g. "Loved once", "My favorites", "All time classics"),
-treat it as an indicator of playlist importance, NOT emotional direction.
-Do NOT infer romantic, nostalgic, or calming emotions unless supported by track-level signals
-────────────────────────────────
-3) playlist_language_distribution
-Estimate the language balance of the playlist.
-Rules:
-- Output as an ARRAY of objects.
-- Each object MUST have "language" (ISO-639-1 code, e.g., "en", "he", "es") and "percentage" (number, 0.0 to 1.0).
-- Percentages in the array should approximately sum to 1.0.
-- If one language dominates, use 1.0 for it.
-Examples:
-[{"language": "en", "percentage": 1.0}]
-[{"language": "he", "percentage": 0.8}, {"language": "en", "percentage": 0.2}]
-────────────────────────────────
-4) confidence
-Indicate overall confidence in your classification.
-Allowed values:, high, medium, low
-Rules:
-- high → playlist name and track composition clearly align
-- medium → partial signals or mild ambiguity
-- low → weak, mixed, or unclear signals
-
-NEVER output high confidence if:
-- The playlist name is generic
-- Signals conflict
-- The inference relies mainly on assumptions
-────────────────────────────────
-GENERAL GUIDELINES
-- Do NOT overfit to popular artists or genres.
-- Do NOT assume intent where none is clear.
-- Accuracy is more important than coverage.
-- Honest uncertainty is preferred over confident misclassification.
-When unsure:
-- Prefer background over a strong function
-- Prefer neutral over forcing emotion
-- Prefer medium or low confidence over false certainty
-────────────────────────────────
-## OUTPUT FORMAT:
-Return ONLY raw JSON matching schema:
-{
-  "analyzed_playlist_context": [
-    {
-      "origin": "PLAYLISTS",
-      "playlist_name": "<string>",
-      "playlist_creator": "<string>",
-      "playlist_track_count": <number>,
-      "playlist_primary_function": "focus | workout | relax | sleep | commute | study | party | background | other",
-      "playlist_emotional_direction": "calming | energizing | uplifting | melancholic | romantic | dark | nostalgic | neutral | other",
-      "playlist_language_distribution": [{"language": "<iso_639_1>", "percentage": 0.0}],
-      "confidence": "low | medium | high"
-    }
-  ]
-}
-`;
         const t_prompt_A_start = Date.now();
         const prompt_taskA = JSON.stringify({ TOP_50_TRACKS: topTracks }, null, 2);
         const t_prompt_A_end = Date.now();
         promptBuildTimeMsA = t_prompt_A_end - t_prompt_A_start;
 
-        const t_prompt_B_start = Date.now();
-        const prompt_taskB = JSON.stringify({ PLAYLISTS: playlists }, null, 2);
-        const t_prompt_B_end = Date.now();
-        promptBuildTimeMsB = t_prompt_B_end - t_prompt_B_start;
+        // --- Removed prompt_taskB and promptBuildTimeMsB ---
 
-        // Response schema for TASK A
+        // Response schema for TASK A (UPDATED FOR BUCKET-LEVEL CONFIDENCE)
         const responseSchema_taskA = {
           type: Type.OBJECT,
           properties: {
@@ -336,128 +204,64 @@ Return ONLY raw JSON matching schema:
                   origin: { type: Type.STRING },
                   song_name: { type: Type.STRING },
                   artist_name: { type: Type.STRING },
-                  // Corrected to use Type.STRING for confidence levels
-                  confidence: { type: Type.STRING }, // Top-level track confidence
+
                   audio_physics: {
                     type: Type.OBJECT,
                     properties: {
-                      // Corrected to use Type.STRING for these properties
                       energy_level: { type: Type.STRING },
-                      energy_confidence: { type: Type.STRING },
                       tempo_feel: { type: Type.STRING },
-                      tempo_confidence: { type: Type.STRING },
                       vocals_type: { type: Type.STRING },
-                      vocals_confidence: { type: Type.STRING },
                       texture_type: { type: Type.STRING },
-                      texture_confidence: { type: Type.STRING },
                       danceability_hint: { type: Type.STRING },
-                      danceability_confidence: { type: Type.STRING },
+                      audio_physics_profile_confidence: { type: Type.STRING }, // NEW: Bucket-level confidence
                     },
                     required: [
-                      "energy_level", "energy_confidence",
-                      "tempo_feel", "tempo_confidence",
-                      "vocals_type", "vocals_confidence",
-                      "texture_type", "texture_confidence",
-                      "danceability_hint", "danceability_confidence"
+                      "energy_level",
+                      "tempo_feel",
+                      "vocals_type",
+                      "texture_type",
+                      "danceability_hint",
+                      "audio_physics_profile_confidence" // NEW: Added to required
                     ],
                   },
                   semantic_tags: {
                     type: Type.OBJECT,
                     properties: {
-                      // Corrected to use Type.STRING for these properties
                       primary_genre: { type: Type.STRING },
-                      primary_genre_confidence: { type: Type.STRING },
                       secondary_genres: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      secondary_genres_confidence: { type: Type.STRING },
                       emotional_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      emotional_confidence: { type: Type.STRING },
                       cognitive_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      cognitive_confidence: { type: Type.STRING },
                       somatic_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-                      somatic_confidence: { type: Type.STRING },
                       language_iso_639_1: { type: Type.STRING },
-                      language_confidence: { type: Type.STRING },
+                      semantic_tags_profile_confidence: { type: Type.STRING }, // NEW: Bucket-level confidence
                     },
                     required: [
-                      "primary_genre", "primary_genre_confidence",
-                      "secondary_genres", "secondary_genres_confidence",
-                      "emotional_tags", "emotional_confidence",
-                      "cognitive_tags", "cognitive_confidence",
-                      "somatic_tags", "somatic_confidence",
-                      "language_iso_639_1", "language_confidence"
+                      "primary_genre",
+                      "secondary_genres",
+                      "emotional_tags",
+                      "cognitive_tags",
+                      "somatic_tags",
+                      "language_iso_639_1",
+                      "semantic_tags_profile_confidence" // NEW: Added to required
                     ],
                   },
                 },
-                required: ["origin", "song_name", "artist_name", "confidence", "audio_physics", "semantic_tags"],
+                required: ["origin", "song_name", "artist_name", "audio_physics", "semantic_tags"],
               },
             },
           },
           required: ["analyzed_50_top_tracks"],
         };
 
-        // Response schema for TASK B
-        const responseSchema_taskB = {
-          type: Type.OBJECT,
-          properties: {
-            analyzed_playlist_context: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  origin: { type: Type.STRING },
-                  playlist_name: { type: Type.STRING },
-                  playlist_creator: { type: Type.STRING },
-                  playlist_track_count: { type: Type.NUMBER },
-                  // Corrected to use Type.STRING for these properties
-                  playlist_primary_function: { type: Type.STRING },
-                  playlist_emotional_direction: { type: Type.STRING },
-                  playlist_language_distribution: { // MODIFIED: Changed to array of objects
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        language: { type: Type.STRING },
-                        percentage: { type: Type.NUMBER },
-                      },
-                      required: ["language", "percentage"],
-                    },
-                  },
-                  // Corrected to use Type.STRING for confidence
-                  confidence: { type: Type.STRING },
-                },
-                required: [
-                  "origin",
-                  "playlist_name",
-                  "playlist_creator",
-                  "playlist_track_count",
-                  "playlist_primary_function",
-                  "playlist_emotional_direction",
-                  "playlist_language_distribution",
-                  "confidence",
-                ],
-              },
-            },
-          },
-          required: ["analyzed_playlist_context"],
-        };
+        // --- REMOVED Response schema for TASK B ---
 
 
         console.log("[API/ANALYZE] Unified Taste Analysis Prompt A (first 500 chars):", prompt_taskA.substring(0, 500));
-        // Removed redundant debug log for prompt contents
-        // console.log(`[API/ANALYZE] Gemini prompt A payload size (chars): ${prompt_taskA.length}`);
-
-        console.log("[API/ANALYZE] Unified Taste Analysis Prompt B (first 500 chars):", prompt_taskB.substring(0, 500));
-        // Removed redundant debug log for prompt contents
-        // console.log(`[API/ANALYZE] Gemini prompt B payload size (chars): ${prompt_taskB.length}`);
-
 
         let geminiResponseTextA = "";
-        let geminiResponseTextB = "";
 
         let t_gemini_api_start_A;
         let t_gemini_api_end_A;
-        let t_gemini_api_start_B;
-        let t_gemini_api_end_B;
 
         try {
           const taskA_promise = (async () => {
@@ -483,36 +287,14 @@ Return ONLY raw JSON matching schema:
             return response;
           })();
 
-          const taskB_promise = (async () => {
-            t_gemini_api_start_B = Date.now();
-            const response = await ai.models.generateContent({
-              model: GEMINI_MODEL,
-              contents: prompt_taskB,
-              config: {
-                systemInstruction: systemInstruction_taskB,
-                responseMimeType: "application/json",
-                responseSchema: responseSchema_taskB,
-                thinkingConfig: { thinkingBudget: 0 },
-                safetySettings: [
-                  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-                  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-                  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-                  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-                ],
-              }
-            });
-            t_gemini_api_end_B = Date.now();
-            geminiApiDurationB = t_gemini_api_end_B - t_gemini_api_start_B;
-            return response;
-          })();
+          // --- Removed taskB_promise ---
 
-          const [responseA, responseB] = await Promise.all([
+          const [responseA] = await Promise.all([
             taskA_promise,
-            taskB_promise
+            // --- Removed taskB_promise ---
           ]);
 
           geminiResponseTextA = responseA.text;
-          geminiResponseTextB = responseB.text;
 
         } catch (geminiError) {
           console.error("[API/ANALYZE] Error calling Gemini API for unified taste analysis (parallel):", geminiError);
@@ -522,18 +304,11 @@ Return ONLY raw JSON matching schema:
           }
           const t_handler_end_gemini_error = Date.now();
           const totalDuration = t_handler_end_gemini_error - t_handler_start;
-          console.log(`[API/ANALYZE] Handler finished (Gemini API error) in ${totalDuration}ms. Prompt Build A=${promptBuildTimeMsA}ms, Prompt Build B=${promptBuildTimeMsB}ms. Gemini API A=${geminiApiDurationA}ms, Gemini API B=${geminiApiDurationB}ms.`);
+          console.log(`[API/ANALYZE] Handler finished (Gemini API error) in ${totalDuration}ms. Prompt Build A=${promptBuildTimeMsA}ms. Gemini API A=${geminiApiDurationA}ms.`); // Updated log
           return res.status(500).json({ error: `Gemini API Error (unified_taste): ${geminiError.message || 'Unknown Gemini error'}`, serverErrorName: geminiError.name || 'UnknownGeminiError' });
         }
 
         console.log("[API/ANALYZE] Raw Gemini Response Text (Unified Taste A - first 500 chars):", geminiResponseTextA ? geminiResponseTextA.substring(0, 500) : "No text received.");
-        // Removed redundant debug log for raw Gemini response
-        // console.log(`[API/ANALYZE] Raw Gemini response A size (chars): ${geminiResponseTextA?.length || 0}`);
-
-        console.log("[API/ANALYZE] Raw Gemini Response Text (Unified Taste B - first 500 chars):", geminiResponseTextB ? geminiResponseTextB.substring(0, 500) : "No text received.");
-        // Removed redundant debug log for raw Gemini response
-        // console.log(`[API/ANALYZE] Raw Gemini response B size (chars): ${geminiResponseTextB?.length || 0}`);
-
 
         let t_before_json_parse;
         let t_after_json_parse;
@@ -541,40 +316,35 @@ Return ONLY raw JSON matching schema:
         try {
           t_before_json_parse = Date.now();
           const parsedDataA = JSON.parse(geminiResponseTextA.replace(/```json|```/g, '').trim());
-          const parsedDataB = JSON.parse(geminiResponseTextB.replace(/```json|```/g, '').trim());
 
           const unifiedResponse = {
             analyzed_50_top_tracks: parsedDataA.analyzed_50_top_tracks,
-            analyzed_playlist_context: parsedDataB.analyzed_playlist_context,
+            // Removed analyzed_playlist_context
           };
 
           t_after_json_parse = Date.now();
           jsonParseDuration = t_after_json_parse - t_before_json_parse;
-          // Removed redundant debug log for parsed Gemini data
           console.log("[API/ANALYZE] Successfully parsed unified taste response.");
-          // NEW LOGGING FOR QA PURPOSES
-          console.log("[API/ANALYZE] Final Aggregated Unified Taste Response:", JSON.stringify(unifiedResponse, null, 2));
+
 
           const t_handler_end = Date.now();
           const totalHandlerDuration = t_handler_end - t_handler_start;
 
           console.log(`[API/ANALYZE] Handler finished successfully.`);
-          console.log(`[API/ANALYZE] Durations: Total=${totalHandlerDuration}ms, Prompt Build A=${promptBuildTimeMsA}ms, Prompt Build B=${promptBuildTimeMsB}ms, Gemini API A=${geminiApiDurationA}ms, Gemini API B=${geminiApiDurationB}ms, JSON Parse=${jsonParseDuration}ms.`);
+          console.log(`[API/ANALYZE] Durations: Total=${totalHandlerDuration}ms, Prompt Build A=${promptBuildTimeMsA}ms, Gemini API A=${geminiApiDurationA}ms, JSON Parse=${jsonParseDuration}ms.`); // Updated log
           return res.status(200).json(unifiedResponse);
         } catch (parseError) {
           console.error("[API/ANALYZE] Error parsing unified taste JSON (parallel):", parseError);
           console.error(`[API/ANALYZE] Parsing Error Details (unified_taste): Name=${parseError.name}, Message=${parseError.message}`);
           console.error("[API/ANALYZE] Malformed response text (unified taste A):", geminiResponseTextA.substring(0, 500) + (geminiResponseTextA.length > 500 ? '...' : ''));
-          console.error("[API/ANALYZE] Malformed response text (unified taste B):", geminiResponseTextB.substring(0, 500) + (geminiResponseTextB.length > 500 ? '...' : ''));
           if (parseError.stack) {
             console.error("[API/ANALYZE] Parsing Error Stack (unified_taste):", parseError.stack);
           }
 
           const t_handler_end_parse_error = Date.now();
           const totalDuration = t_handler_end_parse_error - t_handler_start;
-          // Fix: Ensure jsonParseDuration is always a number. If t_after_json_parse is not defined, it means parsing failed before calculation.
           jsonParseDuration = (t_after_json_parse && t_before_json_parse) ? (t_after_json_parse - t_before_json_parse) : 0;
-          console.log(`[API/ANALYZE] Handler finished (parsing error) in ${totalDuration}ms. Prompt Build A=${promptBuildTimeMsA}ms, Prompt Build B=${promptBuildTimeMsB}ms, Gemini API A=${geminiApiDurationA}ms, Gemini API B=${geminiApiDurationB}ms, JSON Parse=${jsonParseDuration}ms.`);
+          console.log(`[API/ANALYZE] Handler finished (parsing error) in ${totalDuration}ms. Prompt Build A=${promptBuildTimeMsA}ms, Gemini API A=${geminiApiDurationA}ms, JSON Parse=${jsonParseDuration}ms.`); // Updated log
           return res.status(500).json({ error: `Failed to parse AI response for unified taste: ${parseError.message}`, serverErrorName: parseError.name || 'UnknownParseError' });
         }
       }
@@ -595,3 +365,4 @@ Return ONLY raw JSON matching schema:
     return res.status(500).json({ error: error.message || 'Internal Server Error', serverErrorName: error.name || 'UnknownServerError' });
   }
 }
+

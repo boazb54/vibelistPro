@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats } from '../types';
+import { Playlist, SpotifyUserProfile, UserTasteProfile, VibeGenerationStats, UnifiedTasteAnalysis } from '../types';
 
 /**
  * Saves or updates a generated playlist in the 'generated_vibes' table.
@@ -158,7 +158,7 @@ export const markVibeAsExported = async (vibeId: string) => {
  */
 export const saveUserProfile = async (
   profile: SpotifyUserProfile,
-  tasteProfile: UserTasteProfile | null
+  unifiedTasteAnalysis: UnifiedTasteAnalysis | null
 ) => {
   try {
     const payload: any = {
@@ -173,6 +173,10 @@ export const saveUserProfile = async (
 
     // NOTE: We deliberately do NOT save tasteProfile.topArtists or topGenres to the database
     // to strictly adhere to data minimization principles.
+
+    if (unifiedTasteAnalysis?.user_taste_profile_v1) {
+      payload.unified_taste_profile_v1_json = unifiedTasteAnalysis.user_taste_profile_v1;
+    }
 
     const { error } = await supabase
       .from('users')
@@ -203,3 +207,4 @@ export const fetchUserProfile = async (userId: string) => {
     return { data: null, error };
   }
 };
+

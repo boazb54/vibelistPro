@@ -3,7 +3,8 @@
 import { config as dotenvConfig } from 'dotenv';
 import { GoogleGenAI } from "@google/genai";
 
-// Load environment variables from .env file (for local development)
+// Load environment variables from .env.local first, then .env (for local development)
+dotenvConfig({ path: '.env.local' });
 dotenvConfig();
 
 // --- START: VERY EARLY DIAGNOSTIC LOGS (v1.2.7) ---
